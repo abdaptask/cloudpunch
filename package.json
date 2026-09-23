@@ -1,0 +1,26 @@
+{
+  "name": "cloudpunch",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Employee time and attendance platform for apTask remote workers.",
+  "packageManager": "pnpm@9.15.0",
+  "engines": {
+    "node": ">=20.11.1"
+  },
+  "type": "module",
+  "scripts": {
+    "typecheck": "pnpm -r --parallel typecheck",
+    "test": "pnpm -r --parallel test",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.15",
+    "eslint": "^9.13.0",
+    "prettier": "^3.3.3",
+    "typescript": "^5.5.4",
+    "typescript-eslint": "^8.14.0"
+  }
+}
