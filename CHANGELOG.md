@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Phase 2b.5.1 — OS watcher plumbing + Windows idle detection (2026-09-23)
+
+First watcher slice per ADR-0003. Cross-platform seam + Windows idle
+detection via `GetLastInputInfo`. Session, power, mic/cam, and network
+watchers land in 2b.5.2 – 2b.5.5.
+
+- `apps/desktop/src-tauri/src/watchers/mod.rs`: cross-platform `OsSignal`
+  enum (idle, session lock/unlock, sleep/wake, mic/cam boolean, network
+  reachability) and `Watcher` / `WatcherHandle` traits. Deliberately
+  narrow — no app names, window titles, or device identifiers, per
+  invariant 1 (no content capture).
+- `apps/desktop/src-tauri/src/watchers/supervisor.rs`: mpsc fan-in that
+  owns all watcher handles and blocks on shutdown so no signal is lost
+  in flight.
+- `apps/desktop/src-tauri/src/watchers/idle.rs`
+  (`#[cfg(target_os = "windows")]`): `IdleWatcher` polls
+  `GetLastInputInfo` / `GetTickCount` and emits `IdleSince` /
+  `IdleEnded` on threshold crossing. Threshold-transition logic is a
+  pure function tested against synthetic inputs; a `LastInputSource`
+  trait lets the poll loop be integration-tested with a mock.
+- `Cargo.toml`: added `windows = "0.58"` (target-gated to Windows) with
+  features `Win32_Foundation`, `Win32_System_SystemInformation`,
+  `Win32_UI_Input_KeyboardAndMouse`.
+- 30 tests pass (7 new: 5 pure idle-transition + 2 mocked watcher
+  integration + 2 supervisor fan-in and shutdown).
+- Known cosmetic: MSVC linker emits `LNK4099` warnings for vendored
+  OpenSSL object files (no PDB shipped upstream). Functional impact
+  zero.
+
+Refs: ADR-0003 §OS signals, invariant 1 (no content capture).
+
 ### Phase 2b.3 — SQLCipher local outbox (2026-09-23)
 
 Encrypted append/drain queue for offline events. On-disk state is

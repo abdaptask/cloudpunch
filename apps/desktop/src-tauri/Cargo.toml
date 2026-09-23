@@ -30,6 +30,17 @@ thiserror = "1"
 rusqlite = { version = "0.31", features = ["bundled-sqlcipher-vendored-openssl"] }
 hex = "0.4"
 
+# OS state watchers (idle, session, power, mic/cam, network) per
+# ADR-0003. Feature-gated to keep the compile surface small — we add
+# features as later watcher slices need them (session/power/registry/
+# network land in 2b.5.2 – 2b.5.5).
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { version = "0.58", features = [
+    "Win32_Foundation",
+    "Win32_System_SystemInformation",
+    "Win32_UI_Input_KeyboardAndMouse",
+] }
+
 [dev-dependencies]
 # CSPRNG for keypair generation in unit + conformance tests.
 rand = "0.8"

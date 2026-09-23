@@ -19,6 +19,7 @@
 
 pub mod event;
 pub mod outbox;
+pub mod watchers;
 
 /// Entry point invoked from `main.rs`. Kept separate so the same
 /// initialisation can be reused by future mobile targets (if we ever
