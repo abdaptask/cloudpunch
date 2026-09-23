@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Phase 2b.5.3 — Windows sleep/wake watcher (2026-09-23)
+
+- `apps/desktop/src-tauri/src/watchers/power.rs` (Windows-only):
+  `PowerWatcher` runs the same message-only-window pattern used by
+  `session.rs`. Subscribes via
+  `RegisterSuspendResumeNotification(hwnd, DEVICE_NOTIFY_WINDOW_HANDLE)`
+  and dispatches `WM_POWERBROADCAST` codes:
+  - `PBT_APMSUSPEND` → `OsSignal::Suspending`
+  - `PBT_APMRESUMEAUTOMATIC` and `PBT_APMRESUMESUSPEND` →
+    `OsSignal::Resumed` (ADR-0003 doesn't distinguish resume
+    flavours, so we don't either).
+- `HPOWERNOTIFY` handle stored in a per-thread `Cell<isize>` so the
+  pump can `UnregisterSuspendResumeNotification` before destroying
+  the window on shutdown.
+- `WndProc` returns `TRUE` for handled power messages per the Win32
+  contract (so we don't accidentally veto a suspend request).
+- Feature flag added: `Win32_System_Power`.
+- 34 tests pass (2 new: pure `decode_wparam` for both directions +
+  ignored codes).
+
+Deferred: the message-pump structure now duplicates ~70% between
+`session.rs` and `power.rs`. A shared helper is on hold until 2b.5.4
+(mic/cam poll) and 2b.5.5 (COM network sink) land — the network
+watcher won't fit a message-pump helper, so any abstraction may only
+cover 2 of 5 watchers.
+
+Refs: ADR-0003 §OS signals, CLAUDE.md invariant 1.
+
 ### Phase 2b.5.2 — Windows session lock/unlock watcher (2026-09-23)
 
 - `apps/desktop/src-tauri/src/watchers/session.rs` (Windows-only):

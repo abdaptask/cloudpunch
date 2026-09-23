@@ -22,6 +22,9 @@ pub mod supervisor;
 pub mod idle;
 
 #[cfg(target_os = "windows")]
+pub mod power;
+
+#[cfg(target_os = "windows")]
 pub mod session;
 
 /// Every signal the state machine will consume from any OS.
