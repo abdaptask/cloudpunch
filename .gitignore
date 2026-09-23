@@ -1,0 +1,110 @@
+# ─────────────────────────────────────────────────────────────
+# Secrets — never commit
+# ─────────────────────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.mobileprovision
+*.cer
+secrets/
+.aws/
+credentials
+
+# ─────────────────────────────────────────────────────────────
+# Node / TypeScript
+# ─────────────────────────────────────────────────────────────
+node_modules/
+dist/
+build/
+coverage/
+.nyc_output/
+*.tsbuildinfo
+.turbo/
+.next/
+.vite/
+.parcel-cache/
+.eslintcache
+.stylelintcache
+
+# ─────────────────────────────────────────────────────────────
+# Rust / Tauri
+# ─────────────────────────────────────────────────────────────
+target/
+Cargo.lock.bak
+apps/desktop/src-tauri/target/
+apps/desktop/src-tauri/gen/
+apps/desktop/src-tauri/WixTools/
+
+# ─────────────────────────────────────────────────────────────
+# Signing artefacts (never commit private keys)
+# ─────────────────────────────────────────────────────────────
+*.tauri-key
+tauri.key
+tauri.key.pub
+!*.pub.example
+
+# ─────────────────────────────────────────────────────────────
+# Test / logs / temp
+# ─────────────────────────────────────────────────────────────
+*.log
+logs/
+tmp/
+temp/
+.cache/
+test-results/
+playwright-report/
+playwright/.cache/
+
+# ─────────────────────────────────────────────────────────────
+# Terraform
+# ─────────────────────────────────────────────────────────────
+infra/**/.terraform/
+infra/**/terraform.tfstate
+infra/**/terraform.tfstate.*
+infra/**/*.tfvars
+!infra/**/*.tfvars.example
+infra/**/.terraform.lock.hcl.local
+
+# ─────────────────────────────────────────────────────────────
+# OS
+# ─────────────────────────────────────────────────────────────
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+*.stackdump
+[Dd]esktop.ini
+$RECYCLE.BIN/
+*.lnk
+
+# ─────────────────────────────────────────────────────────────
+# IDE
+# ─────────────────────────────────────────────────────────────
+.idea/
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+!.vscode/launch.json.example
+*.swp
+*.swo
+*~
+.vs/
