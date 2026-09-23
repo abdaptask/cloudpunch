@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Phase 2b.5.4 — Windows mic/cam in-use boolean watcher (2026-09-23)
+
+- `apps/desktop/src-tauri/src/watchers/mic_cam.rs` (Windows-only):
+  polls the Capability Access Manager Consent Store every 2 s and
+  emits `OsSignal::MediaInUseChanged { mic, cam, at }` only when
+  either boolean flips (or on first poll).
+- Walks both `HKCU` and `HKLM` under
+  `Software\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore\{microphone,webcam}\`.
+  Recurses one level into the `NonPackaged` subkey (classic Win32
+  exes). `LastUsedTimeStop == 0` on any app = device in use.
+- **Never records app identity.** The full output of this module per
+  poll is two bits. Invariant 1 (no content capture, no per-app
+  usage) is shielded at the boundary — the walk sees app subkeys but
+  only reads one `REG_QWORD` field and reduces to a boolean.
+- Missing consent-store keys (fresh installs) are treated as
+  "not in use" — no error.
+- `ConsentSource` trait behind the registry walk lets the poll loop
+  be integration-tested against a mock without touching the real
+  registry.
+- New dep: `winreg = "0.52"` (Windows-only; safe wrappers around
+  `Reg*W` FFI). Rationale for choosing a small dep over ~150 lines
+  of `unsafe` FFI is captured inline in `Cargo.toml`.
+- 38 tests pass (4 new: 3 pure reducer + 1 mocked watcher
+  integration that verifies emit-only-on-change).
+
+Refs: ADR-0003 §OS signals, CLAUDE.md invariant 1.
+
 ### Phase 2b.5.3 — Windows sleep/wake watcher (2026-09-23)
 
 - `apps/desktop/src-tauri/src/watchers/power.rs` (Windows-only):

@@ -22,6 +22,9 @@ pub mod supervisor;
 pub mod idle;
 
 #[cfg(target_os = "windows")]
+pub mod mic_cam;
+
+#[cfg(target_os = "windows")]
 pub mod power;
 
 #[cfg(target_os = "windows")]

@@ -46,6 +46,10 @@ windows = { version = "0.58", features = [
     "Win32_UI_Input_KeyboardAndMouse",
     "Win32_UI_WindowsAndMessaging",
 ] }
+# Safe wrappers for the registry walk in `watchers/mic_cam.rs` —
+# avoids ~150 lines of Reg*W unsafe FFI in our code for zero
+# functional difference.
+winreg = "0.52"
 
 [dev-dependencies]
 # CSPRNG for keypair generation in unit + conformance tests.
