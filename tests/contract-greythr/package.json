@@ -1,0 +1,20 @@
+{
+  "name": "@cloudpunch/tests-contract-greythr",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Contract tests for GreythrAdapter implementations. See ADR-0006 §12.",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@cloudpunch/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.15",
+    "typescript": "^5.5.4",
+    "vitest": "^2.1.4"
+  }
+}

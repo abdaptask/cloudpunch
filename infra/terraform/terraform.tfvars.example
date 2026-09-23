@@ -1,0 +1,19 @@
+# CloudPunch Terraform variables — example
+#
+# Copy to `terraform.tfvars` (git-ignored) per environment and fill in
+# real ARNs. Never commit populated values.
+
+env        = "dev"
+aws_region = "ap-south-1"
+owner      = "cloudpunch-platform"
+
+# IAM role ARNs — leave empty at first bootstrap; populate after the
+# corresponding roles exist in the target AWS account.
+break_glass_role_arn = ""
+ecs_task_role_arn    = ""
+ci_release_role_arn  = ""
+
+extra_tags = {
+  # CostCentre = "eng-platform"
+  # Datastore  = "ap-south-1"
+}

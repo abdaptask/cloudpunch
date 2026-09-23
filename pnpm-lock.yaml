@@ -80,6 +80,22 @@ importers:
         specifier: ^2.1.4
         version: 2.1.9(@types/node@20.19.43)
 
+  tests/contract-greythr:
+    dependencies:
+      '@cloudpunch/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
+    devDependencies:
+      '@types/node':
+        specifier: ^20.14.15
+        version: 20.19.43
+      typescript:
+        specifier: ^5.5.4
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.4
+        version: 2.1.9(@types/node@20.19.43)
+
 packages:
 
   '@esbuild/aix-ppc64@0.21.5':
