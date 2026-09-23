@@ -29,6 +29,9 @@ thiserror = "1"
 # First build takes ~3-6 minutes; incremental builds are fast.
 rusqlite = { version = "0.31", features = ["bundled-sqlcipher-vendored-openssl"] }
 hex = "0.4"
+# UUID v4 for sync-loop correlation_ids (backend schema requires UUID
+# for the batch envelope's correlation_id).
+uuid = { version = "1", features = ["v4"] }
 
 # OS state watchers (idle, session, power, mic/cam, network) per
 # ADR-0003. Feature-gated to keep the compile surface small — we add

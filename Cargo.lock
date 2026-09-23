@@ -359,6 +359,7 @@ dependencies = [
  "tauri-build",
  "tempfile",
  "thiserror 1.0.69",
+ "uuid",
  "windows 0.58.0",
  "winreg 0.52.0",
 ]

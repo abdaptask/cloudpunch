@@ -7,6 +7,61 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Phase 2b.6.1 — sync loop core + outbox poison migration (2026-09-23)
+
+First sub-slice of the sync loop. Drains the outbox against a mock
+BackendClient. Real reqwest client and network-awareness land in
+2b.6.2 and 2b.6.3.
+
+**Outbox schema migration (v1 → v2)**
+- Added `poisoned INTEGER NOT NULL DEFAULT 0` and `poison_reason TEXT`
+  columns.
+- New `Outbox::mark_poisoned(event_ulid, reason)` method.
+- `Outbox::drain` now excludes poisoned rows.
+- `Outbox::poisoned_count()` for diagnostics; `Outbox::get()` still
+  returns poisoned rows so audit / debugging can inspect them.
+- Schema versioning via `PRAGMA user_version`. Fresh DBs come up at
+  v2 directly; hypothetical v1 DBs would `ALTER TABLE` up. No shipped
+  users to migrate yet.
+
+**New `sync/` module tree**
+- `sync/backoff.rs`: pure `BackoffPolicy::delay(retry_count)`. Default
+  ladder: 5s → 15s → 45s → 135s → 300s (cap). No jitter yet; add if
+  fleet growth introduces thundering-herd behaviour.
+- `sync/client.rs`: `BackendClient` trait + `SessionEnvelope` +
+  `SendBatchResponse` enum (7 variants covering the observed
+  `POST /v1/events` outcomes). `MockClient` test helper records calls
+  and supports arbitrary closure-based responses.
+- `sync/mod.rs`: `SyncLoop` (dedicated thread) + pure
+  `run_tick(&Outbox, &dyn BackendClient, &SyncConfig)` for direct
+  unit testing. `run_tick` drains, groups by `session_id` (preserves
+  first-seen order), wraps in envelope with a fresh v4 UUID
+  correlation_id, and posts one HTTP call per session.
+
+**Response → outbox action mapping (`apply_response`)**
+- `Accepted` per-event: `Accepted`/`DuplicateNoop` → `mark_sent`;
+  `Rejected{code,message}` → `mark_poisoned(...)`.
+- `ValidationFailed` → poison every event in the sent batch.
+- `AuthDenied` → `mark_failed` with `auth_retry` (default 60s).
+- `DeviceInvalid` / `SessionInvalid` → poison batch with prefixed
+  reason.
+- `MultiDeviceConflict` → `mark_failed` with `multi_device_retry`
+  (default 300s); UI prompt in 2b.7 handles `take_over`.
+- `Transient` → `mark_failed` with `backoff.delay(retry_count)`.
+
+New dep: `uuid = "1"` (feature `v4`) for correlation_id generation.
+
+Verification: 63 tests pass (18 new — 4 backoff + 3 outbox poison +
+11 sync).
+
+**Not in this slice** (deferred to 2b.6.2 / 2b.6.3)
+- Real reqwest-based `BackendClient` (currently only the mock).
+- Entra token; `SyncConfig` carries placeholder device_id/employee_id.
+- Network-awareness (pause when offline).
+- `SyncLoop` wiring into `run()` — that lands with 2b.6.3.
+
+Refs: ADR-0004 §6 (event ingest), ADR-0004 §7 (outbox pattern).
+
 ### Phase 2b.5.6 — supervisor wired into run(); smoke-test tracing (2026-09-23)
 
 - `apps/desktop/src-tauri/src/lib.rs::run()` now starts all five

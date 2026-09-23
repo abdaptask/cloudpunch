@@ -22,6 +22,7 @@
 
 pub mod event;
 pub mod outbox;
+pub mod sync;
 pub mod watchers;
 
 use watchers::supervisor::Supervisor;

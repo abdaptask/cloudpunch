@@ -28,7 +28,12 @@ use thiserror::Error;
 
 pub const CIPHER_KEY_LEN: usize = 32;
 
-const SCHEMA: &str = r#"
+/// Current schema version. Bump when adding a migration to
+/// [`migrate`]. The DB's `PRAGMA user_version` tracks the applied
+/// version; migrations run only for the delta.
+const SCHEMA_VERSION: i64 = 2;
+
+const SCHEMA_V1: &str = r#"
 CREATE TABLE IF NOT EXISTS outbox (
     event_ulid           TEXT    PRIMARY KEY,
     session_id           TEXT    NOT NULL,
@@ -45,6 +50,30 @@ CREATE TABLE IF NOT EXISTS outbox (
 CREATE INDEX IF NOT EXISTS outbox_ready_idx
     ON outbox (next_retry_at, sequence_number);
 "#;
+
+/// v2: poisoned flag + reason for events the server permanently
+/// rejected (per-event `rejected` result, or a batch-level 400/409
+/// that indicates the payload is unrecoverable). Poisoned rows are
+/// never returned by [`Outbox::drain`] but stay in the table for
+/// audit/diagnostics.
+const SCHEMA_V2: &str = r#"
+ALTER TABLE outbox ADD COLUMN poisoned INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE outbox ADD COLUMN poison_reason TEXT;
+"#;
+
+fn migrate(conn: &Connection) -> Result<(), rusqlite::Error> {
+    let current: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
+    if current < 1 {
+        conn.execute_batch(SCHEMA_V1)?;
+    }
+    if current < 2 {
+        conn.execute_batch(SCHEMA_V2)?;
+    }
+    if current < SCHEMA_VERSION {
+        conn.pragma_update(None, "user_version", SCHEMA_VERSION)?;
+    }
+    Ok(())
+}
 
 #[derive(Debug, Error)]
 pub enum OutboxError {
@@ -78,6 +107,11 @@ pub struct OutboxEntry {
     pub retry_count: i64,
     pub next_retry_at: SystemTime,
     pub last_error: Option<String>,
+    /// True when the server has permanently rejected this event.
+    /// Poisoned rows are never returned by [`Outbox::drain`] but
+    /// remain in the table for forensics.
+    pub poisoned: bool,
+    pub poison_reason: Option<String>,
 }
 
 pub struct Outbox {
@@ -128,7 +162,7 @@ impl Outbox {
         conn.query_row("SELECT count(*) FROM sqlite_master", [], |row| {
             row.get::<_, i64>(0)
         })?;
-        conn.execute_batch(SCHEMA)?;
+        migrate(&conn)?;
         Ok(Self { conn })
     }
 
@@ -157,34 +191,22 @@ impl Outbox {
     }
 
     /// Return up to `max` entries whose `next_retry_at` is in the past
-    /// (or now), oldest sequence first. The rows stay in the outbox
-    /// until `mark_sent` or `mark_failed` moves them along — a crash
-    /// mid-batch is safe.
+    /// (or now) AND are not poisoned, oldest sequence first. The rows
+    /// stay in the outbox until `mark_sent`, `mark_failed`, or
+    /// `mark_poisoned` moves them along — a crash mid-batch is safe.
     pub fn drain(&self, max: usize) -> Result<Vec<OutboxEntry>, OutboxError> {
         let now_secs = unix_seconds(SystemTime::now())?;
         let mut stmt = self.conn.prepare(
             "SELECT event_ulid, session_id, event_type, sequence_number,
                     event_body, integrity_signature,
-                    created_at, retry_count, next_retry_at, last_error
+                    created_at, retry_count, next_retry_at, last_error,
+                    poisoned, poison_reason
              FROM outbox
-             WHERE next_retry_at <= ?1
+             WHERE next_retry_at <= ?1 AND poisoned = 0
              ORDER BY next_retry_at ASC, sequence_number ASC
              LIMIT ?2",
         )?;
-        let rows = stmt.query_map(params![now_secs, max as i64], |row| {
-            Ok(OutboxEntry {
-                event_ulid: row.get(0)?,
-                session_id: row.get(1)?,
-                event_type: row.get(2)?,
-                sequence_number: row.get(3)?,
-                event_body: row.get(4)?,
-                integrity_signature: row.get(5)?,
-                created_at: system_time_from_secs(row.get::<_, i64>(6)?),
-                retry_count: row.get(7)?,
-                next_retry_at: system_time_from_secs(row.get::<_, i64>(8)?),
-                last_error: row.get(9)?,
-            })
-        })?;
+        let rows = stmt.query_map(params![now_secs, max as i64], row_to_entry)?;
         rows.collect::<Result<Vec<_>, rusqlite::Error>>()
             .map_err(OutboxError::from)
     }
@@ -221,38 +243,70 @@ impl Outbox {
 
     /// Fetch a specific entry by ULID (mostly for tests and admin
     /// diagnostics). Returns None if the row was already sent.
+    /// Poisoned rows ARE returned by this method — callers inspecting
+    /// audit state need to see them.
     pub fn get(&self, event_ulid: &str) -> Result<Option<OutboxEntry>, OutboxError> {
         let mut stmt = self.conn.prepare(
             "SELECT event_ulid, session_id, event_type, sequence_number,
                     event_body, integrity_signature,
-                    created_at, retry_count, next_retry_at, last_error
+                    created_at, retry_count, next_retry_at, last_error,
+                    poisoned, poison_reason
              FROM outbox WHERE event_ulid = ?1",
         )?;
-        stmt.query_row(params![event_ulid], |row| {
-            Ok(OutboxEntry {
-                event_ulid: row.get(0)?,
-                session_id: row.get(1)?,
-                event_type: row.get(2)?,
-                sequence_number: row.get(3)?,
-                event_body: row.get(4)?,
-                integrity_signature: row.get(5)?,
-                created_at: system_time_from_secs(row.get::<_, i64>(6)?),
-                retry_count: row.get(7)?,
-                next_retry_at: system_time_from_secs(row.get::<_, i64>(8)?),
-                last_error: row.get(9)?,
-            })
-        })
-        .optional()
-        .map_err(OutboxError::from)
+        stmt.query_row(params![event_ulid], row_to_entry)
+            .optional()
+            .map_err(OutboxError::from)
     }
 
-    /// Total pending events (regardless of `next_retry_at`).
+    /// Mark a row as permanently un-sendable and store the reason.
+    /// Idempotent — subsequent calls just update `poison_reason`.
+    /// Poisoned rows are excluded from [`Outbox::drain`] but remain
+    /// visible via [`Outbox::get`] and [`Outbox::poisoned_count`].
+    pub fn mark_poisoned(&self, event_ulid: &str, reason: &str) -> Result<(), OutboxError> {
+        self.conn.execute(
+            "UPDATE outbox
+             SET poisoned = 1, poison_reason = ?2
+             WHERE event_ulid = ?1",
+            params![event_ulid, reason],
+        )?;
+        Ok(())
+    }
+
+    /// Total rows in the outbox (pending + poisoned).
     pub fn pending_count(&self) -> Result<u64, OutboxError> {
         let n: i64 = self
             .conn
             .query_row("SELECT COUNT(*) FROM outbox", [], |row| row.get(0))?;
         Ok(n as u64)
     }
+
+    /// Rows marked poisoned.
+    pub fn poisoned_count(&self) -> Result<u64, OutboxError> {
+        let n: i64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM outbox WHERE poisoned = 1",
+            [],
+            |row| row.get(0),
+        )?;
+        Ok(n as u64)
+    }
+}
+
+/// Shared row-to-struct decoder used by both `drain` and `get`.
+fn row_to_entry(row: &rusqlite::Row<'_>) -> Result<OutboxEntry, rusqlite::Error> {
+    Ok(OutboxEntry {
+        event_ulid: row.get(0)?,
+        session_id: row.get(1)?,
+        event_type: row.get(2)?,
+        sequence_number: row.get(3)?,
+        event_body: row.get(4)?,
+        integrity_signature: row.get(5)?,
+        created_at: system_time_from_secs(row.get::<_, i64>(6)?),
+        retry_count: row.get(7)?,
+        next_retry_at: system_time_from_secs(row.get::<_, i64>(8)?),
+        last_error: row.get(9)?,
+        poisoned: row.get::<_, i64>(10)? != 0,
+        poison_reason: row.get(11)?,
+    })
 }
 
 fn unix_seconds(t: SystemTime) -> Result<i64, OutboxError> {
@@ -405,6 +459,70 @@ mod tests {
         assert_eq!(reopened.pending_count().unwrap(), 2);
         let batch = reopened.drain(10).unwrap();
         assert_eq!(batch.len(), 2);
+    }
+
+    #[test]
+    fn mark_poisoned_flags_row_and_excludes_from_drain() {
+        let key = make_key();
+        let outbox = Outbox::open_in_memory(&key).unwrap();
+        outbox
+            .enqueue(&mk_input("01J8Q00000000000000000000A", 1))
+            .unwrap();
+        outbox
+            .enqueue(&mk_input("01J8Q00000000000000000000B", 2))
+            .unwrap();
+
+        outbox
+            .mark_poisoned("01J8Q00000000000000000000A", "signature_invalid: bad sig")
+            .unwrap();
+
+        // Drain returns only the un-poisoned row.
+        let batch = outbox.drain(10).unwrap();
+        assert_eq!(batch.len(), 1);
+        assert_eq!(batch[0].event_ulid, "01J8Q00000000000000000000B");
+
+        // Poisoned row still visible via get, with reason preserved.
+        let poisoned = outbox
+            .get("01J8Q00000000000000000000A")
+            .unwrap()
+            .expect("poisoned row still exists");
+        assert!(poisoned.poisoned);
+        assert_eq!(
+            poisoned.poison_reason.as_deref(),
+            Some("signature_invalid: bad sig")
+        );
+
+        assert_eq!(outbox.pending_count().unwrap(), 2);
+        assert_eq!(outbox.poisoned_count().unwrap(), 1);
+    }
+
+    #[test]
+    fn mark_poisoned_is_idempotent_and_updates_reason() {
+        let key = make_key();
+        let outbox = Outbox::open_in_memory(&key).unwrap();
+        outbox
+            .enqueue(&mk_input("01J8Q00000000000000000000A", 1))
+            .unwrap();
+        outbox
+            .mark_poisoned("01J8Q00000000000000000000A", "first")
+            .unwrap();
+        outbox
+            .mark_poisoned("01J8Q00000000000000000000A", "second")
+            .unwrap();
+        let entry = outbox
+            .get("01J8Q00000000000000000000A")
+            .unwrap()
+            .expect("row present");
+        assert!(entry.poisoned);
+        assert_eq!(entry.poison_reason.as_deref(), Some("second"));
+    }
+
+    #[test]
+    fn mark_poisoned_missing_row_is_noop() {
+        let key = make_key();
+        let outbox = Outbox::open_in_memory(&key).unwrap();
+        outbox.mark_poisoned("never-existed", "nope").unwrap();
+        assert_eq!(outbox.poisoned_count().unwrap(), 0);
     }
 
     /// The whole point of SQLCipher — the on-disk DB is unreadable
