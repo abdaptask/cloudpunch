@@ -12,6 +12,7 @@ import { AppRole } from './roles.js';
 export const Capability = {
   // Self — every employee can act on their own record
   SelfClockWrite: 'self.clock.write',
+  SelfDeviceWrite: 'self.device.write',
   SelfTimelineRead: 'self.timeline.read',
   SelfTimesheetRead: 'self.timesheet.read',
   SelfTimesheetCertify: 'self.timesheet.certify',
@@ -66,6 +67,7 @@ export type Capability = (typeof Capability)[keyof typeof Capability];
 const _ROLE_CAPABILITIES: { readonly [K in AppRole]: readonly Capability[] } = {
   [AppRole.Employee]: [
     Capability.SelfClockWrite,
+    Capability.SelfDeviceWrite,
     Capability.SelfTimelineRead,
     Capability.SelfTimesheetRead,
     Capability.SelfTimesheetCertify,

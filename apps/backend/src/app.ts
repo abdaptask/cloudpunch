@@ -3,12 +3,16 @@ import type { Logger } from 'pino';
 import { authPlugin } from './auth/plugin.js';
 import { createEntraJwks } from './auth/jwks.js';
 import type { Env } from './config/env.js';
+import type { DbRepositories } from './db/index.js';
+import { devicesRoutes } from './devices/routes.js';
 import { healthPlugin, type HealthProbe } from './health/routes.js';
+import { meRoutes } from './me/routes.js';
 
 export interface BuildAppOptions {
   env: Env;
   logger: Logger;
-  probes?: readonly HealthProbe[];
+  db?: DbRepositories | undefined;
+  probes?: readonly HealthProbe[] | undefined;
 }
 
 /**
@@ -56,6 +60,15 @@ export async function buildApp(opts: BuildAppOptions) {
   } else {
     opts.logger.warn(
       'ENTRA_TENANT_ID / ENTRA_API_CLIENT_ID / ENTRA_API_APPLICATION_ID_URI not set; auth plugin skipped. All non-health routes will 401 until configured.',
+    );
+  }
+
+  if (opts.db) {
+    await app.register(meRoutes, { db: opts.db });
+    await app.register(devicesRoutes, { db: opts.db });
+  } else {
+    opts.logger.warn(
+      'buildApp called without a DbRepositories; /v1/me and /v1/devices/enroll are not registered.',
     );
   }
 

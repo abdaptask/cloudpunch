@@ -11,3 +11,7 @@ export {
 } from './auth/verify.js';
 export { createEntraJwks, type JwksOptions } from './auth/jwks.js';
 export { healthPlugin, type HealthProbe } from './health/routes.js';
+export * from './db/index.js';
+export { meRoutes } from './me/routes.js';
+export { devicesRoutes } from './devices/routes.js';
+export { enrollDeviceService } from './devices/enroll.js';
