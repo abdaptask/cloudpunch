@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Phase 2b.5.6 — supervisor wired into run(); smoke-test tracing (2026-09-23)
+
+- `apps/desktop/src-tauri/src/lib.rs::run()` now starts all five
+  Windows watchers on Tauri boot via a new `start_watchers()` fn
+  that returns a `WatchersGuard`. Guard's `Drop` calls
+  `Supervisor::shutdown()` (joining every watcher thread) then joins
+  the drain thread — correct-by-construction shutdown ordering.
+- Drain thread `eprintln!`s every `OsSignal`, gated behind
+  `#[cfg(debug_assertions)]` so release builds are silent. Replace
+  with `tracing` when the state machine actually needs structured
+  logs.
+- Non-Windows `start_watchers()` returns an inert guard so callers
+  don't need conditional bindings. macOS impl lands in 2b.8.
+- `Supervisor::take_receiver(&mut self) -> Option<Receiver<OsSignal>>`
+  added so the drain thread can own the receiver end without the
+  Supervisor keeping a `Sync`-hostile alias. Non-breaking; existing
+  `recv` / `recv_timeout` still work until the receiver is taken (and
+  panic clearly afterwards).
+- 45 tests pass (2 new: `take_receiver_hands_out_the_channel_once`,
+  `taken_receiver_still_gets_signals_after_shutdown_closes_channel`).
+
+Smoke-test recipe documented in the commit message.
+
+Refs: ADR-0003 §OS signals, CLAUDE.md invariant 1.
+
 ### Phase 2b.5.5 — Windows network reachability watcher (2026-09-23)
 
 Final watcher in the 2b.5 sub-series. All five OS signals from

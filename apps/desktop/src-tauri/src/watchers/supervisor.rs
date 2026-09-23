@@ -1,9 +1,10 @@
 //! Multi-watcher fan-in with orderly shutdown.
 //!
 //! Owns the receiving end of the [`OsSignal`] channel and a vector
-//! of [`WatcherHandle`]s. Consumers (state machine, tests) read
-//! signals from [`Supervisor::recv`]; `shutdown` stops every watcher
-//! before dropping the receiver so we don't lose in-flight signals.
+//! of [`WatcherHandle`]s. Callers can either read signals inline via
+//! [`Supervisor::recv`]/`recv_timeout`, or [`take_receiver`] the
+//! `Receiver` out and drive it on a separate thread (used by the
+//! app entry point to `eprintln!` signals for smoke tests).
 
 use std::sync::mpsc::{channel, Receiver, RecvError, RecvTimeoutError, Sender};
 use std::time::Duration;
@@ -12,7 +13,7 @@ use super::{OsSignal, WatcherHandle};
 
 /// Coordinates one or more watchers behind a single signal channel.
 pub struct Supervisor {
-    rx: Receiver<OsSignal>,
+    rx: Option<Receiver<OsSignal>>,
     tx: Sender<OsSignal>,
     handles: Vec<Box<dyn WatcherHandle>>,
 }
@@ -21,7 +22,7 @@ impl Supervisor {
     pub fn new() -> Self {
         let (tx, rx) = channel();
         Self {
-            rx,
+            rx: Some(rx),
             tx,
             handles: Vec::new(),
         }
@@ -38,14 +39,32 @@ impl Supervisor {
         self.handles.push(handle);
     }
 
-    /// Block until the next signal.
-    pub fn recv(&self) -> Result<OsSignal, RecvError> {
-        self.rx.recv()
+    /// Hand the `Receiver` off to a consumer that will drive it on
+    /// its own thread. Returns `None` if the receiver has already
+    /// been taken.
+    ///
+    /// After the receiver is taken, [`Supervisor::recv`] and
+    /// [`Supervisor::recv_timeout`] panic on use.
+    pub fn take_receiver(&mut self) -> Option<Receiver<OsSignal>> {
+        self.rx.take()
     }
 
-    /// Block for at most `timeout`.
+    /// Block until the next signal. Panics if the receiver has been
+    /// taken via [`Supervisor::take_receiver`].
+    pub fn recv(&self) -> Result<OsSignal, RecvError> {
+        self.rx
+            .as_ref()
+            .expect("Supervisor::recv called after take_receiver")
+            .recv()
+    }
+
+    /// Block for at most `timeout`. Panics if the receiver has been
+    /// taken via [`Supervisor::take_receiver`].
     pub fn recv_timeout(&self, timeout: Duration) -> Result<OsSignal, RecvTimeoutError> {
-        self.rx.recv_timeout(timeout)
+        self.rx
+            .as_ref()
+            .expect("Supervisor::recv_timeout called after take_receiver")
+            .recv_timeout(timeout)
     }
 
     /// Stop every watcher (blocking on each in registration order),
@@ -129,5 +148,40 @@ mod tests {
         sup.shutdown();
         // If shutdown didn't join the thread we'd risk leaking it;
         // the test itself asserts return-from-shutdown.
+    }
+
+    #[test]
+    fn take_receiver_hands_out_the_channel_once() {
+        let mut sup = Supervisor::new();
+        assert!(sup.take_receiver().is_some());
+        assert!(
+            sup.take_receiver().is_none(),
+            "second take should return None"
+        );
+    }
+
+    #[test]
+    fn taken_receiver_still_gets_signals_after_shutdown_closes_channel() {
+        let mut sup = Supervisor::new();
+        let handle = spawn_dummy(sup.sender());
+        sup.attach(handle);
+        let rx = sup
+            .take_receiver()
+            .expect("fresh supervisor has a receiver");
+
+        // At least one signal should be observable before shutdown.
+        assert!(matches!(
+            rx.recv_timeout(Duration::from_millis(200)),
+            Ok(OsSignal::Resumed { .. })
+        ));
+
+        // Shutdown stops the watcher thread; its Sender clone drops.
+        // The Supervisor's own Sender drops with `self`. After that,
+        // the receiver eventually reports RecvError::Disconnected.
+        sup.shutdown();
+
+        // Drain anything already queued, then confirm disconnect.
+        while let Ok(_) = rx.recv_timeout(Duration::from_millis(50)) {}
+        assert!(rx.recv().is_err(), "channel should be closed");
     }
 }
