@@ -9,9 +9,11 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
     "dev": "tsx watch src/server.ts",
     "start": "node --enable-source-maps dist/server.js",
-    "build": "tsc -p tsconfig.build.json"
+    "build": "tsc -p tsconfig.build.json",
+    "migrate": "tsx scripts/migrate.ts"
   },
   "dependencies": {
     "@cloudpunch/event-schema": "workspace:*",
@@ -22,10 +24,13 @@
     "jose": "^5.9.6",
     "pino": "^9.4.0",
     "pino-pretty": "^11.2.2",
+    "postgres": "^3.4.4",
     "zod": "^3.23.8"
   },
   "devDependencies": {
+    "@testcontainers/postgresql": "^10.13.1",
     "@types/node": "^20.14.15",
+    "testcontainers": "^10.13.1",
     "tsx": "^4.19.1",
     "typescript": "^5.5.4",
     "vitest": "^2.1.4"

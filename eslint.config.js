@@ -20,7 +20,15 @@ export default tseslint.config(
         // Config JS files (eslint.config.js, *.config.js) live outside the
         // TypeScript project graphs; permit them through the default project.
         projectService: {
-          allowDefaultProject: ['eslint.config.js', '*.config.js', '*.config.mjs'],
+          allowDefaultProject: [
+            'eslint.config.js',
+            '*.config.js',
+            '*.config.mjs',
+            'vitest.config.ts',
+            'vitest.integration.config.ts',
+            'apps/*/vitest.config.ts',
+            'apps/*/vitest.integration.config.ts',
+          ],
         },
         tsconfigRootDir: import.meta.dirname,
       },
