@@ -7,6 +7,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Phase 2b.2 — Rust canonicalize + Ed25519 signing (2026-09-23)
+
+Desktop core produces canonical event bytes byte-for-byte identical to
+the backend TS implementation and can sign/verify them with Ed25519.
+Cross-language conformance is pinned by a golden vector on both sides —
+drift on either side fails both suites.
+
+- `apps/desktop/src-tauri/src/event/canonicalize.rs`: `canonicalize(&Value)`
+  and `canonicalize_signed_fields(&SignedEventFields)` (16-field signed
+  subset). Object keys sorted lexicographically; integers only with the
+  JS safe-int range check (±(2^53−1)); minimal C0 escapes; non-ASCII
+  preserved as raw UTF-8.
+- `apps/desktop/src-tauri/src/event/signature.rs`: `sign_bytes` /
+  `verify_bytes` on `ed25519-dalek` 2.x with `default-features = false` +
+  `std`/`fast`/`zeroize`/`rand_core`.
+- 11 unit + conformance tests pass, including
+  `cross_language_golden_vector_matches_ts`.
+
+Refs: ADR-0004 §5, `packages/event-schema/canonicalization.md`.
+
+### Phase 2b.1 — desktop scaffold: Tauri 2 + React (2026-09-23)
+
+Empty window opens on Windows; the frontend proves the Rust ↔ JS bridge
+via `@tauri-apps/api getVersion`. No OS integrations yet.
+
+- Cargo workspace at repo root (`resolver = "2"`, release profile tuned
+  for small binaries: `opt-level = "s"`, `lto = true`, `panic = "abort"`,
+  `strip = true`).
+- `apps/desktop/`: Vite + React 18 UI on port 1420, CSP restricted to
+  `'self' ipc: http://ipc.localhost`, `chrome108` build target.
+- `apps/desktop/src-tauri/`: Rust crate `cloudpunch-desktop` (lib crate
+  types `staticlib`/`cdylib`/`rlib` to reserve future mobile targets),
+  420×640 fixed window, identifier `com.aptask.cloudpunch`,
+  `bundle.active = false` (installers land in 2b.9).
+- Placeholder icon set generated via `tauri icon` (dark-blue "C") for
+  all Windows/macOS/iOS/Android sizes so `tauri-build` compiles
+  regardless of target.
+- Windows dev toolchain confirmed: `cargo check` clean after installing
+  VS 2022 Build Tools with the C++ workload; `pnpm typecheck` clean;
+  existing `pnpm test` suite (258 tests) still green.
+
+Refs: ADR-0001 §Desktop stack.
+
 ### Phase 0 — planning and design (2026-09-23)
 
 No code, dependencies, or cloud resources yet. Documentation-only baseline.
