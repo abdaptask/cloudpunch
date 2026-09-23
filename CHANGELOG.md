@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Phase 2b.5.2 — Windows session lock/unlock watcher (2026-09-23)
+
+- `apps/desktop/src-tauri/src/watchers/session.rs` (Windows-only):
+  `SessionWatcher` runs a dedicated thread with a message-only window
+  (`HWND_MESSAGE` parent). Subscribes via
+  `WTSRegisterSessionNotification(NOTIFY_FOR_THIS_SESSION)` and emits
+  `SessionLocked` / `SessionUnlocked` on `WM_WTSSESSION_CHANGE`.
+  Other WTS codes (console connect/disconnect, remote logon, session
+  logoff, etc.) decode to `None`.
+- Class registration guarded by `OnceLock` so multiple watchers in
+  the same process can't collide on the window class name.
+- `WndProc` looks up the `mpsc::Sender` via a `thread_local!` — the
+  pump thread is the same thread that stored the sender, so no
+  synchronisation is needed. `WndProc` body is wrapped in
+  `catch_unwind` because unwinding across an FFI boundary is UB.
+- Startup uses a ready-signal channel so `start()` blocks until the
+  pump is live (thread-id captured), preventing a lost-message race
+  with an immediate `shutdown()`. Shutdown posts `WM_QUIT` via
+  `PostThreadMessageW` and joins.
+- Feature flags added: `Win32_Graphics_Gdi` (transitively required by
+  `WNDCLASSEXW`), `Win32_System_LibraryLoader`,
+  `Win32_System_RemoteDesktop`, `Win32_System_Threading`,
+  `Win32_UI_WindowsAndMessaging`.
+- 32 tests pass (2 new: pure `decode_wparam` covering both directions
+  + a batch that confirms unrelated WTS codes are ignored).
+
+Follow-up (not this slice): `Watcher::start` will likely become
+fallible (`Result<Box<dyn WatcherHandle>, WatcherError>`) once
+mic/cam + network watchers reveal whether panic-on-init is tolerable
+across all watchers. Currently `SessionWatcher` panics with a
+descriptive message if window creation or WTS registration fails.
+
+Refs: ADR-0003 §OS signals, CLAUDE.md invariant 1.
+
 ### Phase 2b.5.1 — OS watcher plumbing + Windows idle detection (2026-09-23)
 
 First watcher slice per ADR-0003. Cross-platform seam + Windows idle
