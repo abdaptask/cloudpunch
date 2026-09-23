@@ -26,6 +26,7 @@
 pub mod event;
 pub mod outbox;
 pub mod sync;
+pub mod tray;
 pub mod watchers;
 
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -203,7 +204,21 @@ pub fn run() {
     let _sync = start_sync_loop_if_configured(watchers.is_online());
 
     tauri::Builder::default()
-        .setup(|_app| Ok(()))
+        .setup(|app| {
+            tray::install(app.handle())?;
+            Ok(())
+        })
+        .on_window_event(|window, event| {
+            // Close-to-tray: intercept the main window's close so the
+            // agent keeps running in the background. Tray menu's
+            // "Quit" is the intended exit.
+            if window.label() == "main" {
+                if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                    let _ = window.hide();
+                    api.prevent_close();
+                }
+            }
+        })
         .run(tauri::generate_context!())
         .expect("cloudpunch-desktop: error while running tauri application");
 }

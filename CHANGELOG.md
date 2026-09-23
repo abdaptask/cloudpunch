@@ -7,6 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Phase 2b.7.1 — tray icon + minimal home UI (2026-09-23)
+
+First sub-slice of 2b.7. Tray icon in the Windows notification area
+with a working menu; close-to-tray on the main window. Home UI
+rebuilt from the 2b.1 scaffold into a real (if placeholder) React
+surface. No backend wiring yet — 2b.7.2 adds the idle-prompt window,
+2b.7.3 adds TS testing, and the state-machine slice will plumb
+actions through to the outbox.
+
+- `apps/desktop/src-tauri/src/tray.rs` (new):
+  - `TrayStateSnapshot` enum (`NotClockedIn` / `ClockedIn` / `OnBreak`).
+  - Pure `render_status_label(&state) -> String` — 3 unit tests.
+  - `install(&AppHandle)` builds the menu:
+    `Status: … | Clock in | Take a break | Show CloudPunch | Quit`.
+    Menu handlers log to stderr in debug builds for now; `Show`
+    calls `show()+set_focus()` on the main webview; `Quit` calls
+    `app.exit(0)`. Right-click-only menu (matches Windows convention).
+- `apps/desktop/src-tauri/src/lib.rs`:
+  - Registered `pub mod tray;` and called `tray::install` from
+    `setup()`.
+  - `on_window_event` intercepts `CloseRequested` on the `"main"`
+    window and hides instead of closing, so the agent keeps running
+    in the tray. Tray's `Quit` is the intended exit path.
+- `apps/desktop/src-tauri/Cargo.toml`: `tauri` features gained
+  `"tray-icon"`.
+- `apps/desktop/src/App.tsx`: rebuilt from the getVersion scaffold
+  into a real home UI. Local `useState<ClockState>` drives the
+  status card + action buttons. Clicks log to console. Inline
+  styles; real design system is a later concern.
+- 78 Rust tests pass (3 new tray label tests). Full CI-mirror pass
+  green locally: format:check + lint + typecheck + test.
+
+**Not in scope for this slice**
+- Tray ↔ app state sync (tray label doesn't update yet).
+- Any Tauri command handlers or backend calls.
+- Idle-back prompt window (2b.7.2).
+- TS component testing setup (2b.7.3 retires `--passWithNoTests`).
+
+Refs: ADR-0003.
+
 ### Phase 2b.6.3 — network-awareness + env-var opt-in SyncLoop wiring (2026-09-23)
 
 Third and final sub-slice of 2b.6. The sync loop now pauses draining
