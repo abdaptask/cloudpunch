@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cloudpunch.aptask.com/schemas/user-clock-in.schema.json",
+  "title": "USER_CLOCK_IN event",
+  "description": "Emitted when the user clicks Clock In. See ADR-0003 §3.",
+  "allOf": [
+    { "$ref": "common/base-event.schema.json" },
+    {
+      "type": "object",
+      "properties": {
+        "event_type": { "const": "USER_CLOCK_IN" },
+        "payload": {
+          "type": "object",
+          "properties": {
+            "geo_optout": {
+              "type": "boolean",
+              "description": "Reserved: acknowledges the user has been shown the geolocation-off notice. Geolocation is not collected in MVP; this field is only carried for schema-shape stability once geo becomes an opt-in feature."
+            }
+          },
+          "additionalProperties": false
+        }
+      }
+    }
+  ]
+}

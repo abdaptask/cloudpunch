@@ -1,0 +1,13 @@
+{
+  "name": "@cloudpunch/event-schema",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "JSON Schemas for the CloudPunch time_event ledger. Source of truth per ADR-0004.",
+  "files": [
+    "event-types.json",
+    "schemas/",
+    "canonicalization.md",
+    "README.md"
+  ]
+}

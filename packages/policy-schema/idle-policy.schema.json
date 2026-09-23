@@ -1,0 +1,155 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cloudpunch.aptask.com/schemas/policy/idle-policy.schema.json",
+  "title": "CloudPunch idle-policy",
+  "description": "Admin-configurable idle, break, system, autostart, notifications, and integrity settings. Defaults documented in docs/policy/idle-policy-defaults.md. Nested objects are individually optional to permit partial overrides at team or per-employee scope.",
+  "type": "object",
+  "properties": {
+    "idle": {
+      "type": "object",
+      "properties": {
+        "threshold_seconds": { "type": "integer", "minimum": 60, "maximum": 3600, "default": 300 },
+        "grace_seconds": { "type": "integer", "minimum": 10, "maximum": 300, "default": 30 },
+        "suppress_prompt_when_media_active": { "type": "boolean", "default": true },
+        "media_state_debounce_seconds": { "type": "integer", "minimum": 1, "maximum": 60, "default": 5 },
+        "count_as_payable_when_unresponsive": { "type": "boolean", "default": false },
+        "prompt_options": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "still_working",
+              "bio_break",
+              "meal_break",
+              "on_phone_call",
+              "working_away",
+              "end_shift"
+            ]
+          },
+          "uniqueItems": true,
+          "minItems": 2,
+          "default": [
+            "still_working",
+            "bio_break",
+            "meal_break",
+            "on_phone_call",
+            "working_away",
+            "end_shift"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "break": {
+      "type": "object",
+      "properties": {
+        "bio": {
+          "type": "object",
+          "properties": {
+            "max_minutes": { "type": "integer", "minimum": 5, "maximum": 30, "default": 10 },
+            "payable_up_to_cap": { "type": "boolean", "default": true }
+          },
+          "additionalProperties": false
+        },
+        "meal": {
+          "type": "object",
+          "properties": {
+            "max_minutes": { "type": "integer", "minimum": 15, "maximum": 180, "default": 60 },
+            "payable": { "type": "boolean", "default": false },
+            "min_minutes_before_prompt": { "type": "integer", "minimum": 0, "maximum": 720, "default": 0 }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "away": {
+      "type": "object",
+      "properties": {
+        "require_note": {
+          "type": "object",
+          "properties": {
+            "working_away": { "type": "boolean", "default": true },
+            "phone_call": { "type": "boolean", "default": false },
+            "meeting": { "type": "boolean", "default": false },
+            "other": { "type": "boolean", "default": true }
+          },
+          "additionalProperties": false
+        },
+        "payable_reasons": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["working_away", "phone_call", "meeting", "other"]
+          },
+          "uniqueItems": true,
+          "default": ["working_away", "phone_call", "meeting"]
+        }
+      },
+      "additionalProperties": false
+    },
+    "system": {
+      "type": "object",
+      "properties": {
+        "max_lock_duration_minutes": { "type": "integer", "minimum": 5, "maximum": 480, "default": 120 },
+        "max_sleep_duration_minutes": { "type": "integer", "minimum": 5, "maximum": 480, "default": 120 }
+      },
+      "additionalProperties": false
+    },
+    "multi_device": {
+      "type": "object",
+      "properties": {
+        "on_second_signin": {
+          "type": "string",
+          "enum": ["prompt_take_over", "auto_take_over", "deny"],
+          "default": "prompt_take_over"
+        }
+      },
+      "additionalProperties": false
+    },
+    "autostart": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "boolean", "default": false },
+        "employee_can_override": { "type": "boolean", "default": true }
+      },
+      "additionalProperties": false
+    },
+    "notifications": {
+      "type": "object",
+      "properties": {
+        "quiet_hours_start": {
+          "type": "string",
+          "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$",
+          "default": "22:00"
+        },
+        "quiet_hours_end": {
+          "type": "string",
+          "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$",
+          "default": "07:00"
+        },
+        "rate_limit_per_hour": { "type": "integer", "minimum": 1, "maximum": 100, "default": 6 }
+      },
+      "additionalProperties": false
+    },
+    "integrity": {
+      "type": "object",
+      "properties": {
+        "clock_drift_threshold_seconds": {
+          "type": "integer",
+          "minimum": 10,
+          "maximum": 300,
+          "default": 60
+        },
+        "clock_sample_interval_seconds": {
+          "type": "integer",
+          "minimum": 5,
+          "maximum": 300,
+          "default": 30
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

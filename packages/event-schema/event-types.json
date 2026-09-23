@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cloudpunch.aptask.com/schemas/event-types.json",
+  "title": "CloudPunch time_event types",
+  "description": "Enumeration of every allowed event_type in the time_event ledger. See ADR-0003 §2 and ADR-0004 §9.",
+  "type": "string",
+  "enum": [
+    "USER_CLOCK_IN",
+    "USER_CLOCK_OUT",
+    "USER_PROMPT_RESPONSE",
+    "USER_START_BREAK",
+    "USER_END_BREAK",
+    "USER_MARK_AWAY",
+    "USER_MARK_BACK",
+    "INPUT_ACTIVITY",
+    "INPUT_IDLE_5M",
+    "PROMPT_TIMEOUT_30S",
+    "MEDIA_DEVICE_STATE",
+    "SYSTEM_LOCK",
+    "SYSTEM_UNLOCK",
+    "SYSTEM_SLEEP",
+    "SYSTEM_WAKE",
+    "NETWORK_OFFLINE",
+    "NETWORK_ONLINE",
+    "SERVER_ACK",
+    "SERVER_REJECT",
+    "CLOCK_DRIFT_DETECTED",
+    "SESSION_RECOVERED",
+    "INTEGRITY_VIOLATION"
+  ]
+}

@@ -1,0 +1,99 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cloudpunch.aptask.com/schemas/common/base-event.schema.json",
+  "title": "CloudPunch time_event envelope",
+  "description": "Fields that appear on every time_event, from ADR-0004 §1.",
+  "type": "object",
+  "properties": {
+    "event_ulid": {
+      "type": "string",
+      "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$",
+      "description": "Crockford ULID, 26 characters, monotonic per session."
+    },
+    "event_type": {
+      "$ref": "../../event-types.json"
+    },
+    "session_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "employee_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "sequence_number": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "client_ts": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 with timezone offset; wall clock on the device at event creation."
+    },
+    "monotonic_ns": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Nanoseconds since session start on the device's monotonic clock. Used for clock-drift detection."
+    },
+    "tz_iana": {
+      "type": "string",
+      "pattern": "^[A-Za-z][A-Za-z0-9+\\-/_]{1,63}$",
+      "description": "IANA time zone name, e.g. Asia/Kolkata."
+    },
+    "utc_offset_minutes": {
+      "type": "integer",
+      "minimum": -720,
+      "maximum": 840
+    },
+    "device_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "app_version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+(?:[-+][0-9A-Za-z.-]+)?$"
+    },
+    "origin": {
+      "type": "string",
+      "enum": ["user", "system_watcher", "server", "reconstructed"]
+    },
+    "offline_captured": {
+      "type": "boolean"
+    },
+    "correlation_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "parent_event_ulid": {
+      "type": ["string", "null"],
+      "pattern": "^[0-9A-HJKMNP-TV-Z]{26}$"
+    },
+    "integrity_signature": {
+      "type": "string",
+      "contentEncoding": "base64",
+      "description": "Ed25519 signature over canonical event bytes; see canonicalization.md."
+    },
+    "payload": {
+      "type": "object"
+    }
+  },
+  "required": [
+    "event_ulid",
+    "event_type",
+    "session_id",
+    "employee_id",
+    "sequence_number",
+    "client_ts",
+    "monotonic_ns",
+    "tz_iana",
+    "utc_offset_minutes",
+    "device_id",
+    "app_version",
+    "origin",
+    "offline_captured",
+    "correlation_id",
+    "integrity_signature",
+    "payload"
+  ],
+  "additionalProperties": false
+}

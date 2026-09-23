@@ -1,0 +1,11 @@
+{
+  "name": "@cloudpunch/policy-schema",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "JSON Schemas for CloudPunch admin-configurable policies. Source of truth per docs/policy/*.",
+  "files": [
+    "*.schema.json",
+    "README.md"
+  ]
+}
