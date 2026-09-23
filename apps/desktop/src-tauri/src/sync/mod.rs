@@ -34,6 +34,7 @@
 //!   - Entra token acquisition (2b.4; sync loop currently trusts a
 //!     placeholder `employee_id` in [`SyncConfig`]).
 
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread;
@@ -41,7 +42,7 @@ use std::time::{Duration, SystemTime};
 
 use uuid::Uuid;
 
-use crate::outbox::{Outbox, OutboxEntry};
+use crate::outbox::{Outbox, OutboxEntry, CIPHER_KEY_LEN};
 
 pub mod backoff;
 pub mod client;
@@ -90,6 +91,70 @@ impl SyncConfig {
     }
 }
 
+/// Bundle of everything the sync loop needs to actually start on
+/// boot. Kept separate from [`SyncConfig`] so the config stays purely
+/// about scheduling policy and this holds identity/secret plumbing.
+///
+/// **Dev-only opt-in for now.** Real production wiring lands with
+/// slice 2b.4 (MSAL for bearer token, OS keystore for outbox key,
+/// enrollment record for device_id). Until then, unset env vars mean
+/// `from_env()` returns `None` and the sync loop stays off.
+#[derive(Debug, Clone)]
+pub struct SyncBootstrap {
+    pub backend_url: String,
+    pub bearer_token: String,
+    pub device_id: String,
+    pub employee_id: String,
+    pub outbox_path: PathBuf,
+    pub outbox_key: [u8; CIPHER_KEY_LEN],
+}
+
+impl SyncBootstrap {
+    /// Read six env vars:
+    ///   CLOUDPUNCH_BACKEND_URL        — e.g. https://api.cloudpunch.local
+    ///   CLOUDPUNCH_BEARER_TOKEN       — placeholder Entra token until 2b.4
+    ///   CLOUDPUNCH_DEVICE_ID          — UUID
+    ///   CLOUDPUNCH_EMPLOYEE_ID        — UUID
+    ///   CLOUDPUNCH_OUTBOX_PATH        — file path for the SQLCipher DB
+    ///   CLOUDPUNCH_OUTBOX_KEY_HEX     — 32 bytes hex (64 chars)
+    ///
+    /// Returns `None` if ANY var is missing or the outbox key isn't
+    /// exactly 32 bytes when hex-decoded. Caller (`run()`) treats
+    /// `None` as "sync loop stays off, log why".
+    pub fn from_env() -> Result<Self, String> {
+        use std::env::{var, var_os};
+        let backend_url =
+            var("CLOUDPUNCH_BACKEND_URL").map_err(|_| "CLOUDPUNCH_BACKEND_URL unset".to_string())?;
+        let bearer_token = var("CLOUDPUNCH_BEARER_TOKEN")
+            .map_err(|_| "CLOUDPUNCH_BEARER_TOKEN unset".to_string())?;
+        let device_id =
+            var("CLOUDPUNCH_DEVICE_ID").map_err(|_| "CLOUDPUNCH_DEVICE_ID unset".to_string())?;
+        let employee_id = var("CLOUDPUNCH_EMPLOYEE_ID")
+            .map_err(|_| "CLOUDPUNCH_EMPLOYEE_ID unset".to_string())?;
+        let outbox_path: PathBuf = var_os("CLOUDPUNCH_OUTBOX_PATH")
+            .ok_or_else(|| "CLOUDPUNCH_OUTBOX_PATH unset".to_string())?
+            .into();
+        let key_hex = var("CLOUDPUNCH_OUTBOX_KEY_HEX")
+            .map_err(|_| "CLOUDPUNCH_OUTBOX_KEY_HEX unset".to_string())?;
+        let key_bytes = hex::decode(key_hex.trim())
+            .map_err(|e| format!("CLOUDPUNCH_OUTBOX_KEY_HEX not hex: {e}"))?;
+        let outbox_key: [u8; CIPHER_KEY_LEN] = key_bytes.try_into().map_err(|v: Vec<u8>| {
+            format!(
+                "CLOUDPUNCH_OUTBOX_KEY_HEX decodes to {} bytes, want {CIPHER_KEY_LEN}",
+                v.len()
+            )
+        })?;
+        Ok(Self {
+            backend_url,
+            bearer_token,
+            device_id,
+            employee_id,
+            outbox_path,
+            outbox_key,
+        })
+    }
+}
+
 pub struct SyncLoop {
     stop: Arc<AtomicBool>,
     thread: Option<thread::JoinHandle<Outbox>>,
@@ -97,7 +162,17 @@ pub struct SyncLoop {
 
 impl SyncLoop {
     /// Spawn the loop on a dedicated thread. Returns immediately.
-    pub fn start(outbox: Outbox, client: Box<dyn BackendClient>, config: SyncConfig) -> Self {
+    ///
+    /// `is_online` gates HTTP calls — when `false`, the loop sleeps
+    /// instead of draining. The network watcher (or a test harness)
+    /// flips it. Assumes `true` at start so a fresh boot doesn't
+    /// pause for one poll cycle before shipping the first batch.
+    pub fn start(
+        outbox: Outbox,
+        client: Box<dyn BackendClient>,
+        config: SyncConfig,
+        is_online: Arc<AtomicBool>,
+    ) -> Self {
         let stop = Arc::new(AtomicBool::new(false));
         let stop_clone = stop.clone();
 
@@ -108,7 +183,9 @@ impl SyncLoop {
                 let client = client;
                 let config = config;
                 while !stop_clone.load(Ordering::Acquire) {
-                    run_tick(&outbox, &*client, &config);
+                    if is_online.load(Ordering::Acquire) {
+                        run_tick(&outbox, &*client, &config);
+                    }
                     thread::sleep(config.poll_interval);
                 }
                 outbox
@@ -549,7 +626,8 @@ mod tests {
 
         let client = MockClient::new(all_accepted);
         let calls = client.calls();
-        let loop_ = SyncLoop::start(outbox, Box::new(client), cfg());
+        let online = Arc::new(AtomicBool::new(true));
+        let loop_ = SyncLoop::start(outbox, Box::new(client), cfg(), online);
 
         // Give the loop a couple ticks to drain.
         for _ in 0..20 {
@@ -562,6 +640,40 @@ mod tests {
         let outbox = loop_.shutdown();
         assert_eq!(outbox.pending_count().unwrap(), 0);
         assert!(!calls.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn syncloop_skips_when_offline_and_resumes_when_online_flips() {
+        let outbox = Outbox::open_in_memory(&make_key()).unwrap();
+        outbox.enqueue(&mk_event("01J8Q00000000000000000000A", 1, "s1")).unwrap();
+
+        let client = MockClient::new(all_accepted);
+        let calls = client.calls();
+        let online = Arc::new(AtomicBool::new(false));
+        let loop_ = SyncLoop::start(outbox, Box::new(client), cfg(), online.clone());
+
+        // Give the loop several tick-intervals to prove it does NOT
+        // send while offline.
+        std::thread::sleep(Duration::from_millis(150));
+        assert!(
+            calls.lock().unwrap().is_empty(),
+            "sync loop must not send while is_online=false"
+        );
+
+        // Flip online — expect at least one call within a few ticks.
+        online.store(true, Ordering::Release);
+        let mut sent = false;
+        for _ in 0..30 {
+            if !calls.lock().unwrap().is_empty() {
+                sent = true;
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert!(sent, "sync loop must resume once online flips true");
+
+        let outbox = loop_.shutdown();
+        assert_eq!(outbox.pending_count().unwrap(), 0);
     }
 
     // Suppress unused-import warning when only the loop test uses Arc/Mutex.

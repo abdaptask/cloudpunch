@@ -11,10 +11,13 @@
 //!   - Phase 2b.4: MSAL loopback PKCE auth via system browser.
 //!   - Phase 2b.5: OS watchers (idle, session, power, mic/cam, network)
 //!     for Windows. macOS parity in 2b.8.
-//!   - Phase 2b.5.6 (this slice): supervisor wired into `run()` so
-//!     watchers actually start on boot; `eprintln!` drain thread for
-//!     smoke-test visibility in debug builds.
-//!   - Phase 2b.6: sync loop against `POST /v1/events`.
+//!   - Phase 2b.5.6: supervisor wired into `run()`; drain thread
+//!     eprintln!s signals in debug builds.
+//!   - Phase 2b.6.1: sync loop core + outbox poison migration.
+//!   - Phase 2b.6.2: reqwest-based BackendClient.
+//!   - Phase 2b.6.3 (this slice): drain thread updates `is_online`
+//!     from `NetworkReachabilityChanged`; sync loop opts in via env
+//!     vars until 2b.4 supplies real keys + tokens.
 //!   - Phase 2b.7: tray menu + idle prompt window.
 //!   - Phase 2b.8: macOS parity for OS watchers + menu bar.
 //!   - Phase 2b.9: signed Windows installer + notarised macOS DMG +
@@ -25,6 +28,11 @@ pub mod outbox;
 pub mod sync;
 pub mod watchers;
 
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+
+use outbox::Outbox;
+use sync::{ReqwestBackendClient, SyncBootstrap, SyncConfig, SyncLoop};
 use watchers::supervisor::Supervisor;
 
 /// RAII guard around a running [`Supervisor`] and its drain thread.
@@ -36,6 +44,16 @@ use watchers::supervisor::Supervisor;
 /// guard.
 pub struct WatchersGuard {
     inner: Option<(Supervisor, std::thread::JoinHandle<()>)>,
+    is_online: Arc<AtomicBool>,
+}
+
+impl WatchersGuard {
+    /// Shared "is the network reachable?" flag updated by the drain
+    /// thread whenever a [`watchers::OsSignal::NetworkReachabilityChanged`]
+    /// arrives. Used by [`SyncLoop`] to pause draining when offline.
+    pub fn is_online(&self) -> Arc<AtomicBool> {
+        self.is_online.clone()
+    }
 }
 
 impl Drop for WatchersGuard {
@@ -52,19 +70,25 @@ impl Drop for WatchersGuard {
 /// macOS parity lands in slice 2b.8.
 #[cfg(target_os = "windows")]
 pub fn start_watchers() -> WatchersGuard {
-    use watchers::{idle, mic_cam, network, power, session, Watcher};
+    use watchers::{idle, mic_cam, network, power, session, OsSignal, Watcher};
 
     let mut sup = Supervisor::new();
     let rx = sup
         .take_receiver()
         .expect("fresh Supervisor has a Receiver");
 
+    // Assume online at boot; the first NetworkReachabilityChanged
+    // signal from the watcher will correct if we're actually offline.
+    let is_online = Arc::new(AtomicBool::new(true));
+    let is_online_drain = is_online.clone();
+
     let drain = std::thread::Builder::new()
         .name("cp-watcher-drain".into())
         .spawn(move || {
             while let Ok(signal) = rx.recv() {
-                // Debug-only smoke print. Silenced in release builds
-                // until a real consumer (state machine) lands.
+                if let OsSignal::NetworkReachabilityChanged { reachable, .. } = &signal {
+                    is_online_drain.store(*reachable, Ordering::Release);
+                }
                 #[cfg(debug_assertions)]
                 eprintln!("[cloudpunch] os signal: {signal:?}");
                 #[cfg(not(debug_assertions))]
@@ -96,14 +120,74 @@ pub fn start_watchers() -> WatchersGuard {
 
     WatchersGuard {
         inner: Some((sup, drain)),
+        is_online,
     }
 }
 
 /// Non-Windows stub. Returns an inert guard so callers can hold it
-/// without conditionally-typed variables.
+/// without conditionally-typed variables. `is_online` defaults to
+/// true so a sync loop wired on a non-Windows dev host still runs.
 #[cfg(not(target_os = "windows"))]
 pub fn start_watchers() -> WatchersGuard {
-    WatchersGuard { inner: None }
+    WatchersGuard {
+        inner: None,
+        is_online: Arc::new(AtomicBool::new(true)),
+    }
+}
+
+/// RAII guard around a running [`SyncLoop`]. `Drop` calls
+/// `SyncLoop::shutdown` which joins the sync thread; the returned
+/// [`Outbox`] is dropped here.
+pub struct SyncLoopGuard {
+    inner: Option<SyncLoop>,
+}
+
+impl Drop for SyncLoopGuard {
+    fn drop(&mut self) {
+        if let Some(loop_) = self.inner.take() {
+            let _outbox = loop_.shutdown();
+        }
+    }
+}
+
+/// Start the sync loop iff `SyncBootstrap::from_env()` succeeds.
+/// Returns `None` (and logs why in debug builds) when any required
+/// env var is missing — the whole boot path is opt-in until slice
+/// 2b.4 supplies keys/tokens from the OS keystore.
+pub fn start_sync_loop_if_configured(is_online: Arc<AtomicBool>) -> Option<SyncLoopGuard> {
+    let bootstrap = match SyncBootstrap::from_env() {
+        Ok(b) => b,
+        Err(reason) => {
+            #[cfg(debug_assertions)]
+            eprintln!(
+                "[cloudpunch] sync loop not started ({reason}); \
+                set all six CLOUDPUNCH_* env vars to opt in"
+            );
+            #[cfg(not(debug_assertions))]
+            let _ = reason;
+            return None;
+        }
+    };
+
+    let outbox = match Outbox::open(&bootstrap.outbox_path, &bootstrap.outbox_key) {
+        Ok(o) => o,
+        Err(e) => {
+            eprintln!(
+                "[cloudpunch] sync loop not started: outbox open failed at {}: {e}",
+                bootstrap.outbox_path.display()
+            );
+            return None;
+        }
+    };
+
+    let client = ReqwestBackendClient::new(bootstrap.backend_url, bootstrap.bearer_token);
+    let config = SyncConfig::new(bootstrap.device_id, bootstrap.employee_id);
+    let loop_ = SyncLoop::start(outbox, Box::new(client), config, is_online);
+
+    #[cfg(debug_assertions)]
+    eprintln!("[cloudpunch] sync loop started");
+
+    Some(SyncLoopGuard { inner: Some(loop_) })
 }
 
 /// Entry point invoked from `main.rs`. Kept separate so the same
@@ -111,10 +195,12 @@ pub fn start_watchers() -> WatchersGuard {
 /// build for them).
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // Guard is held for the lifetime of tauri::Builder::run. It drops
-    // when run returns (normal window-close on desktop), stopping all
-    // watcher threads cleanly.
-    let _guard = start_watchers();
+    // Guards are held for the lifetime of tauri::Builder::run. Drop
+    // order (Rust: reverse of declaration): sync first (drains its
+    // thread), then watchers (which frees the is_online Arc it
+    // shares with sync).
+    let watchers = start_watchers();
+    let _sync = start_sync_loop_if_configured(watchers.is_online());
 
     tauri::Builder::default()
         .setup(|_app| Ok(()))

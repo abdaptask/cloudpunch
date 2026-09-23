@@ -7,6 +7,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Phase 2b.6.3 — network-awareness + env-var opt-in SyncLoop wiring (2026-09-23)
+
+Third and final sub-slice of 2b.6. The sync loop now pauses draining
+when the network watcher reports offline, and can actually run on
+Tauri boot when six env vars are set (dev opt-in until slice 2b.4
+wires the OS keystore + MSAL).
+
+- `SyncLoop::start` gained `is_online: Arc<AtomicBool>`. Each tick
+  checks it — `false` → skip drain and sleep. Prevents burning
+  `retry_count` on offline HTTP calls.
+- `apps/desktop/src-tauri/src/lib.rs`:
+  - `WatchersGuard` now owns `is_online: Arc<AtomicBool>` exposed via
+    `is_online()`. The drain thread updates it whenever an
+    `OsSignal::NetworkReachabilityChanged { reachable, .. }` arrives.
+  - New `SyncLoopGuard` (RAII wrapper) + `start_sync_loop_if_configured`
+    that instantiates the loop when `SyncBootstrap::from_env` returns
+    `Ok`. `Err` → silent no-op in release, `eprintln!` in debug
+    explaining which env var was missing.
+  - `run()` wires it: watchers → is_online → sync loop, dropped in
+    reverse order (sync first, watchers last — is_online outlives
+    sync's consumption of it).
+- `sync::SyncBootstrap::from_env()` reads six env vars:
+  * `CLOUDPUNCH_BACKEND_URL`
+  * `CLOUDPUNCH_BEARER_TOKEN`
+  * `CLOUDPUNCH_DEVICE_ID`
+  * `CLOUDPUNCH_EMPLOYEE_ID`
+  * `CLOUDPUNCH_OUTBOX_PATH`
+  * `CLOUDPUNCH_OUTBOX_KEY_HEX` (64 hex chars → 32 bytes)
+  Any missing → `Err` with an actionable message. Prod safe-by-default
+  (unset env → nothing runs). Env-var path is explicitly dev-only and
+  goes away with slice 2b.4.
+- 75 tests pass (1 new: `syncloop_skips_when_offline_and_resumes_when_
+  online_flips` — verifies zero HTTP calls while offline and prompt
+  resumption on the flip).
+
+Sub-series 2b.6 complete. Follow-ups tracked separately:
+- MSAL / OS-keystore integration (2b.4) replaces the env-var opt-in
+  with real production wiring.
+- Enqueue-side `event_body` JSON validation to eliminate the
+  defensive-Transient path from 2b.6.2.
+
+Refs: ADR-0003 §OS signals, ADR-0004 §6.
+
 ### Phase 2b.6.2 — reqwest-based BackendClient (2026-09-23)
 
 Concrete implementation of `BackendClient` that actually posts to
