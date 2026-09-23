@@ -418,6 +418,125 @@ describe('ingestBatch — per-event rejections', () => {
     }
   });
 
+  it('state_transition_invalid — USER_END_BREAK when not on break', async () => {
+    const in1 = await signedEvent(ctx, { event_type: 'USER_CLOCK_IN', sequence_number: 1 });
+    await ingestBatch({
+      db: ctx.db,
+      authOid: ctx.userOid,
+      deviceId: ctx.deviceId,
+      sessionId: ctx.sessionId,
+      employeeId: ctx.employeeId,
+      correlationId: ctx.correlationId,
+      events: [in1],
+    });
+    const badEnd = await signedEvent(ctx, {
+      event_type: 'USER_END_BREAK',
+      sequence_number: 2,
+    });
+    const r = await ingestBatch({
+      db: ctx.db,
+      authOid: ctx.userOid,
+      deviceId: ctx.deviceId,
+      sessionId: ctx.sessionId,
+      employeeId: ctx.employeeId,
+      correlationId: ctx.correlationId,
+      events: [badEnd],
+    });
+    expect(r.status).toBe('batch_accepted');
+    if (r.status === 'batch_accepted') {
+      const first = r.results[0];
+      expect(first?.status).toBe('rejected');
+      if (first?.status === 'rejected') expect(first.code).toBe('state_transition_invalid');
+    }
+  });
+
+  it('state_transition_invalid — second USER_CLOCK_IN on the same session', async () => {
+    const in1 = await signedEvent(ctx, { event_type: 'USER_CLOCK_IN', sequence_number: 1 });
+    await ingestBatch({
+      db: ctx.db,
+      authOid: ctx.userOid,
+      deviceId: ctx.deviceId,
+      sessionId: ctx.sessionId,
+      employeeId: ctx.employeeId,
+      correlationId: ctx.correlationId,
+      events: [in1],
+    });
+    const in2 = await signedEvent(ctx, { event_type: 'USER_CLOCK_IN', sequence_number: 2 });
+    const r = await ingestBatch({
+      db: ctx.db,
+      authOid: ctx.userOid,
+      deviceId: ctx.deviceId,
+      sessionId: ctx.sessionId,
+      employeeId: ctx.employeeId,
+      correlationId: ctx.correlationId,
+      events: [in2],
+    });
+    expect(r.status).toBe('batch_accepted');
+    if (r.status === 'batch_accepted') {
+      const first = r.results[0];
+      expect(first?.status).toBe('rejected');
+      if (first?.status === 'rejected') expect(first.code).toBe('state_transition_invalid');
+    }
+  });
+
+  it('state_transition_invalid — USER_PROMPT_RESPONSE without an idle prompt', async () => {
+    const in1 = await signedEvent(ctx, { event_type: 'USER_CLOCK_IN', sequence_number: 1 });
+    await ingestBatch({
+      db: ctx.db,
+      authOid: ctx.userOid,
+      deviceId: ctx.deviceId,
+      sessionId: ctx.sessionId,
+      employeeId: ctx.employeeId,
+      correlationId: ctx.correlationId,
+      events: [in1],
+    });
+    const promptResp = await signedEvent(ctx, {
+      event_type: 'USER_PROMPT_RESPONSE',
+      sequence_number: 2,
+      payload: { response: 'bio_break', prompt_shown_at: new Date().toISOString() },
+    });
+    const r = await ingestBatch({
+      db: ctx.db,
+      authOid: ctx.userOid,
+      deviceId: ctx.deviceId,
+      sessionId: ctx.sessionId,
+      employeeId: ctx.employeeId,
+      correlationId: ctx.correlationId,
+      events: [promptResp],
+    });
+    expect(r.status).toBe('batch_accepted');
+    if (r.status === 'batch_accepted') {
+      const first = r.results[0];
+      expect(first?.status).toBe('rejected');
+      if (first?.status === 'rejected') expect(first.code).toBe('state_transition_invalid');
+    }
+  });
+
+  it('legal transition chain within a single batch: CLOCK_IN → START_BREAK → END_BREAK → CLOCK_OUT', async () => {
+    const in1 = await signedEvent(ctx, { event_type: 'USER_CLOCK_IN', sequence_number: 1 });
+    const start = await signedEvent(ctx, {
+      event_type: 'USER_START_BREAK',
+      sequence_number: 2,
+      payload: { break_kind: 'bio' },
+    });
+    const end = await signedEvent(ctx, { event_type: 'USER_END_BREAK', sequence_number: 3 });
+    const out = await signedEvent(ctx, { event_type: 'USER_CLOCK_OUT', sequence_number: 4 });
+    const r = await ingestBatch({
+      db: ctx.db,
+      authOid: ctx.userOid,
+      deviceId: ctx.deviceId,
+      sessionId: ctx.sessionId,
+      employeeId: ctx.employeeId,
+      correlationId: ctx.correlationId,
+      events: [in1, start, end, out],
+    });
+    expect(r.status).toBe('batch_accepted');
+    if (r.status === 'batch_accepted') {
+      expect(r.results.every((x) => x.status === 'accepted')).toBe(true);
+      expect(r.sessionClosedWith).toBe('user_clock_out');
+    }
+  });
+
   it('accepts a mixed batch: [accepted, duplicate_noop, rejected] per event', async () => {
     // First send seq 1 so we can retry it
     const in1 = await signedEvent(ctx, { event_type: 'USER_CLOCK_IN', sequence_number: 1 });

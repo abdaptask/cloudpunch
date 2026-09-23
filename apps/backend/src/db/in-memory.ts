@@ -95,6 +95,14 @@ export class InMemoryDb implements DbRepositories {
         }
         return max;
       },
+      findBySessionOrderedBySequence: async (sessionId) => {
+        const items: TimeEventRecord[] = [];
+        for (const e of this.eventByUlid.values()) {
+          if (e.sessionId === sessionId) items.push(e);
+        }
+        items.sort((a, b) => a.sequenceNumber - b.sequenceNumber);
+        return items;
+      },
     };
   }
 

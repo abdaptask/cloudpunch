@@ -5,6 +5,7 @@ import {
 } from '@cloudpunch/event-schema';
 import type { DbRepositories, EmploymentStatus, SessionCloseReason } from '../db/index.js';
 import type { EventItem } from './schemas.js';
+import { INITIAL_STATE, deriveState, nextState, type PayrollState } from './state-machine.js';
 
 /**
  * Max sequence-number gap tolerated per session per batch. See
@@ -32,6 +33,7 @@ export type EventIngestResult =
       code:
         | 'signature_invalid'
         | 'sequence_gap_too_large'
+        | 'state_transition_invalid'
         | 'duplicate_sequence'
         | 'duplicate_ulid_different_payload'
         | 'event_out_of_session';
@@ -128,6 +130,15 @@ export async function ingestBatch(input: IngestBatchInput): Promise<IngestBatchO
   let watermark = maxKnownSeq ?? 0;
   let sessionClosedWith: SessionCloseReason | null = null;
 
+  // Derive the session's current payroll state from the events already
+  // in the DB. If the session was just opened in this batch (session
+  // creation above), the stream is empty and derivation returns
+  // INITIAL_STATE (=ACTIVE), which is correct for a fresh USER_CLOCK_IN.
+  const priorEvents = await input.db.timeEvents.findBySessionOrderedBySequence(session.id);
+  let currentState: PayrollState =
+    priorEvents.length === 0 ? INITIAL_STATE : deriveState(priorEvents);
+  const sessionExistedBeforeBatch = priorEvents.length > 0;
+
   const results: EventIngestResult[] = [];
 
   for (const evt of input.events) {
@@ -184,7 +195,39 @@ export async function ingestBatch(input: IngestBatchInput): Promise<IngestBatchO
       continue;
     }
 
-    // 3. Idempotent insert.
+    // 3. Idempotency short-circuit. A retried event (same ULID) must
+    //    return duplicate_noop even if a naïve state check would
+    //    reject it — the state was already validated when the event
+    //    was first accepted. Skip state validation for duplicates
+    //    and let the insert path produce the correct duplicate_* result.
+    const isDuplicateUlid = (await input.db.timeEvents.findByUlid(evt.event_ulid)) !== null;
+
+    // 4. State-machine validation (skipped for duplicates).
+    //    USER_CLOCK_IN with sequence 1 that opened the session in
+    //    this batch (no prior events) is also skipped — the session
+    //    was just created and INITIAL_STATE is the correct starting
+    //    point for that event.
+    if (!isDuplicateUlid) {
+      const isOpeningClockIn =
+        evt.event_type === 'USER_CLOCK_IN' &&
+        evt.sequence_number === 1 &&
+        !sessionExistedBeforeBatch;
+      if (!isOpeningClockIn) {
+        const proposed = nextState(currentState, evt.event_type, evt.payload);
+        if (proposed === null) {
+          results.push({
+            event_ulid: evt.event_ulid,
+            status: 'rejected',
+            code: 'state_transition_invalid',
+            message: `event ${evt.event_type} is not valid from state ${currentState}`,
+          });
+          continue;
+        }
+        currentState = proposed;
+      }
+    }
+
+    // 5. Idempotent insert.
     const insertResult = await input.db.timeEvents.insertOne({
       eventUlid: evt.event_ulid,
       eventType: evt.event_type,
@@ -275,6 +318,8 @@ function mapInsertRejectCode(
       return 'signature_invalid';
     case 'sequence_gap_too_large':
       return 'sequence_gap_too_large';
+    case 'state_transition_invalid':
+      return 'state_transition_invalid';
     default:
       return 'event_out_of_session';
   }

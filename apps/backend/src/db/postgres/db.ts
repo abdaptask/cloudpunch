@@ -421,6 +421,19 @@ export class PostgresDb implements DbRepositories {
         if (!row || row.max === null) return null;
         return Number(row.max);
       },
+      findBySessionOrderedBySequence: async (sessionId) => {
+        const rows = await this.sql<TimeEventRow[]>`
+          SELECT event_ulid, event_type, session_id, employee_id,
+                 sequence_number, client_ts, server_ts, monotonic_ns,
+                 tz_iana, utc_offset_minutes, device_id, app_version,
+                 origin, offline_captured, payload, integrity_signature,
+                 correlation_id, parent_event_ulid
+          FROM time_event
+          WHERE session_id = ${sessionId}
+          ORDER BY sequence_number ASC
+        `;
+        return rows.map(map);
+      },
     };
   }
 }

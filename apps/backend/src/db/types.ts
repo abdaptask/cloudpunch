@@ -188,6 +188,12 @@ export interface TimeEventRepo {
   insertOne(input: TimeEventInput): Promise<InsertEventResult>;
   findByUlid(ulid: string): Promise<TimeEventRecord | null>;
   findMaxSequenceForSession(sessionId: string): Promise<number | null>;
+  /**
+   * Return every event for a session ordered by sequence_number ASC.
+   * Bounded per session (typically < 50 events per shift). Used by the
+   * state-machine derivation at ingest time.
+   */
+  findBySessionOrderedBySequence(sessionId: string): Promise<readonly TimeEventRecord[]>;
 }
 
 export interface DbRepositories {
