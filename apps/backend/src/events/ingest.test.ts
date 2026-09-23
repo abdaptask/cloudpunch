@@ -674,6 +674,121 @@ describe('ingestBatch — per-event rejections', () => {
     }
   });
 
+  it('CLOCK_DRIFT_DETECTED closes the session with error_frozen', async () => {
+    const in1 = await signedEvent(ctx, { event_type: 'USER_CLOCK_IN', sequence_number: 1 });
+    await ingestBatch({
+      db: ctx.db,
+      authOid: ctx.userOid,
+      deviceId: ctx.deviceId,
+      sessionId: ctx.sessionId,
+      employeeId: ctx.employeeId,
+      correlationId: ctx.correlationId,
+      events: [in1],
+    });
+    const drift = await signedEvent(ctx, {
+      event_type: 'CLOCK_DRIFT_DETECTED',
+      sequence_number: 2,
+      origin: 'system_watcher',
+      payload: {
+        wall_delta_ms: 63000,
+        monotonic_delta_ms: 3000,
+        sample_window_ms: 30000,
+      },
+    });
+    const r = await ingestBatch({
+      db: ctx.db,
+      authOid: ctx.userOid,
+      deviceId: ctx.deviceId,
+      sessionId: ctx.sessionId,
+      employeeId: ctx.employeeId,
+      correlationId: ctx.correlationId,
+      events: [drift],
+    });
+    expect(r.status).toBe('batch_accepted');
+    if (r.status === 'batch_accepted') {
+      expect(r.results[0]?.status).toBe('accepted');
+      expect(r.sessionClosedWith).toBe('error_frozen');
+    }
+    const session = await ctx.db.timeSessions.findById(ctx.sessionId);
+    expect(session?.closedReason).toBe('error_frozen');
+  });
+
+  it('INTEGRITY_VIOLATION closes the session with error_frozen', async () => {
+    const in1 = await signedEvent(ctx, { event_type: 'USER_CLOCK_IN', sequence_number: 1 });
+    await ingestBatch({
+      db: ctx.db,
+      authOid: ctx.userOid,
+      deviceId: ctx.deviceId,
+      sessionId: ctx.sessionId,
+      employeeId: ctx.employeeId,
+      correlationId: ctx.correlationId,
+      events: [in1],
+    });
+    const violation = await signedEvent(ctx, {
+      event_type: 'INTEGRITY_VIOLATION',
+      sequence_number: 2,
+      origin: 'system_watcher',
+      payload: { reason: 'signature_reuse_detected' },
+    });
+    const r = await ingestBatch({
+      db: ctx.db,
+      authOid: ctx.userOid,
+      deviceId: ctx.deviceId,
+      sessionId: ctx.sessionId,
+      employeeId: ctx.employeeId,
+      correlationId: ctx.correlationId,
+      events: [violation],
+    });
+    expect(r.status).toBe('batch_accepted');
+    if (r.status === 'batch_accepted') {
+      expect(r.sessionClosedWith).toBe('error_frozen');
+    }
+  });
+
+  it('after error_frozen close, subsequent batches return session_closed', async () => {
+    // Open session, then drift, then try to send more
+    const in1 = await signedEvent(ctx, { event_type: 'USER_CLOCK_IN', sequence_number: 1 });
+    await ingestBatch({
+      db: ctx.db,
+      authOid: ctx.userOid,
+      deviceId: ctx.deviceId,
+      sessionId: ctx.sessionId,
+      employeeId: ctx.employeeId,
+      correlationId: ctx.correlationId,
+      events: [in1],
+    });
+    const drift = await signedEvent(ctx, {
+      event_type: 'CLOCK_DRIFT_DETECTED',
+      sequence_number: 2,
+      origin: 'system_watcher',
+    });
+    await ingestBatch({
+      db: ctx.db,
+      authOid: ctx.userOid,
+      deviceId: ctx.deviceId,
+      sessionId: ctx.sessionId,
+      employeeId: ctx.employeeId,
+      correlationId: ctx.correlationId,
+      events: [drift],
+    });
+    // Now try INPUT_ACTIVITY — session is closed
+    const evt = await signedEvent(ctx, {
+      event_type: 'INPUT_ACTIVITY',
+      sequence_number: 3,
+      origin: 'system_watcher',
+    });
+    const r = await ingestBatch({
+      db: ctx.db,
+      authOid: ctx.userOid,
+      deviceId: ctx.deviceId,
+      sessionId: ctx.sessionId,
+      employeeId: ctx.employeeId,
+      correlationId: ctx.correlationId,
+      events: [evt],
+    });
+    expect(r.status).toBe('session_closed');
+  });
+
   it('accepts a mixed batch: [accepted, duplicate_noop, rejected] per event', async () => {
     // First send seq 1 so we can retry it
     const in1 = await signedEvent(ctx, { event_type: 'USER_CLOCK_IN', sequence_number: 1 });

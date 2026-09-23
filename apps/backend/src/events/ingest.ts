@@ -286,11 +286,24 @@ export async function ingestBatch(input: IngestBatchInput): Promise<IngestBatchO
         server_ts: insertResult.serverTs.toISOString(),
       });
       watermark = Math.max(watermark, evt.sequence_number);
-      // Close the session if this was USER_CLOCK_OUT.
+      // Determine session-close reason from the event type. Later
+      // events in the same batch may overwrite this (e.g. a
+      // CLOCK_OUT after a CLOCK_DRIFT_DETECTED) — we accept that; the
+      // last decisive event wins the close_reason, and the batch
+      // ends with the session closed either way.
       if (evt.event_type === 'USER_CLOCK_OUT') {
         sessionClosedWith = 'user_clock_out';
       } else if (evt.event_type === 'PROMPT_TIMEOUT_30S') {
         sessionClosedWith = 'idle_auto_clock_out';
+      } else if (
+        evt.event_type === 'CLOCK_DRIFT_DETECTED' ||
+        evt.event_type === 'INTEGRITY_VIOLATION'
+      ) {
+        // ADR-0003 §9 — integrity signal freezes the session.
+        // A ReviewCase is created by a downstream watcher (Phase 5);
+        // here we just make sure the session is closed with the
+        // correct reason so no more events can attach to it.
+        sessionClosedWith = 'error_frozen';
       }
     } else if (insertResult.status === 'duplicate_noop') {
       results.push({
