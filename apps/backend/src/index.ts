@@ -23,3 +23,18 @@ export {
   type IngestBatchOutcome,
   type EventIngestResult,
 } from './events/ingest.js';
+export {
+  derivePeriods,
+  type BreakKind,
+  type DerivedBreakPeriod,
+  type DerivedIdlePeriod,
+  type DeriveResult,
+  type EventForDerivation,
+  type IdleResolution,
+} from './events/derive.js';
+export {
+  deriveState,
+  nextState,
+  INITIAL_STATE,
+  type PayrollState,
+} from './events/state-machine.js';
