@@ -62,6 +62,14 @@ export const ingestBatchBodySchema = z
     session_id: z.string().uuid(),
     employee_id: z.string().uuid(),
     correlation_id: z.string().uuid(),
+    /**
+     * Optional take-over hint. When true, and the batch opens a new
+     * session while the employee already has an open session on a
+     * different session_id, the existing session is closed with
+     * closed_reason='remote_takeover' before the new one is opened.
+     * See ADR-0003 §8.
+     */
+    take_over: z.boolean().optional().default(false),
     events: z.array(eventItemSchema).min(1).max(100),
   })
   .strict();

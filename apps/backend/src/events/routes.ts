@@ -22,6 +22,7 @@ const HTTP_STATUS_FOR: Record<Exclude<IngestBatchOutcome['status'], 'batch_accep
   session_closed: 409,
   session_owner_mismatch: 409,
   session_device_mismatch: 409,
+  multi_device_conflict: 409,
 };
 
 const eventsRoutesImpl: FastifyPluginAsync<EventsRoutesOptions> = async (app, opts) => {
@@ -54,6 +55,7 @@ const eventsRoutesImpl: FastifyPluginAsync<EventsRoutesOptions> = async (app, op
         employeeId: parsed.data.employee_id,
         correlationId: parsed.data.correlation_id,
         events: parsed.data.events,
+        takeOver: parsed.data.take_over,
       });
 
       if (outcome.status === 'batch_accepted') {
@@ -72,6 +74,12 @@ const eventsRoutesImpl: FastifyPluginAsync<EventsRoutesOptions> = async (app, op
       };
       if (outcome.status === 'employee_status_forbidden') {
         body['employee_status'] = outcome.employeeStatus;
+      }
+      if (outcome.status === 'multi_device_conflict') {
+        body['existing_session_id'] = outcome.existingSessionId;
+        body['existing_device_id'] = outcome.existingDeviceId;
+        body['opened_at'] = outcome.openedAt.toISOString();
+        body['hint'] = 'resubmit with take_over: true to close the existing session and continue';
       }
       return reply.code(status).type('application/problem+json').send(body);
     },
@@ -102,6 +110,8 @@ function humanFor(status: string): string {
       return 'session belongs to a different employee';
     case 'session_device_mismatch':
       return 'session was opened on a different device';
+    case 'multi_device_conflict':
+      return 'employee already has an open session on a different device';
     default:
       return status;
   }

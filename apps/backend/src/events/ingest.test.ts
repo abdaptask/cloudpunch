@@ -231,6 +231,143 @@ describe('ingestBatch — batch-level gates', () => {
     expect(r.status).toBe('employee_status_forbidden');
   });
 
+  it('multi_device_conflict — employee has an open session on a different session_id', async () => {
+    // Open a session on session_id_A
+    const firstSessionId = randomUUID();
+    const evt = await signedEvent(
+      { ...ctx, sessionId: firstSessionId },
+      {
+        event_type: 'USER_CLOCK_IN',
+        sequence_number: 1,
+        event_ulid: '01J8Q00000000000000000000A',
+      },
+    );
+    // Manually sign against the first session_id
+    const bytes = (await import('@cloudpunch/event-schema')).canonicalizeSignedFields({
+      app_version: '0.1.0',
+      client_ts: evt.client_ts,
+      correlation_id: ctx.correlationId,
+      device_id: ctx.deviceId,
+      employee_id: ctx.employeeId,
+      event_type: 'USER_CLOCK_IN',
+      event_ulid: evt.event_ulid,
+      monotonic_ns: 0,
+      offline_captured: false,
+      origin: 'user',
+      parent_event_ulid: null,
+      payload: {},
+      sequence_number: 1,
+      session_id: firstSessionId,
+      tz_iana: 'Asia/Kolkata',
+      utc_offset_minutes: 330,
+    });
+    const sig = await webcrypto.subtle.sign({ name: 'Ed25519' }, ctx.privateKey, bytes);
+    evt.integrity_signature = Buffer.from(new Uint8Array(sig)).toString('base64');
+
+    const first = await ingestBatch({
+      db: ctx.db,
+      authOid: ctx.userOid,
+      deviceId: ctx.deviceId,
+      sessionId: firstSessionId,
+      employeeId: ctx.employeeId,
+      correlationId: ctx.correlationId,
+      events: [evt],
+    });
+    expect(first.status).toBe('batch_accepted');
+
+    // Attempt to open a second session on session_id_B without take_over
+    const secondBatch = await signedEvent(ctx, {
+      event_type: 'USER_CLOCK_IN',
+      sequence_number: 1,
+      event_ulid: '01J8Q00000000000000000000B',
+    });
+    const r = await ingestBatch({
+      db: ctx.db,
+      authOid: ctx.userOid,
+      deviceId: ctx.deviceId,
+      sessionId: ctx.sessionId, // different from firstSessionId
+      employeeId: ctx.employeeId,
+      correlationId: ctx.correlationId,
+      events: [secondBatch],
+    });
+    expect(r.status).toBe('multi_device_conflict');
+    if (r.status === 'multi_device_conflict') {
+      expect(r.existingSessionId).toBe(firstSessionId);
+      expect(r.existingDeviceId).toBe(ctx.deviceId);
+    }
+  });
+
+  it('take_over closes the prior session and opens the new one', async () => {
+    const firstSessionId = randomUUID();
+    // Open first session (helper builds against ctx.sessionId; adjust)
+    const priorEvt = await signedEvent(
+      { ...ctx, sessionId: firstSessionId },
+      {
+        event_type: 'USER_CLOCK_IN',
+        sequence_number: 1,
+        event_ulid: '01J8Q00000000000000000000A',
+      },
+    );
+    // Re-sign for firstSessionId
+    const priorBytes = (await import('@cloudpunch/event-schema')).canonicalizeSignedFields({
+      app_version: '0.1.0',
+      client_ts: priorEvt.client_ts,
+      correlation_id: ctx.correlationId,
+      device_id: ctx.deviceId,
+      employee_id: ctx.employeeId,
+      event_type: 'USER_CLOCK_IN',
+      event_ulid: priorEvt.event_ulid,
+      monotonic_ns: 0,
+      offline_captured: false,
+      origin: 'user',
+      parent_event_ulid: null,
+      payload: {},
+      sequence_number: 1,
+      session_id: firstSessionId,
+      tz_iana: 'Asia/Kolkata',
+      utc_offset_minutes: 330,
+    });
+    const priorSig = await webcrypto.subtle.sign({ name: 'Ed25519' }, ctx.privateKey, priorBytes);
+    priorEvt.integrity_signature = Buffer.from(new Uint8Array(priorSig)).toString('base64');
+    await ingestBatch({
+      db: ctx.db,
+      authOid: ctx.userOid,
+      deviceId: ctx.deviceId,
+      sessionId: firstSessionId,
+      employeeId: ctx.employeeId,
+      correlationId: ctx.correlationId,
+      events: [priorEvt],
+    });
+
+    // Now take over — use a distinct event_ulid so it isn't mistaken
+    // for a duplicate of the prior session's CLOCK_IN.
+    const takeOverEvt = await signedEvent(ctx, {
+      event_type: 'USER_CLOCK_IN',
+      sequence_number: 1,
+      event_ulid: '01J8Q00000000000000000000B',
+    });
+    const r = await ingestBatch({
+      db: ctx.db,
+      authOid: ctx.userOid,
+      deviceId: ctx.deviceId,
+      sessionId: ctx.sessionId,
+      employeeId: ctx.employeeId,
+      correlationId: ctx.correlationId,
+      events: [takeOverEvt],
+      takeOver: true,
+    });
+    expect(r.status).toBe('batch_accepted');
+    if (r.status === 'batch_accepted') {
+      expect(r.results[0]?.status).toBe('accepted');
+    }
+    // Prior session should be closed with reason=remote_takeover
+    const prior = await ctx.db.timeSessions.findById(firstSessionId);
+    expect(prior?.closedReason).toBe('remote_takeover');
+    // New session should be open
+    const current = await ctx.db.timeSessions.findById(ctx.sessionId);
+    expect(current?.closedAt).toBeNull();
+  });
+
   it('rejects when session does not exist and first event is not USER_CLOCK_IN', async () => {
     const evt = await signedEvent(ctx, {
       event_type: 'INPUT_ACTIVITY',

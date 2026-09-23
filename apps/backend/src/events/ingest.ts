@@ -22,6 +22,13 @@ export interface IngestBatchInput {
   employeeId: string;
   correlationId: string;
   events: readonly EventItem[];
+  /**
+   * When true, if the employee already has an open session on a
+   * different session_id, that session is closed with
+   * closed_reason='remote_takeover' before this batch opens a new
+   * session. See ADR-0003 §8.
+   */
+  takeOver?: boolean;
 }
 
 export type EventIngestResult =
@@ -58,7 +65,13 @@ export type IngestBatchOutcome =
   | { status: 'session_not_open' }
   | { status: 'session_closed' }
   | { status: 'session_owner_mismatch' }
-  | { status: 'session_device_mismatch' };
+  | { status: 'session_device_mismatch' }
+  | {
+      status: 'multi_device_conflict';
+      existingSessionId: string;
+      existingDeviceId: string;
+      openedAt: Date;
+    };
 
 /**
  * Ingest a batch of signed events for a single session. See ADR-0004 §6.
@@ -113,6 +126,24 @@ export async function ingestBatch(input: IngestBatchInput): Promise<IngestBatchO
     if (firstEvt.event_type !== 'USER_CLOCK_IN' || firstEvt.sequence_number !== 1) {
       return { status: 'session_not_open' };
     }
+
+    // Multi-device conflict: an open session already exists for this
+    // employee on a different session_id (typically a different
+    // device). Reject unless the client explicitly opted in to take
+    // over. See ADR-0003 §8.
+    const existingOpen = await input.db.timeSessions.findOpenByEmployeeId(employee.id);
+    if (existingOpen && existingOpen.id !== input.sessionId) {
+      if (!input.takeOver) {
+        return {
+          status: 'multi_device_conflict',
+          existingSessionId: existingOpen.id,
+          existingDeviceId: existingOpen.deviceId,
+          openedAt: existingOpen.openedAt,
+        };
+      }
+      await input.db.timeSessions.close(existingOpen.id, new Date(), 'remote_takeover');
+    }
+
     session = await input.db.timeSessions.open({
       id: input.sessionId,
       employeeId: employee.id,
