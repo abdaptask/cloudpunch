@@ -1,0 +1,25 @@
+# Cargo workspace root.
+#
+# The desktop agent lives at apps/desktop/src-tauri and is the only
+# Rust crate today. Additional Rust workspaces (e.g. a sync-worker
+# in the future) would join this list.
+
+[workspace]
+resolver = "2"
+members = ["apps/desktop/src-tauri"]
+
+[workspace.package]
+edition = "2021"
+rust-version = "1.75"
+license = "Proprietary"
+publish = false
+
+# Release profile tuned for the desktop agent: small binary, fast
+# runtime, but keep debug info stripped so crash dumps stay useful
+# in Sentry after signing + notarisation.
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

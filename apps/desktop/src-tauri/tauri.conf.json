@@ -1,0 +1,35 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "CloudPunch",
+  "version": "0.0.0",
+  "identifier": "com.aptask.cloudpunch",
+  "build": {
+    "beforeDevCommand": "pnpm vite:dev",
+    "beforeBuildCommand": "pnpm vite:build",
+    "devUrl": "http://127.0.0.1:1420",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "CloudPunch",
+        "width": 420,
+        "height": 640,
+        "resizable": false,
+        "fullscreen": false,
+        "center": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": false,
+    "targets": "all",
+    "publisher": "apTask",
+    "category": "Productivity",
+    "shortDescription": "Employee time and attendance for remote workers.",
+    "longDescription": "CloudPunch records clock in/out, breaks, and idle time without capturing keystrokes, screen content, or other private data. See docs/policy/employee-privacy-notice.md."
+  }
+}
