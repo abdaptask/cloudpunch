@@ -30,6 +30,7 @@ executed.
 
 ## Applied order
 
-| #    | Slug              | Purpose                                                                           | Introduced in |
-| ---- | ----------------- | --------------------------------------------------------------------------------- | ------------- |
-| 0001 | baseline_identity | users, employees (with source column), devices, departments, audit_log foundation | Phase 1c      |
+| #    | Slug              | Purpose                                                                                       | Introduced in |
+| ---- | ----------------- | --------------------------------------------------------------------------------------------- | ------------- |
+| 0001 | baseline_identity | users, employees (with source column), devices, departments, audit_log foundation             | Phase 1c      |
+| 0002 | time_events       | time_session + append-only time_event ledger; UPDATE/DELETE trigger on time_event + audit_log | Phase 2a      |
