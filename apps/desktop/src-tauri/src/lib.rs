@@ -18,6 +18,7 @@
 //!     Tauri updater signature verification.
 
 pub mod event;
+pub mod outbox;
 
 /// Entry point invoked from `main.rs`. Kept separate so the same
 /// initialisation can be reused by future mobile targets (if we ever

@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Phase 2b.3 — SQLCipher local outbox (2026-09-23)
+
+Encrypted append/drain queue for offline events. On-disk state is
+inert without the OS-keystore key (verified by test).
+
+- `apps/desktop/src-tauri/src/outbox.rs`: `Outbox` with
+  `open` / `open_in_memory` / `enqueue` / `drain` / `mark_sent` /
+  `mark_failed` / `get` / `pending_count`. Idempotent enqueue via
+  `INSERT OR IGNORE` on the ULID primary key; drain ordered by
+  `(next_retry_at, sequence_number)` so retry-scheduled rows fall to
+  the back naturally.
+- Single `outbox` table with retry accounting (`retry_count`,
+  `next_retry_at`, `last_error`) and index
+  `outbox_ready_idx (next_retry_at, sequence_number)`. `event_body`
+  and `integrity_signature` stored as opaque BLOBs — no field-level
+  introspection on the client.
+- SQLCipher key applied via `PRAGMA key = "x'<hex>'"` with a raw
+  32-byte key (`CIPHER_KEY_LEN = 32`) — not a passphrase. Matches the
+  KDF'd key the OS keystore will supply in 2b.4.
+- `rusqlite = { features = ["bundled-sqlcipher-vendored-openssl"] }`
+  bundles both SQLCipher and OpenSSL from source, so no system OpenSSL
+  install is required on any dev machine. Cold builds compile OpenSSL
+  (~5 minutes on Windows; needs Strawberry Perl); incremental builds
+  unaffected.
+- 21 tests pass — including `on_disk_persists_across_reopens_with_the_
+  same_key` and `wrong_key_cannot_open_existing_db` which specifically
+  prove encryption at rest.
+
+Deferred to later slices: OS-keystore key fetch (2b.4), retry backoff
+policy (2b.6), and `PRAGMA rekey` rotation path (follow-up ADR before
+GA).
+
+Refs: ADR-0004 §7, ADR-0007 §5.
+
 ### Phase 2b.2 — Rust canonicalize + Ed25519 signing (2026-09-23)
 
 Desktop core produces canonical event bytes byte-for-byte identical to
