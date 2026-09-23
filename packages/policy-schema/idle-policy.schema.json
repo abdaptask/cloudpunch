@@ -11,7 +11,12 @@
         "threshold_seconds": { "type": "integer", "minimum": 60, "maximum": 3600, "default": 300 },
         "grace_seconds": { "type": "integer", "minimum": 10, "maximum": 300, "default": 30 },
         "suppress_prompt_when_media_active": { "type": "boolean", "default": true },
-        "media_state_debounce_seconds": { "type": "integer", "minimum": 1, "maximum": 60, "default": 5 },
+        "media_state_debounce_seconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 60,
+          "default": 5
+        },
         "count_as_payable_when_unresponsive": { "type": "boolean", "default": false },
         "prompt_options": {
           "type": "array",
@@ -56,7 +61,12 @@
           "properties": {
             "max_minutes": { "type": "integer", "minimum": 15, "maximum": 180, "default": 60 },
             "payable": { "type": "boolean", "default": false },
-            "min_minutes_before_prompt": { "type": "integer", "minimum": 0, "maximum": 720, "default": 0 }
+            "min_minutes_before_prompt": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 720,
+              "default": 0
+            }
           },
           "additionalProperties": false
         }
@@ -91,8 +101,18 @@
     "system": {
       "type": "object",
       "properties": {
-        "max_lock_duration_minutes": { "type": "integer", "minimum": 5, "maximum": 480, "default": 120 },
-        "max_sleep_duration_minutes": { "type": "integer", "minimum": 5, "maximum": 480, "default": 120 }
+        "max_lock_duration_minutes": {
+          "type": "integer",
+          "minimum": 5,
+          "maximum": 480,
+          "default": 120
+        },
+        "max_sleep_duration_minutes": {
+          "type": "integer",
+          "minimum": 5,
+          "maximum": 480,
+          "default": 120
+        }
       },
       "additionalProperties": false
     },

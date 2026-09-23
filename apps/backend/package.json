@@ -1,0 +1,32 @@
+{
+  "name": "@cloudpunch/backend",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "CloudPunch backend API service. Fastify + TypeScript on Node 20 LTS.",
+  "main": "./src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "dev": "tsx watch src/server.ts",
+    "start": "node --enable-source-maps dist/server.js",
+    "build": "tsc -p tsconfig.build.json"
+  },
+  "dependencies": {
+    "@cloudpunch/shared": "workspace:*",
+    "@fastify/sensible": "^5.6.0",
+    "fastify": "^4.28.1",
+    "fastify-plugin": "^4.5.1",
+    "jose": "^5.9.6",
+    "pino": "^9.4.0",
+    "pino-pretty": "^11.2.2",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.15",
+    "tsx": "^4.19.1",
+    "typescript": "^5.5.4",
+    "vitest": "^2.1.4"
+  }
+}

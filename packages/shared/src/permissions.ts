@@ -107,10 +107,7 @@ const _ROLE_CAPABILITIES: { readonly [K in AppRole]: readonly Capability[] } = {
     Capability.PayrollExport,
     Capability.PayrollPeriodLockToggle,
   ],
-  [AppRole.Auditor]: [
-    Capability.AuditReadAll,
-    Capability.AuditReadEvents,
-  ],
+  [AppRole.Auditor]: [Capability.AuditReadAll, Capability.AuditReadEvents],
 };
 
 // Freeze arrays and outer object; expose the frozen view only.

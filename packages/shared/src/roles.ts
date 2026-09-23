@@ -17,9 +17,7 @@ export const AppRole = {
 
 export type AppRole = (typeof AppRole)[keyof typeof AppRole];
 
-export const ALL_APP_ROLES: readonly AppRole[] = Object.freeze(
-  Object.values(AppRole) as AppRole[],
-);
+export const ALL_APP_ROLES: readonly AppRole[] = Object.freeze(Object.values(AppRole) as AppRole[]);
 
 /**
  * Type guard for validating an unknown value (e.g. a claim from a token)

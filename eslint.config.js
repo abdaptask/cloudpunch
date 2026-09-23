@@ -17,7 +17,11 @@ export default tseslint.config(
   {
     languageOptions: {
       parserOptions: {
-        projectService: true,
+        // Config JS files (eslint.config.js, *.config.js) live outside the
+        // TypeScript project graphs; permit them through the default project.
+        projectService: {
+          allowDefaultProject: ['eslint.config.js', '*.config.js', '*.config.mjs'],
+        },
         tsconfigRootDir: import.meta.dirname,
       },
     },
@@ -29,12 +33,18 @@ export default tseslint.config(
       ],
       '@typescript-eslint/no-explicit-any': 'error',
       '@typescript-eslint/no-non-null-assertion': 'error',
+      // Fastify handlers and plugins are typed as async even when the body
+      // does not await; this rule fights the framework's model.
+      '@typescript-eslint/require-await': 'off',
     },
   },
   {
     files: ['**/*.test.ts', '**/*.spec.ts'],
     rules: {
       '@typescript-eslint/no-non-null-assertion': 'off',
+      // Fastify's `.json()` returns unknown; specific-shape asserts in test
+      // bodies are load-bearing and hard to route through generics cleanly.
+      '@typescript-eslint/no-unnecessary-type-assertion': 'off',
     },
   },
 );

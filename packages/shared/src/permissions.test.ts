@@ -138,10 +138,7 @@ describe('hasCapability and hasAnyCapability', () => {
 
   it('hasAnyCapability returns false when none are granted', () => {
     expect(
-      hasAnyCapability(
-        [AppRole.Employee],
-        [Capability.AdminConfigWrite, Capability.PayrollExport],
-      ),
+      hasAnyCapability([AppRole.Employee], [Capability.AdminConfigWrite, Capability.PayrollExport]),
     ).toBe(false);
   });
 });
