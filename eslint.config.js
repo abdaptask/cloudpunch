@@ -26,6 +26,7 @@ export default tseslint.config(
             '*.config.mjs',
             'vitest.config.ts',
             'vitest.integration.config.ts',
+            'apps/*/vite.config.ts',
             'apps/*/vitest.config.ts',
             'apps/*/vitest.integration.config.ts',
           ],
