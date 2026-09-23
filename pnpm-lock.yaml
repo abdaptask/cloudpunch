@@ -26,6 +26,9 @@ importers:
 
   apps/backend:
     dependencies:
+      '@cloudpunch/event-schema':
+        specifier: workspace:*
+        version: link:../../packages/event-schema
       '@cloudpunch/shared':
         specifier: workspace:*
         version: link:../../packages/shared

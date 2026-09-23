@@ -59,19 +59,21 @@ export type CanonicalJsonValue =
   | { readonly [key: string]: CanonicalJsonValue };
 
 /**
- * Serialize a value to canonical JSON bytes. Throws on:
+ * Serialize a value to canonical JSON bytes. Accepts `unknown` because
+ * inputs typically come from a JSON body validated at a separate
+ * boundary; the type check happens at runtime here. Throws on:
  *   - Non-integer numbers (NaN, Infinity, fractions)
  *   - `undefined` values (JSON has no undefined)
  *   - Functions, symbols, bigints
  *   - Cyclic references
  */
-export function canonicalize(value: CanonicalJsonValue): Uint8Array {
+export function canonicalize(value: unknown): Uint8Array {
   const seen = new WeakSet<object>();
   const out = writeValue(value, seen);
   return new TextEncoder().encode(out);
 }
 
-function writeValue(v: CanonicalJsonValue, seen: WeakSet<object>): string {
+function writeValue(v: unknown, seen: WeakSet<object>): string {
   if (v === null) return 'null';
   const t = typeof v;
   if (t === 'boolean') return v ? 'true' : 'false';
@@ -93,12 +95,12 @@ function writeValue(v: CanonicalJsonValue, seen: WeakSet<object>): string {
   if (Array.isArray(v)) {
     if (seen.has(v)) throw new CanonicalizationError('cycle detected');
     seen.add(v);
-    const parts = v.map((item) => writeValue(item as CanonicalJsonValue, seen));
+    const parts = (v as readonly unknown[]).map((item) => writeValue(item, seen));
     seen.delete(v);
     return '[' + parts.join(',') + ']';
   }
-  if (t === 'object') {
-    const obj = v as { readonly [key: string]: CanonicalJsonValue };
+  if (t === 'object' && v !== null) {
+    const obj = v as Record<string, unknown>;
     if (seen.has(obj)) throw new CanonicalizationError('cycle detected');
     seen.add(obj);
     // Sort keys lexicographically. TypeScript object keys are UTF-16
@@ -180,7 +182,7 @@ export function canonicalizeSignedFields(event: {
   readonly offline_captured: boolean;
   readonly origin: string;
   readonly parent_event_ulid: string | null;
-  readonly payload: CanonicalJsonValue;
+  readonly payload: unknown;
   readonly sequence_number: number;
   readonly session_id: string;
   readonly tz_iana: string;

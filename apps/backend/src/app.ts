@@ -5,6 +5,7 @@ import { createEntraJwks } from './auth/jwks.js';
 import type { Env } from './config/env.js';
 import type { DbRepositories } from './db/index.js';
 import { devicesRoutes } from './devices/routes.js';
+import { eventsRoutes } from './events/routes.js';
 import { healthPlugin, type HealthProbe } from './health/routes.js';
 import { meRoutes } from './me/routes.js';
 
@@ -66,9 +67,10 @@ export async function buildApp(opts: BuildAppOptions) {
   if (opts.db) {
     await app.register(meRoutes, { db: opts.db });
     await app.register(devicesRoutes, { db: opts.db });
+    await app.register(eventsRoutes, { db: opts.db });
   } else {
     opts.logger.warn(
-      'buildApp called without a DbRepositories; /v1/me and /v1/devices/enroll are not registered.',
+      'buildApp called without a DbRepositories; /v1/me, /v1/devices/enroll, and /v1/events are not registered.',
     );
   }
 

@@ -15,3 +15,11 @@ export * from './db/index.js';
 export { meRoutes } from './me/routes.js';
 export { devicesRoutes } from './devices/routes.js';
 export { enrollDeviceService } from './devices/enroll.js';
+export { eventsRoutes } from './events/routes.js';
+export {
+  ingestBatch,
+  MAX_SEQUENCE_GAP,
+  type IngestBatchInput,
+  type IngestBatchOutcome,
+  type EventIngestResult,
+} from './events/ingest.js';

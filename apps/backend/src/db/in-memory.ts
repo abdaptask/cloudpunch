@@ -182,6 +182,12 @@ export class InMemoryDb implements DbRepositories {
   // ---------------------------------------------------------------
 
   private async openSession(input: OpenSessionInput): Promise<TimeSession> {
+    // Idempotent: if the client-supplied id already exists, return it
+    // unchanged. This lets a retried USER_CLOCK_IN behave as a no-op.
+    if (input.id) {
+      const existing = this.sessionById.get(input.id);
+      if (existing) return existing;
+    }
     // Enforce the unique-open-per-employee invariant.
     for (const s of this.sessionById.values()) {
       if (s.employeeId === input.employeeId && s.closedAt === null) {
@@ -189,7 +195,7 @@ export class InMemoryDb implements DbRepositories {
       }
     }
     const session: TimeSession = {
-      id: randomUUID(),
+      id: input.id ?? randomUUID(),
       employeeId: input.employeeId,
       deviceId: input.deviceId,
       openedAt: input.openedAt,

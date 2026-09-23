@@ -105,6 +105,12 @@ export interface DeviceEnrollInput {
 }
 
 export interface OpenSessionInput {
+  /**
+   * Client-generated session id. Passing the same id twice is
+   * idempotent — the existing session is returned. Omitting it lets
+   * the repo generate one (used by tests and admin-side helpers).
+   */
+  id?: string | undefined;
   employeeId: string;
   deviceId: string;
   openedAt: Date;
