@@ -45,11 +45,13 @@ use crate::outbox::{Outbox, OutboxEntry};
 
 pub mod backoff;
 pub mod client;
+pub mod reqwest_client;
 
 pub use backoff::BackoffPolicy;
 pub use client::{
     BackendClient, PerEventOutcome, PerEventResult, SendBatchResponse, SessionEnvelope,
 };
+pub use reqwest_client::ReqwestBackendClient;
 
 #[derive(Debug, Clone)]
 pub struct SyncConfig {

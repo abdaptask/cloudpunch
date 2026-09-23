@@ -7,6 +7,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Phase 2b.6.2 — reqwest-based BackendClient (2026-09-23)
+
+Concrete implementation of `BackendClient` that actually posts to
+`POST /v1/events`. Integration-tested against an in-process httpmock
+server covering every documented response variant.
+
+- `apps/desktop/src-tauri/src/sync/reqwest_client.rs`:
+  `ReqwestBackendClient` with `blocking::Client`, 30 s request
+  timeout, `Bearer` auth header. Builds the batch envelope by parsing
+  each outbox row's `event_body` as `serde_json::Value` so canonical
+  bytes embed as real JSON.
+- Status-code → response mapping:
+  - 200 → parse `results[]`, one `PerEventResult` per entry
+    (`accepted` / `duplicate_noop` / `rejected{code,message}`).
+  - 400 → `ValidationFailed`.
+  - 403 → `AuthDenied`.
+  - 409 → dispatch on body `code`:
+    - `device_*` → `DeviceInvalid`.
+    - `session_*` → `SessionInvalid`.
+    - `multi_device_conflict` → `MultiDeviceConflict` with
+      `existing_session_id`, `existing_device_id` from body.
+    - anything else → `Transient(unexpected 409 code)`.
+  - 5xx / connect error / timeout / body-parse fail → `Transient`.
+- Defensive: an outbox row whose `event_body` isn't valid JSON
+  returns `Transient("event_body is not valid JSON at {ulid}: ...")`
+  without hitting the network. Real fix is enqueue-side validation
+  (future slice).
+- `Cargo.toml` deps added:
+  - `reqwest = { version = "0.12", default-features = false,
+      features = ["blocking", "json", "rustls-tls-native-roots"] }`.
+    `rustls-tls-native-roots` avoids OpenSSL tangling with SQLCipher.
+  - `httpmock = "0.7"` (dev-dep) — blocking-friendly HTTP fixtures.
+- 74 tests pass (11 new reqwest integration tests covering every
+  response variant + request-body shape assertion + network-error
+  path).
+
+Auth is a placeholder Bearer string; real Entra token acquisition
+lands with 2b.4 (MSAL PKCE).
+
+Refs: ADR-0004 §6.
+
 ### Phase 2b.6.1 — sync loop core + outbox poison migration (2026-09-23)
 
 First sub-slice of the sync loop. Drains the outbox against a mock

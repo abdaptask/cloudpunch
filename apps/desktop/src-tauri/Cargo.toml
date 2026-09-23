@@ -32,6 +32,15 @@ hex = "0.4"
 # UUID v4 for sync-loop correlation_ids (backend schema requires UUID
 # for the batch envelope's correlation_id).
 uuid = { version = "1", features = ["v4"] }
+# HTTP client for the sync loop -> POST /v1/events.
+# `blocking` matches the sync loop's sync thread model.
+# `rustls-tls-native-roots` uses rustls + system CA store — avoids
+# tangling with SQLCipher's vendored OpenSSL.
+reqwest = { version = "0.12", default-features = false, features = [
+    "blocking",
+    "json",
+    "rustls-tls-native-roots",
+] }
 
 # OS state watchers (idle, session, power, mic/cam, network) per
 # ADR-0003. Feature-gated to keep the compile surface small — we add
@@ -61,6 +70,9 @@ winreg = "0.52"
 rand = "0.8"
 # Temp files for outbox integration tests that need on-disk DBs.
 tempfile = "3"
+# In-process HTTP mock server for the sync loop's reqwest client
+# integration tests. Blocking-friendly (unlike wiremock).
+httpmock = "0.7"
 
 [features]
 # Tauri's custom-protocol feature is required for the production
