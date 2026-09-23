@@ -7,6 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Phase 2b.5.5 — Windows network reachability watcher (2026-09-23)
+
+Final watcher in the 2b.5 sub-series. All five OS signals from
+ADR-0003 now have Windows implementations.
+
+- `apps/desktop/src-tauri/src/watchers/network.rs` (Windows-only):
+  polls `INetworkListManager.GetConnectivity()` every 5 s. Reduces
+  the returned bitmask to a single boolean:
+  `(mask & (NLM_CONNECTIVITY_IPV4_INTERNET
+          | NLM_CONNECTIVITY_IPV6_INTERNET)) != 0`. LAN-only, subnet,
+  and traffic-only bits do NOT count as reachable.
+- Emits `NetworkReachabilityChanged { reachable, at }` only when the
+  boolean flips (or on first poll). No SSID, no adapter, no address
+  — just up/down.
+- COM lifecycle handled on the watcher thread:
+  `CoInitializeEx(COINIT_APARTMENTTHREADED)` at start,
+  `CoUninitialize` at exit. `INetworkListManager` objects are created
+  per-poll and dropped before uninit — no lifetime hazard, no
+  reference cycles, no message pump.
+- Poll-vs-event-sink decision: `INetworkEvents` sink would be
+  event-driven but requires ~4× the code (hand-rolled COM sink with
+  `#[implement]`, connection-point advise/unadvise, STA message
+  pump, reference-cycle care). The state machine tolerates
+  seconds-level latency; the outbox absorbs the gap.
+- `ConnectivityProbe` trait behind the COM call lets the poll loop
+  be integration-tested against a mock.
+- Cargo features added: `Win32_System_Com`,
+  `Win32_Networking_NetworkListManager`.
+- 43 tests pass (5 new: 4 pure reducer + 1 mocked watcher
+  integration).
+
+Follow-ups tracked separately:
+  - Wire the supervisor into `lib.rs::run()` so watchers actually
+    start when the Tauri app launches (small integration slice).
+  - Evaluate a `MessagePumpWatcher` helper to deduplicate
+    `session.rs` + `power.rs` (does not apply to idle/mic_cam/network,
+    which are simple threads).
+
+Refs: ADR-0003 §OS signals, CLAUDE.md invariant 1.
+
 ### Phase 2b.5.4 — Windows mic/cam in-use boolean watcher (2026-09-23)
 
 - `apps/desktop/src-tauri/src/watchers/mic_cam.rs` (Windows-only):
