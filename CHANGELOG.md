@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### ADR-0010 — silent-call cap (2026-09-24)
+
+Docs only; the implementation follows in its own PR.
+
+- **ADR-0010 (new, Accepted)** — while `ON_CALL`, show the normal
+  idle prompt after `idle.max_silent_call_minutes` with no keyboard or
+  pointer input (default **30**, range 15–480, `null` disables),
+  measured from the later of entering the call and the last input.
+  Reuses `INPUT_IDLE_5M` with payload `{ "trigger": "silent_call" }`;
+  `ON_CALL → IDLE_PENDING` becomes legal. The silent call stays
+  payable; a timeout ends the session with `closed_at` = prompt shown.
+  Bounds walk-away, left-open-meeting, and mic-holding-app cases that
+  PR #8's capture-session detection would otherwise leave unbounded.
+- ADR-0003 and ADR-0009 status headers note the extension (content
+  unchanged).
+
+Refs: ADR-0003, ADR-0008, ADR-0009, ADR-0010.
+
 ### Phase 2b.7.2b PR E — mic detection via audio sessions (2026-09-24)
 
 Fixes the PR D smoke-test failure: a Teams call did not dismiss the
