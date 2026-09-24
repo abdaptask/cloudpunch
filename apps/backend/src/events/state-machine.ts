@@ -75,9 +75,9 @@ export function nextState(
 
   switch (eventType) {
     case 'INPUT_ACTIVITY':
-      // Input while the idle prompt is showing dismisses it.
-      if (current === 'IDLE_PENDING') return 'ACTIVE';
-      // Otherwise, activity is a no-op (state remains what it was).
+      // Activity never changes state. In particular it does NOT
+      // dismiss a visible idle prompt — the user must answer it, and
+      // the client resets its grace countdown instead (ADR-0008).
       return current;
 
     case 'USER_CLOCK_IN':

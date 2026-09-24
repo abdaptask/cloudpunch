@@ -94,8 +94,15 @@ describe('nextState — idle and prompt', () => {
   it('PROMPT_TIMEOUT_30S from ACTIVE is invalid', () => {
     expect(nextState('ACTIVE', 'PROMPT_TIMEOUT_30S')).toBeNull();
   });
-  it('INPUT_ACTIVITY from IDLE_PENDING → ACTIVE (dismiss)', () => {
-    expect(nextState('IDLE_PENDING', 'INPUT_ACTIVITY')).toBe('ACTIVE');
+  it('INPUT_ACTIVITY from IDLE_PENDING stays IDLE_PENDING (ADR-0008)', () => {
+    expect(nextState('IDLE_PENDING', 'INPUT_ACTIVITY')).toBe('IDLE_PENDING');
+  });
+  it('prompt is still answerable after input (ADR-0008)', () => {
+    const afterInput = nextState('IDLE_PENDING', 'INPUT_ACTIVITY');
+    expect(afterInput).toBe('IDLE_PENDING');
+    expect(nextState(afterInput!, 'USER_PROMPT_RESPONSE', { response: 'bio_break' })).toBe(
+      'ON_BREAK',
+    );
   });
   it('INPUT_ACTIVITY from ACTIVE stays ACTIVE', () => {
     expect(nextState('ACTIVE', 'INPUT_ACTIVITY')).toBe('ACTIVE');

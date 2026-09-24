@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### ADR-0008 backend follow-up + LF line endings (2026-09-24)
+
+- **Backend now implements ADR-0008.**
+  - `apps/backend/src/events/state-machine.ts`: `INPUT_ACTIVITY`
+    never changes state; from `IDLE_PENDING` it stays
+    `IDLE_PENDING` (was `ACTIVE`). The prompt must be answered or
+    time out.
+  - `apps/backend/src/events/derive.ts`: `INPUT_ACTIVITY` no longer
+    closes an open idle period. `IdleResolution` loses
+    `input_dismiss` (never persisted; no DB or schema references).
+  - Tests updated: flipped state-machine assertion, new
+    "answerable after input" test, derive tests + Alice worked
+    example now close the idle with a `still_working` response.
+- **`.gitattributes` (new):** `* text=auto eol=lf` plus binary
+  markers for images/fonts/PDF. Stops Windows clones with
+  `core.autocrlf=true` from checking files out as CRLF, which made
+  local `pnpm format:check` fail while CI passed. Index was already
+  all-LF, so no files are renormalised.
+
+**Known gap (pre-existing, not addressed here):** the backend treats
+`MEDIA_DEVICE_STATE` as ambient and has no `ON_CALL` state, so a call
+starting during `IDLE_PENDING` doesn't leave `IDLE_PENDING`
+server-side as ADR-0003/0008 require. To be picked up with the
+desktop state-machine slice.
+
+Refs: ADR-0003, ADR-0008.
+
 ### Phase 2b.7.2a — idle prompt component + ADR-0008 (2026-09-24)
 
 First half of 2b.7.2. Fixes a gap in ADR-0003 and adds the idle

@@ -99,13 +99,15 @@ describe('derivePeriods — idles', () => {
     expect(r.idles[0]?.response).toBeNull();
   });
 
-  it('IDLE_5M → INPUT_ACTIVITY produces an input_dismiss idle', () => {
+  it('INPUT_ACTIVITY does not close an open idle (ADR-0008)', () => {
     ulidSeq = 0;
     const idle = evt('INPUT_IDLE_5M', 30);
     const activity = evt('INPUT_ACTIVITY', 30);
-    const r = derivePeriods([idle, activity], null);
+    const resp = evt('USER_PROMPT_RESPONSE', 31, { response: 'still_working' });
+    const r = derivePeriods([idle, activity, resp], null);
     expect(r.idles).toHaveLength(1);
-    expect(r.idles[0]?.resolution).toBe('input_dismiss');
+    expect(r.idles[0]?.resolution).toBe('user_response');
+    expect(r.idles[0]?.sourceEndEventUlid).toBe(resp.eventUlid);
   });
 
   it('open idle at session close emits session_close resolution', () => {
@@ -159,17 +161,19 @@ describe('derivePeriods — Alice full workday', () => {
   it('reconstructs breaks and idles from the ADR-0003 worked example', () => {
     ulidSeq = 0;
     // Alice from docs/architecture/state-machine.md:
-    // 09:00 clock in → 11:10 idle prompt → 11:10:20 dismiss (input)
+    // 09:00 clock in → 11:10 idle prompt → mouse moves (no dismiss,
+    // ADR-0008) → 11:10:20 answers "still working"
     // 13:00 meal break (explicit start) → 14:02 end break
     // 17:00 clock out
     const clockIn = evt('USER_CLOCK_IN', 0);
     const idle = evt('INPUT_IDLE_5M', 130);
-    const dismiss = evt('INPUT_ACTIVITY', 130);
+    const input = evt('INPUT_ACTIVITY', 130);
+    const stillWorking = evt('USER_PROMPT_RESPONSE', 130, { response: 'still_working' });
     const startMeal = evt('USER_START_BREAK', 240, { break_kind: 'meal' });
     const endMeal = evt('USER_END_BREAK', 302);
     const clockOut = evt('USER_CLOCK_OUT', 480);
     const r = derivePeriods(
-      [clockIn, idle, dismiss, startMeal, endMeal, clockOut],
+      [clockIn, idle, input, stillWorking, startMeal, endMeal, clockOut],
       clockOut.clientTs,
     );
 
@@ -178,8 +182,9 @@ describe('derivePeriods — Alice full workday', () => {
     expect(r.breaks[0]?.endedAt).toEqual(endMeal.clientTs);
 
     expect(r.idles).toHaveLength(1);
-    expect(r.idles[0]?.resolution).toBe('input_dismiss');
-    expect(r.idles[0]?.endedAt).toEqual(dismiss.clientTs);
+    expect(r.idles[0]?.resolution).toBe('user_response');
+    expect(r.idles[0]?.response).toBe('still_working');
+    expect(r.idles[0]?.endedAt).toEqual(stillWorking.clientTs);
   });
 });
 
@@ -201,11 +206,11 @@ describe('derivePeriods — anomaly guards', () => {
     ulidSeq = 0;
     const i1 = evt('INPUT_IDLE_5M', 30);
     const i2 = evt('INPUT_IDLE_5M', 45);
-    const dismiss = evt('INPUT_ACTIVITY', 60);
-    const r = derivePeriods([i1, i2, dismiss], null);
+    const resp = evt('USER_PROMPT_RESPONSE', 60, { response: 'still_working' });
+    const r = derivePeriods([i1, i2, resp], null);
     expect(r.idles).toHaveLength(2);
     expect(r.idles[0]?.resolution).toBe('session_close');
     expect(r.idles[0]?.endedAt).toBeNull();
-    expect(r.idles[1]?.resolution).toBe('input_dismiss');
+    expect(r.idles[1]?.resolution).toBe('user_response');
   });
 });

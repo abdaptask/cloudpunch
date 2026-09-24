@@ -7,12 +7,14 @@
  * 3 when reporting endpoints need them; the derivation logic itself
  * is available today for on-demand queries and tests.
  *
- * Rules (per ADR-0003 §3 and docs/architecture/state-machine.md):
+ * Rules (per ADR-0003 §3 as amended by ADR-0008, and
+ * docs/architecture/state-machine.md):
  *   - `USER_START_BREAK` opens a break; `USER_END_BREAK` closes it.
  *   - `USER_PROMPT_RESPONSE` with `bio_break` / `meal_break` opens a
  *     break (the prompt itself is both an idle end and a break start).
  *   - `INPUT_IDLE_5M` opens an idle period; it closes on
- *     `USER_PROMPT_RESPONSE`, `PROMPT_TIMEOUT_30S`, or `INPUT_ACTIVITY`.
+ *     `USER_PROMPT_RESPONSE` or `PROMPT_TIMEOUT_30S`. `INPUT_ACTIVITY`
+ *     does not close it (ADR-0008) — the prompt stays until answered.
  *   - If the session closes while a break or idle is open, the period
  *     is emitted with the session's `closedAt` as `endedAt` and
  *     `sourceEndEventUlid = null`.
@@ -32,7 +34,7 @@ export interface DerivedBreakPeriod {
   sourceEndEventUlid: string | null;
 }
 
-export type IdleResolution = 'user_response' | 'input_dismiss' | 'timeout_close' | 'session_close';
+export type IdleResolution = 'user_response' | 'timeout_close' | 'session_close';
 
 export interface DerivedIdlePeriod {
   startedAt: Date;
@@ -92,16 +94,6 @@ export function derivePeriods(
           startedAt: openIdle.clientTs,
           endedAt: evt.clientTs,
           resolution: 'timeout_close',
-          response: null,
-          sourceStartEventUlid: openIdle.eventUlid,
-          sourceEndEventUlid: evt.eventUlid,
-        });
-        openIdle = null;
-      } else if (evt.eventType === 'INPUT_ACTIVITY') {
-        idles.push({
-          startedAt: openIdle.clientTs,
-          endedAt: evt.clientTs,
-          resolution: 'input_dismiss',
           response: null,
           sourceStartEventUlid: openIdle.eventUlid,
           sourceEndEventUlid: evt.eventUlid,
