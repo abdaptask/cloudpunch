@@ -21,6 +21,10 @@ src-tauri/            — Rust crate (Tauri backend, OS integration)
   src/
     main.rs           — Process entry
     lib.rs            — Tauri app builder + command handlers
+    machine/          — Pure time-state machine (no I/O); idle +
+                        grace timers, media debounce (ADR-0003/8/9)
+      transitions.rs  — Rust mirror of the backend `nextState`,
+                        checked against the shared fixture
 dist/                 — Vite output (git-ignored)
 src-tauri/target/     — Cargo output (git-ignored)
 ```

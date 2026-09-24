@@ -16,6 +16,10 @@ schemas/
   user-prompt-response.schema.json
   media-device-state.schema.json  — { in_use } only (ADR-0009)
   … (more added as Phase 2 lands the desktop agent)
+fixtures/
+  state-transitions.json          — payroll-state transition table run
+                                    by both the backend and desktop
+                                    state-machine tests
 ```
 
 ## Rules

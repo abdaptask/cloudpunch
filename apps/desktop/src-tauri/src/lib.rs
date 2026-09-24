@@ -19,11 +19,14 @@
 //!     from `NetworkReachabilityChanged`; sync loop opts in via env
 //!     vars until 2b.4 supplies real keys + tokens.
 //!   - Phase 2b.7: tray menu + idle prompt window.
+//!   - Phase 2b.7.2b PR B: pure desktop state machine (`machine`);
+//!     not wired to watchers, tray, or webview yet.
 //!   - Phase 2b.8: macOS parity for OS watchers + menu bar.
 //!   - Phase 2b.9: signed Windows installer + notarised macOS DMG +
 //!     Tauri updater signature verification.
 
 pub mod event;
+pub mod machine;
 pub mod outbox;
 pub mod sync;
 pub mod tray;

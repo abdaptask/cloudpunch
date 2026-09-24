@@ -7,6 +7,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Phase 2b.7.2b PR B — desktop state machine core (2026-09-24)
+
+Pure Rust state machine for the desktop agent. Not wired to the
+watchers, tray, or webview yet (PR D); emits typed events, not signed
+wire events (PR C / 2b.4). No new dependencies.
+
+- `apps/desktop/src-tauri/src/machine/` (new):
+  - `transitions.rs` — `next_payroll_state`, a Rust mirror of the
+    backend `nextState`. The core checks every event against it
+    before emitting, so the client never records a transition the
+    server would reject.
+  - `mod.rs` — `Core::handle(input, now) -> effects`. States:
+    clocked out, active, on call, idle pending, on break, away.
+    The core owns the idle threshold and the grace countdown, driven
+    by a ~1 Hz tick carrying the last-input time: `IdleWatcher` only
+    reports the first input after an idle period and can't re-arm
+    when a call ends. Input during the prompt pushes the deadline to
+    `last_input + grace` (ADR-0008 §2). Mic/cam off is debounced
+    5 s; media edges are recorded only when they change state
+    (ADR-0009). Prompt notes are trimmed, required for
+    `working_away`, capped at 500 chars. Policy values are the
+    defaults from `idle-policy-defaults.md` until policy fetch exists.
+  - `tests.rs` — 37 unit tests, including a scripted day replaying
+    every emitted event through the server mirror.
+- `packages/event-schema/fixtures/state-transitions.json` (new): 144
+  from-state × event cases, generated from the backend `nextState`
+  and checked against ADR-0003/0008/0009. Run by both
+  `apps/backend/src/events/state-machine.fixture.test.ts` (new) and
+  the Rust `transitions` tests.
+- Deferred: CLOCKING_IN/OUT, LOCKED, SLEEPING, OFFLINE_PENDING_SYNC,
+  ERROR states; break-cap nudges; manual `USER_MARK_AWAY` (no payload
+  schema yet).
+
+**Known gaps (pre-existing, not addressed here):** CI runs no Rust
+(`cargo test` / Clippy only run locally), and `cargo clippy -D
+warnings` fails on six lints in `sync/mod.rs`, `mic_cam.rs`,
+`canonicalize.rs`, and `supervisor.rs`. `cargo fmt` would also
+reformat 12 existing files. None of these are touched by this PR.
+
+Refs: ADR-0003, ADR-0008, ADR-0009.
+
 ### Phase 2b.7.2b PR A — backend `ON_CALL` state + ADR-0009 (2026-09-24)
 
 Closes the known gap from the ADR-0008 backend follow-up: a call
