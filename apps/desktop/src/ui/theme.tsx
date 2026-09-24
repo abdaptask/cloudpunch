@@ -42,8 +42,9 @@ export const light: Theme = {
     bio_break: '#0d9488', // teal
     meal_break: '#d97706', // amber
     other_break: '#65a30d', // lime
+    away_meeting: '#c026d3', // fuchsia
     away_phone: '#0284c7', // sky
-    away_working: '#9333ea', // purple
+    away_working: '#6d28d9', // violet
     prompt: '#9ca3af', // grey
   },
   danger: '#c0262d',
@@ -68,8 +69,9 @@ export const dark: Theme = {
     bio_break: '#2dd4bf',
     meal_break: '#fbbf24',
     other_break: '#a3e635',
+    away_meeting: '#e879f9',
     away_phone: '#38bdf8',
-    away_working: '#c084fc',
+    away_working: '#a78bfa',
     prompt: '#6b7280',
   },
   danger: '#ff6b6b',

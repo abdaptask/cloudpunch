@@ -43,7 +43,7 @@ describe('timelineModel', () => {
     expect(rows[1]!.endedAt).toBe(now);
   });
 
-  it('totals group kinds and exclude yesterday', () => {
+  it('totals count calls, meetings and phone calls as working', () => {
     const segs: Segment[] = [
       { kind: 'working', startedAt: now - 120 * MIN, endedAt: now - 60 * MIN, session: 1 },
       { kind: 'meal_break', startedAt: now - 60 * MIN, endedAt: now - 30 * MIN, session: 1 },
@@ -52,9 +52,8 @@ describe('timelineModel', () => {
       { kind: 'working', startedAt: now - 19 * MIN, endedAt: null, session: 1 },
     ];
     expect(totals(segs, now)).toEqual({
-      working: 79 * MIN,
+      working: 89 * MIN,
       break: 30 * MIN,
-      away: 10 * MIN,
       prompt: 1 * MIN,
     });
   });
@@ -85,7 +84,9 @@ describe('timelineModel', () => {
 
   it('groups', () => {
     expect(groupOf('other_break')).toBe('break');
-    expect(groupOf('away_working')).toBe('away');
+    expect(groupOf('away_working')).toBe('working');
+    expect(groupOf('away_meeting')).toBe('working');
+    expect(groupOf('on_call')).toBe('working');
   });
 
   it('formats durations and timers', () => {

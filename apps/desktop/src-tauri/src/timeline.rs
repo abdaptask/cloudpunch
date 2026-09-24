@@ -50,6 +50,7 @@ impl SegmentKind {
             SegmentKind::Break(BreakKind::Other) => "other_break",
             SegmentKind::Away(AwayReason::PhoneCall) => "away_phone",
             SegmentKind::Away(AwayReason::WorkingAway) => "away_working",
+            SegmentKind::Away(AwayReason::Meeting) => "away_meeting",
             SegmentKind::Prompt => "prompt",
         }
     }

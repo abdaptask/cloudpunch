@@ -100,7 +100,12 @@ pub fn next_payroll_state(
 
         "USER_START_BREAK" => matches!(current, Active | OnCall).then_some(OnBreak),
         "USER_END_BREAK" => (current == OnBreak).then_some(Active),
-        "USER_MARK_AWAY" => (current == Active).then_some(Away),
+        // ADR-0011 §2: a known away_reason is required.
+        "USER_MARK_AWAY" => {
+            let reason = field("away_reason")?.as_str()?;
+            let known = matches!(reason, "working_away" | "phone_call" | "meeting" | "other");
+            (known && current == Active).then_some(Away)
+        }
         "USER_MARK_BACK" => (current == Away).then_some(Active),
         // ADR-0010: the trigger must match the state; absent means
         // input_idle.

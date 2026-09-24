@@ -725,3 +725,99 @@ fn emitted_stream_is_accepted_by_server_machine() {
     }
     assert_eq!(state, PayrollState::Closed);
 }
+
+// ── voluntary away tags (ADR-0011 §2) ─────────────────────────────
+
+fn mark_away(
+    core: &mut Core,
+    reason: AwayReason,
+    note: Option<&str>,
+) -> Result<Vec<Effect>, Rejected> {
+    core.handle(
+        Input::MarkAway {
+            reason,
+            note: note.map(str::to_string),
+        },
+        t(100),
+    )
+}
+
+#[test]
+fn meeting_tag_enters_away_meeting_with_reason_payload() {
+    let mut core = clocked_in();
+    let fx = mark_away(&mut core, AwayReason::Meeting, None).unwrap();
+    assert_eq!(emitted(&fx), ["USER_MARK_AWAY"]);
+    let Some(Effect::Emit { event, .. }) = fx.first() else {
+        panic!("expected an emit first");
+    };
+    assert_eq!(
+        event.transition_payload(),
+        json!({ "away_reason": "meeting" })
+    );
+    assert_eq!(
+        core.state(),
+        CoreState::Away {
+            reason: AwayReason::Meeting
+        }
+    );
+}
+
+#[test]
+fn phone_call_tag_needs_no_note() {
+    let mut core = clocked_in();
+    mark_away(&mut core, AwayReason::PhoneCall, Some("  ")).unwrap();
+    assert_eq!(
+        core.state(),
+        CoreState::Away {
+            reason: AwayReason::PhoneCall
+        }
+    );
+}
+
+#[test]
+fn working_away_tag_requires_a_note() {
+    let mut core = clocked_in();
+    assert_eq!(
+        mark_away(&mut core, AwayReason::WorkingAway, None),
+        Err(Rejected::NoteRequired)
+    );
+    assert_eq!(core.state(), CoreState::Active);
+    assert!(mark_away(&mut core, AwayReason::WorkingAway, Some("site visit")).is_ok());
+}
+
+#[test]
+fn away_tag_note_is_capped() {
+    let mut core = clocked_in();
+    let long = "x".repeat(NOTE_MAX_CHARS + 1);
+    assert_eq!(
+        mark_away(&mut core, AwayReason::Meeting, Some(&long)),
+        Err(Rejected::NoteTooLong)
+    );
+}
+
+#[test]
+fn no_idle_prompt_while_tagged_away_and_back_returns_active() {
+    let mut core = clocked_in();
+    mark_away(&mut core, AwayReason::Meeting, None).unwrap();
+    // No cap on voluntary away (ADR-0011 §4).
+    assert!(emitted(&tick(&mut core, 0, 20_000)).is_empty());
+    core.handle(Input::MarkBack, t(20_001)).unwrap();
+    assert_eq!(core.state(), CoreState::Active);
+}
+
+#[test]
+fn away_tags_are_rejected_during_a_call_and_on_break() {
+    let mut on_call = on_call();
+    assert_eq!(
+        mark_away(&mut on_call, AwayReason::Meeting, None),
+        Err(Rejected::InvalidTransition)
+    );
+    let mut on_break = clocked_in();
+    on_break
+        .handle(Input::StartBreak(BreakKind::Bio), t(10))
+        .unwrap();
+    assert_eq!(
+        mark_away(&mut on_break, AwayReason::PhoneCall, None),
+        Err(Rejected::InvalidTransition)
+    );
+}

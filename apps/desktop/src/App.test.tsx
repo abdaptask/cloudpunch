@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   startBreak: vi.fn<(kind: 'bio' | 'meal') => Promise<StateView>>(),
   endBreak: vi.fn<() => Promise<StateView>>(),
   markBack: vi.fn<() => Promise<StateView>>(),
+  markAway: vi.fn<(reason: 'meeting' | 'phone_call') => Promise<StateView>>(),
   respondToPrompt: vi.fn(),
   onState: vi.fn<(cb: (v: StateView) => void) => Promise<() => void>>(),
 }));
@@ -45,7 +46,7 @@ beforeEach(() => {
 
 function statusText(): string | null {
   return within(screen.getByRole('region', { name: 'current-status' })).getByText(
-    /clocked in|on a|away|not clocked/i,
+    /clocked in|on a|in a meeting|working away|not clocked/i,
   ).textContent;
 }
 
@@ -69,7 +70,24 @@ describe('App home UI', () => {
     await user.click(await screen.findByRole('button', { name: 'Clock in' }));
     expect(mocks.clockIn).toHaveBeenCalledOnce();
     expect(statusText()).toBe('Clocked in');
-    expect(actionButtons()).toEqual(['Clock out', 'Bio break', 'Meal break']);
+    expect(actionButtons()).toEqual([
+      'Clock out',
+      'Bio break',
+      'Meal break',
+      'In a meeting',
+      'On a phone call',
+    ]);
+  });
+
+  it('away tags call mark_away with their reason (ADR-0011)', async () => {
+    mocks.getState.mockResolvedValue(view({ status: 'active' }));
+    mocks.markAway.mockResolvedValue(view({ status: 'away', awayReason: 'meeting' }));
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole('button', { name: 'In a meeting' }));
+    expect(mocks.markAway).toHaveBeenCalledWith('meeting');
+    expect(statusText()).toBe('In a meeting');
+    expect(actionButtons()).toEqual(["I'm back", 'Clock out']);
   });
 
   it('breaks pass their kind', async () => {
@@ -95,7 +113,7 @@ describe('App home UI', () => {
     mocks.markBack.mockResolvedValue(view({ status: 'active' }));
     const user = userEvent.setup();
     render(<App />);
-    expect(await screen.findByText('Away — on a phone call')).toBeInTheDocument();
+    expect(await screen.findByText('On a phone call')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: "I'm back" }));
     expect(mocks.markBack).toHaveBeenCalledOnce();
   });
@@ -182,6 +200,37 @@ describe('App home UI', () => {
     await user.click(first);
     expect(first).toHaveAttribute('aria-expanded', 'true');
     expect(screen.getByRole('list', { name: 'session 1' })).toBeInTheDocument();
+  });
+
+  it('totals count calls and meetings as Working, with a breakdown', async () => {
+    const now = Date.now();
+    const MIN = 60_000;
+    mocks.getState.mockResolvedValue(
+      view({
+        status: 'active',
+        sessionStartedAt: now - 60 * MIN,
+        timeline: [
+          { kind: 'working', startedAt: now - 60 * MIN, endedAt: now - 40 * MIN, session: 1 },
+          { kind: 'on_call', startedAt: now - 40 * MIN, endedAt: now - 30 * MIN, session: 1 },
+          { kind: 'away_meeting', startedAt: now - 30 * MIN, endedAt: now - 10 * MIN, session: 1 },
+          { kind: 'bio_break', startedAt: now - 10 * MIN, endedAt: now - 5 * MIN, session: 1 },
+          { kind: 'working', startedAt: now - 5 * MIN, endedAt: now, session: 1 },
+        ],
+      }),
+    );
+    render(<App />);
+    const totalsBox = await screen.findByRole('contentinfo', { name: 'totals' });
+    const pairs = within(totalsBox)
+      .getAllByRole('term')
+      .map((dt) => `${dt.textContent} = ${dt.nextElementSibling?.textContent}`);
+    expect(pairs).toEqual([
+      'Working = 55m 00s',
+      'At the computer = 25m 00s',
+      'On a call = 10m 00s',
+      'In a meeting = 20m 00s',
+      'Bio break = 5m 00s',
+      'On the clock = 1h 00m 00s',
+    ]);
   });
 
   it('shows an empty-day hint before anything is tracked', async () => {

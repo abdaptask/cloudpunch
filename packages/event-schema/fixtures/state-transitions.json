@@ -1,5 +1,5 @@
 {
-  "$comment": "Payroll-state transitions shared by the backend (state-machine.ts) and desktop core (core/state.rs). to=null means the transition is rejected. payload=null means no payload. See ADR-0003, ADR-0008, ADR-0009, ADR-0010.",
+  "$comment": "Payroll-state transitions shared by the backend (state-machine.ts) and desktop core (core/state.rs). to=null means the transition is rejected. payload=null means no payload. See ADR-0003, ADR-0008, ADR-0009, ADR-0010, ADR-0011.",
   "cases": [
     {
       "from": "ACTIVE",
@@ -31,7 +31,31 @@
       "from": "ACTIVE",
       "event_type": "USER_MARK_AWAY",
       "payload": {},
+      "to": null
+    },
+    {
+      "from": "ACTIVE",
+      "event_type": "USER_MARK_AWAY",
+      "payload": {
+        "away_reason": "meeting"
+      },
       "to": "AWAY"
+    },
+    {
+      "from": "ACTIVE",
+      "event_type": "USER_MARK_AWAY",
+      "payload": {
+        "away_reason": "phone_call"
+      },
+      "to": "AWAY"
+    },
+    {
+      "from": "ACTIVE",
+      "event_type": "USER_MARK_AWAY",
+      "payload": {
+        "away_reason": "lunch"
+      },
+      "to": null
     },
     {
       "from": "ACTIVE",
@@ -225,6 +249,30 @@
     },
     {
       "from": "ON_CALL",
+      "event_type": "USER_MARK_AWAY",
+      "payload": {
+        "away_reason": "meeting"
+      },
+      "to": null
+    },
+    {
+      "from": "ON_CALL",
+      "event_type": "USER_MARK_AWAY",
+      "payload": {
+        "away_reason": "phone_call"
+      },
+      "to": null
+    },
+    {
+      "from": "ON_CALL",
+      "event_type": "USER_MARK_AWAY",
+      "payload": {
+        "away_reason": "lunch"
+      },
+      "to": null
+    },
+    {
+      "from": "ON_CALL",
       "event_type": "USER_MARK_BACK",
       "payload": {},
       "to": null
@@ -415,6 +463,30 @@
     },
     {
       "from": "ON_BREAK",
+      "event_type": "USER_MARK_AWAY",
+      "payload": {
+        "away_reason": "meeting"
+      },
+      "to": null
+    },
+    {
+      "from": "ON_BREAK",
+      "event_type": "USER_MARK_AWAY",
+      "payload": {
+        "away_reason": "phone_call"
+      },
+      "to": null
+    },
+    {
+      "from": "ON_BREAK",
+      "event_type": "USER_MARK_AWAY",
+      "payload": {
+        "away_reason": "lunch"
+      },
+      "to": null
+    },
+    {
+      "from": "ON_BREAK",
       "event_type": "USER_MARK_BACK",
       "payload": {},
       "to": null
@@ -601,6 +673,30 @@
       "from": "AWAY",
       "event_type": "USER_MARK_AWAY",
       "payload": {},
+      "to": null
+    },
+    {
+      "from": "AWAY",
+      "event_type": "USER_MARK_AWAY",
+      "payload": {
+        "away_reason": "meeting"
+      },
+      "to": null
+    },
+    {
+      "from": "AWAY",
+      "event_type": "USER_MARK_AWAY",
+      "payload": {
+        "away_reason": "phone_call"
+      },
+      "to": null
+    },
+    {
+      "from": "AWAY",
+      "event_type": "USER_MARK_AWAY",
+      "payload": {
+        "away_reason": "lunch"
+      },
       "to": null
     },
     {
@@ -791,6 +887,30 @@
       "from": "IDLE_PENDING",
       "event_type": "USER_MARK_AWAY",
       "payload": {},
+      "to": null
+    },
+    {
+      "from": "IDLE_PENDING",
+      "event_type": "USER_MARK_AWAY",
+      "payload": {
+        "away_reason": "meeting"
+      },
+      "to": null
+    },
+    {
+      "from": "IDLE_PENDING",
+      "event_type": "USER_MARK_AWAY",
+      "payload": {
+        "away_reason": "phone_call"
+      },
+      "to": null
+    },
+    {
+      "from": "IDLE_PENDING",
+      "event_type": "USER_MARK_AWAY",
+      "payload": {
+        "away_reason": "lunch"
+      },
       "to": null
     },
     {
@@ -981,6 +1101,30 @@
       "from": "CLOSED",
       "event_type": "USER_MARK_AWAY",
       "payload": {},
+      "to": null
+    },
+    {
+      "from": "CLOSED",
+      "event_type": "USER_MARK_AWAY",
+      "payload": {
+        "away_reason": "meeting"
+      },
+      "to": null
+    },
+    {
+      "from": "CLOSED",
+      "event_type": "USER_MARK_AWAY",
+      "payload": {
+        "away_reason": "phone_call"
+      },
+      "to": null
+    },
+    {
+      "from": "CLOSED",
+      "event_type": "USER_MARK_AWAY",
+      "payload": {
+        "away_reason": "lunch"
+      },
       "to": null
     },
     {

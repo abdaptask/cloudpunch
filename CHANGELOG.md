@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Voluntary away tags: In a meeting / On a phone call (ADR-0011 §2) (2026-09-24)
+
+- Home window and tray: **In a meeting** and **On a phone call** tags
+  while clocked in (not during a detected call, ADR-0009 §2). "I'm
+  back" returns to working. No check-in cap (ADR-0011 §4).
+- `packages/event-schema/schemas/user-mark-away.schema.json` (new):
+  `{ away_reason: working_away | phone_call | meeting | other, note? }`.
+- Backend `USER_MARK_AWAY` now requires a known `away_reason`; still
+  `ACTIVE`-only. Shared fixture regenerated (180 cases).
+- Desktop core: `AwayReason::Meeting`, `Input::MarkAway { reason, note }`,
+  note rules from `away.require_note` (working_away required); new
+  `mark_away` command (meeting / phone_call only).
+- Tray shows **On a call** during Teams / Zoom calls, **In a meeting**,
+  **On a phone call**, or **Working away**.
+- Timeline: new `away_meeting` segment (fuchsia); working away moves to
+  violet. Calls, meetings, phone calls and working away count as
+  **Working** in the totals (per the project owner) and are shown
+  separately while they happen; the totals card breaks Working down
+  (at the computer / on a call / in a meeting / on a phone call /
+  working away).
+- Tests: Rust 168, backend 422, desktop 40.
+
 ### Fix: migration 0001 could not be applied (2026-09-24)
 
 - `apps/backend/db/migrations/0001_baseline_identity.sql`:

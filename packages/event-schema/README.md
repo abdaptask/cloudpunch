@@ -16,6 +16,7 @@ schemas/
   user-prompt-response.schema.json
   media-device-state.schema.json  — { in_use } only (ADR-0009)
   input-idle-5m.schema.json       — optional trigger (ADR-0010)
+  user-mark-away.schema.json      — away_reason + note (ADR-0011)
   … (more added as Phase 2 lands the desktop agent)
 fixtures/
   state-transitions.json          — payroll-state transition table run
