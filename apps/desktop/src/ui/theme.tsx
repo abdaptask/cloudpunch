@@ -38,13 +38,15 @@ export const light: Theme = {
   onAccent: '#ffffff',
   kind: {
     working: '#4f46e5', // indigo
-    on_call: '#e11d48', // rose
+    call_teams: '#7c3aed', // purple
+    call_zoom: '#0ea5e9', // sky
+    call_other: '#f97316', // orange
     bio_break: '#0d9488', // teal
     meal_break: '#d97706', // amber
     other_break: '#65a30d', // lime
     away_meeting: '#c026d3', // fuchsia
-    away_phone: '#0284c7', // sky
-    away_working: '#6d28d9', // violet
+    away_phone: '#e11d48', // rose
+    away_working: '#475569', // slate
     prompt: '#9ca3af', // grey
   },
   danger: '#c0262d',
@@ -65,13 +67,15 @@ export const dark: Theme = {
   onAccent: '#0b0e14',
   kind: {
     working: '#8b93ff',
-    on_call: '#fb7185',
+    call_teams: '#a78bfa',
+    call_zoom: '#38bdf8',
+    call_other: '#fb923c',
     bio_break: '#2dd4bf',
     meal_break: '#fbbf24',
     other_break: '#a3e635',
     away_meeting: '#e879f9',
-    away_phone: '#38bdf8',
-    away_working: '#a78bfa',
+    away_phone: '#fb7185',
+    away_working: '#94a3b8',
     prompt: '#6b7280',
   },
   danger: '#ff6b6b',

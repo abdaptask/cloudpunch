@@ -34,7 +34,7 @@ function statusLabel(v: StateView): string {
     case 'active':
       return 'Clocked in';
     case 'on_call':
-      return 'On a call';
+      return CALL_STATUS[v.callType ?? 'other'];
     case 'idle_pending':
       return 'Clocked in — are you still there?';
     case 'on_break':
@@ -69,9 +69,23 @@ function statusColor(t: Theme, v: StateView): string {
     case 'active':
       return t.kind.working;
     case 'on_call':
-      return t.kind.on_call;
+      return t.kind[CALL_KIND[v.callType ?? 'other']];
   }
 }
+
+type CallTypeName = 'teams' | 'zoom' | 'other';
+
+const CALL_STATUS: Record<CallTypeName, string> = {
+  teams: 'On a Teams call',
+  zoom: 'On a Zoom call',
+  other: 'On a call',
+};
+
+const CALL_KIND: Record<CallTypeName, SegmentKind> = {
+  teams: 'call_teams',
+  zoom: 'call_zoom',
+  other: 'call_other',
+};
 
 const ERROR_TEXT: Record<string, string> = {
   invalid_transition: "That action isn't available right now.",
@@ -231,17 +245,12 @@ function Actions({
               </Button>
             </>,
           )}
-          {/* Away tags aren't offered during a call: it's already tracked (ADR-0009 §2). */}
+          {/* Not offered during a call: it's already tracked (ADR-0009 §2). */}
           {view.status === 'active' &&
             chips(
-              <>
-                <Button variant="chip" onClick={() => run(() => api.markAway('meeting'))}>
-                  In a meeting
-                </Button>
-                <Button variant="chip" onClick={() => run(() => api.markAway('phone_call'))}>
-                  On a phone call
-                </Button>
-              </>,
+              <Button variant="chip" onClick={() => run(() => api.markAway('meeting'))}>
+                In a meeting
+              </Button>,
             )}
         </>
       );

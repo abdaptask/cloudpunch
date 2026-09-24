@@ -56,11 +56,12 @@ pub enum OsSignal {
     Suspending { at: SystemTime },
     /// System resumed from sleep.
     Resumed { at: SystemTime },
-    /// Mic or camera state changed. Boolean-only per invariant 1 —
-    /// no indication of which app is using either device.
+    /// Mic or camera state changed. Two booleans plus, while either is
+    /// in use, the *category* of call (ADR-0012) — never the app name.
     MediaInUseChanged {
         mic: bool,
         cam: bool,
+        call_type: Option<crate::call_type::CallType>,
         at: SystemTime,
     },
     /// Network reachability flipped (up / down). No SSID, no address.

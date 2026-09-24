@@ -85,6 +85,13 @@ pub fn next_payroll_state(
 
         "MEDIA_DEVICE_STATE" => {
             let in_use = field("in_use")?.as_bool()?;
+            // ADR-0012: optional call_type, only while in use.
+            if let Some(t) = field("call_type") {
+                let known = matches!(t.as_str(), Some("teams" | "zoom" | "other"));
+                if !in_use || !known {
+                    return None;
+                }
+            }
             Some(match (in_use, current) {
                 (true, Active | IdlePending) => OnCall,
                 (false, OnCall) => Active,

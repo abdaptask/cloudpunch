@@ -41,6 +41,7 @@ use std::time::{Duration, SystemTime};
 
 use serde_json::{json, Value};
 
+pub use crate::call_type::CallType;
 pub use transitions::PayrollState;
 
 /// `idle.prompt_options` identifiers. Mirrors
@@ -234,8 +235,9 @@ pub enum Input {
         response: PromptResponse,
         note: Option<String>,
     },
-    /// Raw mic-OR-camera state from the watcher, before debounce.
-    MediaInUse(bool),
+    /// Raw mic-OR-camera state from the watcher, before debounce:
+    /// `Some(kind of call)` while in use, `None` when not (ADR-0012).
+    MediaInUse(Option<CallType>),
     /// Periodic (~1 Hz) tick with the time of the last keyboard or
     /// pointer input.
     Tick {
@@ -270,6 +272,8 @@ pub enum CoreEvent {
     PromptTimeout30s,
     MediaDeviceState {
         in_use: bool,
+        /// Present while `in_use` (ADR-0012).
+        call_type: Option<CallType>,
     },
 }
 
@@ -297,7 +301,11 @@ impl CoreEvent {
             CoreEvent::UserPromptResponse { response, .. } => {
                 json!({ "response": response.as_str() })
             }
-            CoreEvent::MediaDeviceState { in_use } => json!({ "in_use": in_use }),
+            CoreEvent::MediaDeviceState {
+                in_use: true,
+                call_type: Some(t),
+            } => json!({ "in_use": true, "call_type": t.as_str() }),
+            CoreEvent::MediaDeviceState { in_use, .. } => json!({ "in_use": in_use }),
             CoreEvent::UserMarkAway { reason, .. } => json!({ "away_reason": reason.as_str() }),
             CoreEvent::InputIdle5m { trigger } => json!({ "trigger": trigger.as_str() }),
             _ => json!({}),
@@ -341,8 +349,8 @@ pub struct Core {
     state: CoreState,
     /// Idle threshold is measured from max(last input, this).
     idle_armed_at: SystemTime,
-    /// Debounced mic-OR-camera state.
-    media_on: bool,
+    /// Debounced mic-OR-camera state: the kind of call while in use.
+    media: Option<CallType>,
     /// Set while raw media is off but the debounce has not elapsed.
     media_off_since: Option<SystemTime>,
     /// When `ON_CALL` was last entered. The silent-call cap is
@@ -356,7 +364,7 @@ impl Core {
             cfg,
             state: CoreState::ClockedOut,
             idle_armed_at: now,
-            media_on: false,
+            media: None,
             media_off_since: None,
             on_call_since: now,
         }
@@ -364,6 +372,14 @@ impl Core {
 
     pub fn state(&self) -> CoreState {
         self.state
+    }
+
+    /// Kind of call while `ON_CALL`, else `None`.
+    pub fn call_type(&self) -> Option<CallType> {
+        match self.state {
+            CoreState::OnCall => self.media,
+            _ => None,
+        }
     }
 
     pub fn config(&self) -> &CoreConfig {
@@ -507,9 +523,13 @@ impl Core {
     fn enter_active(&mut self, now: SystemTime, fx: &mut Vec<Effect>) {
         self.idle_armed_at = now;
         self.set_state(CoreState::Active, fx);
-        if self.media_on && self.cfg.suppress_prompt_when_media_active {
+        if let (Some(call_type), true) = (self.media, self.cfg.suppress_prompt_when_media_active) {
             // Infallible from ACTIVE.
-            let _ = self.apply(CoreEvent::MediaDeviceState { in_use: true }, now, fx);
+            let event = CoreEvent::MediaDeviceState {
+                in_use: true,
+                call_type: Some(call_type),
+            };
+            let _ = self.apply(event, now, fx);
         }
     }
 
@@ -518,15 +538,33 @@ impl Core {
         fx.push(Effect::StateChanged(next));
     }
 
-    fn media_raw(&mut self, raw: bool, now: SystemTime, fx: &mut Vec<Effect>) {
-        if raw {
-            self.media_off_since = None;
-            if !self.media_on {
-                self.media_on = true;
+    fn media_raw(&mut self, raw: Option<CallType>, now: SystemTime, fx: &mut Vec<Effect>) {
+        match (raw, self.media) {
+            (Some(kind), None) => {
+                self.media_off_since = None;
+                self.media = Some(kind);
                 self.media_edge(now, fx);
             }
-        } else if self.media_on && self.media_off_since.is_none() {
-            self.media_off_since = Some(now);
+            (Some(kind), Some(prev)) => {
+                self.media_off_since = None;
+                if kind != prev {
+                    self.media = Some(kind);
+                    // Switched app mid-call (e.g. Teams → Zoom): record
+                    // the new kind; state stays ON_CALL (ADR-0012 §2).
+                    if self.state == CoreState::OnCall && self.cfg.suppress_prompt_when_media_active
+                    {
+                        let event = CoreEvent::MediaDeviceState {
+                            in_use: true,
+                            call_type: Some(kind),
+                        };
+                        let _ = self.apply(event, now, fx);
+                    }
+                }
+            }
+            (None, Some(_)) if self.media_off_since.is_none() => {
+                self.media_off_since = Some(now);
+            }
+            _ => {}
         }
     }
 
@@ -535,11 +573,12 @@ impl Core {
             return;
         }
         let event = CoreEvent::MediaDeviceState {
-            in_use: self.media_on,
+            in_use: self.media.is_some(),
+            call_type: self.media,
         };
         // Only state-changing edges are recorded: ACTIVE/IDLE_PENDING
         // → ON_CALL and ON_CALL → ACTIVE. Elsewhere (break, away,
-        // clocked out) the edge is remembered in `media_on` and
+        // clocked out) the edge is remembered in `media` and
         // applied when the user returns to ACTIVE.
         let changes = self.state.payroll().is_some_and(|from| {
             transitions::next_payroll_state(
@@ -561,7 +600,7 @@ impl Core {
         if let Some(off_since) = self.media_off_since {
             if elapsed(off_since, now) >= self.cfg.media_off_debounce {
                 self.media_off_since = None;
-                self.media_on = false;
+                self.media = None;
                 self.media_edge(now, fx);
             }
         }

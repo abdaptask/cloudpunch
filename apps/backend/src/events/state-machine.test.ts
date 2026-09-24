@@ -186,6 +186,35 @@ describe('nextState — MEDIA_DEVICE_STATE and ON_CALL (ADR-0009)', () => {
   });
 });
 
+describe('nextState — MEDIA_DEVICE_STATE call_type (ADR-0012)', () => {
+  it('each call type starts a call from ACTIVE', () => {
+    for (const call_type of ['teams', 'zoom', 'other']) {
+      expect(nextState('ACTIVE', 'MEDIA_DEVICE_STATE', { in_use: true, call_type })).toBe(
+        'ON_CALL',
+      );
+    }
+  });
+  it('a new call type mid-call keeps ON_CALL', () => {
+    expect(nextState('ON_CALL', 'MEDIA_DEVICE_STATE', { in_use: true, call_type: 'zoom' })).toBe(
+      'ON_CALL',
+    );
+  });
+  it('unknown call_type is invalid', () => {
+    expect(
+      nextState('ACTIVE', 'MEDIA_DEVICE_STATE', { in_use: true, call_type: 'skype' }),
+    ).toBeNull();
+    expect(nextState('ACTIVE', 'MEDIA_DEVICE_STATE', { in_use: true, call_type: null })).toBeNull();
+    expect(
+      nextState('ACTIVE', 'MEDIA_DEVICE_STATE', { in_use: true, call_type: 'phone' }),
+    ).toBeNull();
+  });
+  it('call_type with in_use=false is invalid', () => {
+    expect(
+      nextState('ON_CALL', 'MEDIA_DEVICE_STATE', { in_use: false, call_type: 'teams' }),
+    ).toBeNull();
+  });
+});
+
 describe('nextState — INPUT_IDLE_5M trigger (ADR-0010)', () => {
   const idle = (trigger?: unknown): Record<string, unknown> =>
     trigger === undefined ? {} : { trigger };

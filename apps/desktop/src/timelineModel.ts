@@ -6,7 +6,9 @@
 
 export type SegmentKind =
   | 'working'
-  | 'on_call'
+  | 'call_teams'
+  | 'call_zoom'
+  | 'call_other'
   | 'bio_break'
   | 'meal_break'
   | 'other_break'
@@ -28,15 +30,18 @@ export interface Segment {
 export type ClosedSegment = Segment & { endedAt: number };
 
 /**
- * Calls, meetings, phone calls and working away all count as working
- * time; they are shown as separate segments while they happen.
+ * Calls (by kind, ADR-0012), meetings, phone calls and working away
+ * all count as working time; they are shown as separate segments
+ * while they happen.
  */
 export type SegmentGroup = 'working' | 'break' | 'prompt';
 
 export function groupOf(kind: SegmentKind): SegmentGroup {
   switch (kind) {
     case 'working':
-    case 'on_call':
+    case 'call_teams':
+    case 'call_zoom':
+    case 'call_other':
     case 'away_meeting':
     case 'away_phone':
     case 'away_working':
@@ -52,7 +57,9 @@ export function groupOf(kind: SegmentKind): SegmentGroup {
 
 export const KIND_LABEL: Record<SegmentKind, string> = {
   working: 'Working',
-  on_call: 'On a call',
+  call_teams: 'Teams call',
+  call_zoom: 'Zoom call',
+  call_other: 'Other call',
   bio_break: 'Bio break',
   meal_break: 'Meal break',
   other_break: 'Break',
@@ -65,7 +72,9 @@ export const KIND_LABEL: Record<SegmentKind, string> = {
 /** Label for a kind as a line under the Working total. */
 export const WORKING_PART_LABEL: Partial<Record<SegmentKind, string>> = {
   working: 'At the computer',
-  on_call: 'On a call',
+  call_teams: 'Teams calls',
+  call_zoom: 'Zoom calls',
+  call_other: 'Other calls',
   away_meeting: 'In a meeting',
   away_phone: 'On a phone call',
   away_working: 'Working away',
@@ -134,7 +143,9 @@ export function sessionsToday(segments: readonly Segment[], now: number): Sessio
 /** Display order for per-kind totals. */
 export const KIND_ORDER: readonly SegmentKind[] = [
   'working',
-  'on_call',
+  'call_teams',
+  'call_zoom',
+  'call_other',
   'away_meeting',
   'away_phone',
   'away_working',

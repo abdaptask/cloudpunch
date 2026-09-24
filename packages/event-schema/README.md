@@ -14,7 +14,7 @@ schemas/
     base-event.schema.json        — envelope common to every event
   user-clock-in.schema.json       — one payload per event_type
   user-prompt-response.schema.json
-  media-device-state.schema.json  — { in_use } only (ADR-0009)
+  media-device-state.schema.json  — { in_use, call_type? } (ADR-0009, ADR-0012)
   input-idle-5m.schema.json       — optional trigger (ADR-0010)
   user-mark-away.schema.json      — away_reason + note (ADR-0011)
   … (more added as Phase 2 lands the desktop agent)

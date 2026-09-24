@@ -42,11 +42,12 @@ time**. These are:
   + how long since the last activity). We do **not** record what you
   typed or where you moved the pointer.
 - Whether **any application on your computer is currently using the
-  microphone or camera** (yes / no only). This lets CloudPunch
-  recognise that you are on a call and not interrupt you with idle
-  prompts. We do **not** record which app is using the microphone or
-  camera, we do not record any audio or video, and we do not record
-  the meeting name or participants.
+  microphone or camera**, and if so **what kind of call it is**: a
+  Microsoft Teams call, a Zoom call, or another call. This lets CloudPunch recognise that you are
+  on a call, not interrupt you with idle prompts, and show the kind of
+  call on your timeline. We record **only the kind of call** — not the
+  app's name for any other app, not any audio or video, not what was
+  said, and not the meeting name or participants.
 - Whether your computer is **online or offline**.
 - Your responses to any **prompts** we show you (for example, "still
   working" / "bio break" / "meal break").
@@ -70,7 +71,8 @@ following:
 - **The contents of your clipboard**.
 - **The names of files** you open or the folders you use.
 - **Your browser history** or the websites you visit.
-- **Which applications** you have open or use.
+- **Which applications** you have open or use — other than the kind
+  of call described above.
 - **Titles** of any windows.
 - **Any audio or video** from your microphone or camera.
 - **Your physical location or GPS coordinates.**
@@ -135,8 +137,9 @@ Access is on a strict need-to-know basis:
   reasons for every edit.
 - **Your reporting manager** can see your daily timeline (clock-in,
   clock-out, breaks, states) but not the underlying raw event stream.
-  Your manager sees "you were active" or "you were on break" — not
-  "you were on a call at 3:15 pm".
+  Your manager sees "you were active", "you were on break", and the
+  kind of call you were on (for example "Teams call, 3:15–3:45 pm") —
+  never what was said.
 - **HR** can see the same view as your manager and can access
   employee records, department assignments, and leave history.
 - **Payroll** can see approved hours only.

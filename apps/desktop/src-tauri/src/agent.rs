@@ -27,7 +27,9 @@ use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 
 use crate::machine::driver::Driver;
 use crate::machine::sink::LogSink;
-use crate::machine::{AwayReason, BreakKind, Core, CoreConfig, CoreState, Effect, Input, Rejected};
+use crate::machine::{
+    AwayReason, BreakKind, CallType, Core, CoreConfig, CoreState, Effect, Input, Rejected,
+};
 use crate::timeline::{epoch_ms, SegmentView, Timeline};
 use crate::tray::{self, TrayStateSnapshot};
 
@@ -44,6 +46,8 @@ pub struct StateView {
     pub status: &'static str,
     pub break_kind: Option<&'static str>,
     pub away_reason: Option<&'static str>,
+    /// phone | teams | zoom | other while `on_call` (ADR-0012).
+    pub call_type: Option<&'static str>,
     pub prompt_deadline: Option<u64>,
     pub prompt_options: Vec<&'static str>,
     pub note_required_for: Vec<&'static str>,
@@ -57,6 +61,11 @@ pub struct StateView {
 }
 
 impl StateView {
+    pub fn with_call_type(mut self, call_type: Option<CallType>) -> Self {
+        self.call_type = call_type.map(CallType::as_str);
+        self
+    }
+
     pub fn with_timeline(mut self, timeline: &Timeline) -> Self {
         self.session_started_at = timeline.session_started_at().map(epoch_ms);
         self.timeline = timeline.views();
@@ -84,6 +93,7 @@ pub fn view_of(
         status,
         break_kind,
         away_reason,
+        call_type: None,
         prompt_deadline,
         prompt_options: cfg.prompt_options.iter().map(|r| r.as_str()).collect(),
         note_required_for: cfg.note_required_for.iter().map(|r| r.as_str()).collect(),
@@ -94,12 +104,12 @@ pub fn view_of(
 }
 
 /// Pure: tray label/menu variant for `state`.
-pub fn tray_snapshot(state: CoreState) -> TrayStateSnapshot {
+pub fn tray_snapshot(state: CoreState, call_type: Option<CallType>) -> TrayStateSnapshot {
     match state {
         CoreState::ClockedOut => TrayStateSnapshot::NotClockedIn,
         CoreState::OnBreak { .. } => TrayStateSnapshot::OnBreak,
         CoreState::Away { reason } => TrayStateSnapshot::Away(reason),
-        CoreState::OnCall => TrayStateSnapshot::OnCall,
+        CoreState::OnCall => TrayStateSnapshot::OnCall(call_type.unwrap_or(CallType::Other)),
         CoreState::Active | CoreState::IdlePending { .. } => TrayStateSnapshot::ClockedIn,
     }
 }
@@ -114,12 +124,11 @@ pub fn rejection_code(r: &Rejected) -> &'static str {
     }
 }
 
-/// Tags the UI may set directly (ADR-0011 §2). `working_away` needs a
-/// note and stays prompt-only for now; `other` is not offered.
+/// Tags the UI may set directly: only `meeting` (ADR-0011 §2). Phone
+/// and working-away are prompt answers only; `other` isn't offered.
 pub fn parse_away_tag(s: &str) -> Option<AwayReason> {
     match s {
         "meeting" => Some(AwayReason::Meeting),
-        "phone_call" => Some(AwayReason::PhoneCall),
         _ => None,
     }
 }
@@ -203,6 +212,7 @@ impl Inner {
             self.driver.core().config(),
             self.auto_clocked_out_at,
         )
+        .with_call_type(self.driver.core().call_type())
         .with_timeline(&self.timeline)
     }
 }
@@ -251,10 +261,12 @@ impl<U: Ui> Agent<U> {
         let (view, plan, snapshot) = {
             let mut inner = self.lock();
             let before = inner.driver.state();
+            let call_before = inner.driver.core().call_type();
             let outcome = inner.driver.handle(input, now)?;
             let after = inner.driver.state();
-            if after != before {
-                inner.timeline.on_state(after, now);
+            let call_after = inner.driver.core().call_type();
+            if after != before || call_after != call_before {
+                inner.timeline.record(after, call_after, now);
             }
 
             if let Some(err) = &outcome.sink_error {
@@ -283,7 +295,7 @@ impl<U: Ui> Agent<U> {
             if is_clock_in {
                 inner.auto_clocked_out_at = None;
             }
-            (inner.view(), plan, tray_snapshot(after))
+            (inner.view(), plan, tray_snapshot(after, call_after))
         };
 
         self.apply(&view, &plan, snapshot);
@@ -462,28 +474,35 @@ mod tests {
     #[test]
     fn tray_snapshot_mapping() {
         assert_eq!(
-            tray_snapshot(CoreState::ClockedOut),
+            tray_snapshot(CoreState::ClockedOut, None),
             TrayStateSnapshot::NotClockedIn
         );
         assert_eq!(
-            tray_snapshot(CoreState::Active),
+            tray_snapshot(CoreState::Active, None),
             TrayStateSnapshot::ClockedIn
         );
+        let bio = CoreState::OnBreak {
+            kind: BreakKind::Bio,
+        };
+        assert_eq!(tray_snapshot(bio, None), TrayStateSnapshot::OnBreak);
+        let phone_away = CoreState::Away {
+            reason: AwayReason::PhoneCall,
+        };
         assert_eq!(
-            tray_snapshot(CoreState::OnBreak {
-                kind: BreakKind::Bio
-            }),
-            TrayStateSnapshot::OnBreak
-        );
-        assert_eq!(
-            tray_snapshot(CoreState::Away {
-                reason: AwayReason::PhoneCall
-            }),
+            tray_snapshot(phone_away, None),
             TrayStateSnapshot::Away(AwayReason::PhoneCall)
         );
-        assert_eq!(tray_snapshot(CoreState::OnCall), TrayStateSnapshot::OnCall);
+        assert_eq!(
+            tray_snapshot(CoreState::OnCall, Some(CallType::Teams)),
+            TrayStateSnapshot::OnCall(CallType::Teams)
+        );
+        assert_eq!(
+            tray_snapshot(CoreState::OnCall, None),
+            TrayStateSnapshot::OnCall(CallType::Other)
+        );
         assert_eq!(parse_away_tag("meeting"), Some(AwayReason::Meeting));
         assert_eq!(parse_away_tag("working_away"), None);
+        assert_eq!(parse_away_tag("phone_call"), None);
     }
 
     #[test]

@@ -45,6 +45,9 @@ const AMBIENT_EVENTS: ReadonlySet<string> = new Set([
   'INTEGRITY_VIOLATION',
 ]);
 
+/** `MEDIA_DEVICE_STATE.payload.call_type` (ADR-0012). */
+const CALL_TYPES: ReadonlySet<string> = new Set(['teams', 'zoom', 'other']);
+
 /** `USER_MARK_AWAY.payload.away_reason` (ADR-0011 §2). */
 const AWAY_REASONS: ReadonlySet<string> = new Set([
   'working_away',
@@ -93,9 +96,14 @@ export function nextState(
       return current;
 
     case 'MEDIA_DEVICE_STATE': {
-      // ADR-0009: payload is exactly { in_use: boolean }.
+      // ADR-0009: { in_use: boolean }, plus an optional call_type
+      // category while in use (ADR-0012).
       const inUse = payload?.['in_use'];
       if (typeof inUse !== 'boolean') return null;
+      if (payload && 'call_type' in payload) {
+        const callType = payload['call_type'];
+        if (!inUse || typeof callType !== 'string' || !CALL_TYPES.has(callType)) return null;
+      }
       if (inUse && (current === 'ACTIVE' || current === 'IDLE_PENDING')) return 'ON_CALL';
       if (!inUse && current === 'ON_CALL') return 'ACTIVE';
       // Every other combination is recorded without changing state.

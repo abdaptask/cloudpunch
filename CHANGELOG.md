@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Call type detection (ADR-0012) (2026-09-24)
+
+- **ADR-0012 (new, Accepted):** the agent classifies the app holding
+  the microphone into a category — `teams`, `zoom`, `other` — and
+  records only the category on `MEDIA_DEVICE_STATE` (`call_type`).
+  Managers and reports see it (project owner's decision; owner
+  declined a legal / HR review). Supersedes parts of ADR-0003 §1 / §7,
+  ADR-0009 §1, ADR-0011 §1 / §2. `CLAUDE.md` invariant 1 and the
+  employee privacy notice updated.
+- **Bug fix:** a softphone that keeps the microphone open while idle
+  (`ace dialer.exe`) made anyone with it open show as "On a call"
+  since #8. Such apps are now on an ignore list (session check and
+  consent-store fallback); their calls aren't tracked.
+- **Removed:** the manual "On a phone call" tag (home and tray). "In a
+  meeting" stays.
+- Desktop: `call_type.rs` (allowlist, ignore list, priority),
+  `audio_session::active_call_type` (process → category; the exe name
+  is never stored or logged); switching app mid-call records the new
+  category. Timeline kinds `call_teams` / `call_zoom` / `call_other`;
+  status and tray read "On a Teams / Zoom call" or "On a call".
+- Backend: `MEDIA_DEVICE_STATE.call_type` optional, known values only,
+  only with `in_use: true`; fixture regenerated (198 cases).
+- Found: `test/invariants/no-content-capture.ts` referenced by
+  `CLAUDE.md` doesn't exist — tracked under the CI item.
+- Tests: Rust 179, backend 444, desktop 42.
+
 ### Voluntary away tags: In a meeting / On a phone call (ADR-0011 §2) (2026-09-24)
 
 - Home window and tray: **In a meeting** and **On a phone call** tags
