@@ -1,0 +1,1001 @@
+{
+  "$comment": "Payroll-state transitions shared by the backend (state-machine.ts) and desktop core (core/state.rs). to=null means the transition is rejected. payload=null means no payload. See ADR-0003, ADR-0008, ADR-0009.",
+  "cases": [
+    {
+      "from": "ACTIVE",
+      "event_type": "USER_CLOCK_IN",
+      "payload": {},
+      "to": null
+    },
+    {
+      "from": "ACTIVE",
+      "event_type": "USER_CLOCK_OUT",
+      "payload": {},
+      "to": "CLOSED"
+    },
+    {
+      "from": "ACTIVE",
+      "event_type": "USER_START_BREAK",
+      "payload": {
+        "break_kind": "bio"
+      },
+      "to": "ON_BREAK"
+    },
+    {
+      "from": "ACTIVE",
+      "event_type": "USER_END_BREAK",
+      "payload": {},
+      "to": null
+    },
+    {
+      "from": "ACTIVE",
+      "event_type": "USER_MARK_AWAY",
+      "payload": {},
+      "to": "AWAY"
+    },
+    {
+      "from": "ACTIVE",
+      "event_type": "USER_MARK_BACK",
+      "payload": {},
+      "to": null
+    },
+    {
+      "from": "ACTIVE",
+      "event_type": "INPUT_ACTIVITY",
+      "payload": {},
+      "to": "ACTIVE"
+    },
+    {
+      "from": "ACTIVE",
+      "event_type": "INPUT_IDLE_5M",
+      "payload": {},
+      "to": "IDLE_PENDING"
+    },
+    {
+      "from": "ACTIVE",
+      "event_type": "PROMPT_TIMEOUT_30S",
+      "payload": {},
+      "to": null
+    },
+    {
+      "from": "ACTIVE",
+      "event_type": "USER_PROMPT_RESPONSE",
+      "payload": {
+        "response": "still_working"
+      },
+      "to": null
+    },
+    {
+      "from": "ACTIVE",
+      "event_type": "USER_PROMPT_RESPONSE",
+      "payload": {
+        "response": "bio_break"
+      },
+      "to": null
+    },
+    {
+      "from": "ACTIVE",
+      "event_type": "USER_PROMPT_RESPONSE",
+      "payload": {
+        "response": "meal_break"
+      },
+      "to": null
+    },
+    {
+      "from": "ACTIVE",
+      "event_type": "USER_PROMPT_RESPONSE",
+      "payload": {
+        "response": "on_phone_call"
+      },
+      "to": null
+    },
+    {
+      "from": "ACTIVE",
+      "event_type": "USER_PROMPT_RESPONSE",
+      "payload": {
+        "response": "working_away"
+      },
+      "to": null
+    },
+    {
+      "from": "ACTIVE",
+      "event_type": "USER_PROMPT_RESPONSE",
+      "payload": {
+        "response": "end_shift"
+      },
+      "to": null
+    },
+    {
+      "from": "ACTIVE",
+      "event_type": "USER_PROMPT_RESPONSE",
+      "payload": {
+        "response": "party"
+      },
+      "to": null
+    },
+    {
+      "from": "ACTIVE",
+      "event_type": "USER_PROMPT_RESPONSE",
+      "payload": null,
+      "to": null
+    },
+    {
+      "from": "ACTIVE",
+      "event_type": "MEDIA_DEVICE_STATE",
+      "payload": {
+        "in_use": true
+      },
+      "to": "ON_CALL"
+    },
+    {
+      "from": "ACTIVE",
+      "event_type": "MEDIA_DEVICE_STATE",
+      "payload": {
+        "in_use": false
+      },
+      "to": "ACTIVE"
+    },
+    {
+      "from": "ACTIVE",
+      "event_type": "MEDIA_DEVICE_STATE",
+      "payload": null,
+      "to": null
+    },
+    {
+      "from": "ACTIVE",
+      "event_type": "MEDIA_DEVICE_STATE",
+      "payload": {
+        "in_use": "true"
+      },
+      "to": null
+    },
+    {
+      "from": "ACTIVE",
+      "event_type": "SYSTEM_LOCK",
+      "payload": {},
+      "to": "ACTIVE"
+    },
+    {
+      "from": "ACTIVE",
+      "event_type": "NETWORK_OFFLINE",
+      "payload": {},
+      "to": "ACTIVE"
+    },
+    {
+      "from": "ACTIVE",
+      "event_type": "BOGUS_EVENT",
+      "payload": {},
+      "to": null
+    },
+    {
+      "from": "ON_CALL",
+      "event_type": "USER_CLOCK_IN",
+      "payload": {},
+      "to": null
+    },
+    {
+      "from": "ON_CALL",
+      "event_type": "USER_CLOCK_OUT",
+      "payload": {},
+      "to": "CLOSED"
+    },
+    {
+      "from": "ON_CALL",
+      "event_type": "USER_START_BREAK",
+      "payload": {
+        "break_kind": "bio"
+      },
+      "to": "ON_BREAK"
+    },
+    {
+      "from": "ON_CALL",
+      "event_type": "USER_END_BREAK",
+      "payload": {},
+      "to": null
+    },
+    {
+      "from": "ON_CALL",
+      "event_type": "USER_MARK_AWAY",
+      "payload": {},
+      "to": null
+    },
+    {
+      "from": "ON_CALL",
+      "event_type": "USER_MARK_BACK",
+      "payload": {},
+      "to": null
+    },
+    {
+      "from": "ON_CALL",
+      "event_type": "INPUT_ACTIVITY",
+      "payload": {},
+      "to": "ON_CALL"
+    },
+    {
+      "from": "ON_CALL",
+      "event_type": "INPUT_IDLE_5M",
+      "payload": {},
+      "to": null
+    },
+    {
+      "from": "ON_CALL",
+      "event_type": "PROMPT_TIMEOUT_30S",
+      "payload": {},
+      "to": null
+    },
+    {
+      "from": "ON_CALL",
+      "event_type": "USER_PROMPT_RESPONSE",
+      "payload": {
+        "response": "still_working"
+      },
+      "to": null
+    },
+    {
+      "from": "ON_CALL",
+      "event_type": "USER_PROMPT_RESPONSE",
+      "payload": {
+        "response": "bio_break"
+      },
+      "to": null
+    },
+    {
+      "from": "ON_CALL",
+      "event_type": "USER_PROMPT_RESPONSE",
+      "payload": {
+        "response": "meal_break"
+      },
+      "to": null
+    },
+    {
+      "from": "ON_CALL",
+      "event_type": "USER_PROMPT_RESPONSE",
+      "payload": {
+        "response": "on_phone_call"
+      },
+      "to": null
+    },
+    {
+      "from": "ON_CALL",
+      "event_type": "USER_PROMPT_RESPONSE",
+      "payload": {
+        "response": "working_away"
+      },
+      "to": null
+    },
+    {
+      "from": "ON_CALL",
+      "event_type": "USER_PROMPT_RESPONSE",
+      "payload": {
+        "response": "end_shift"
+      },
+      "to": null
+    },
+    {
+      "from": "ON_CALL",
+      "event_type": "USER_PROMPT_RESPONSE",
+      "payload": {
+        "response": "party"
+      },
+      "to": null
+    },
+    {
+      "from": "ON_CALL",
+      "event_type": "USER_PROMPT_RESPONSE",
+      "payload": null,
+      "to": null
+    },
+    {
+      "from": "ON_CALL",
+      "event_type": "MEDIA_DEVICE_STATE",
+      "payload": {
+        "in_use": true
+      },
+      "to": "ON_CALL"
+    },
+    {
+      "from": "ON_CALL",
+      "event_type": "MEDIA_DEVICE_STATE",
+      "payload": {
+        "in_use": false
+      },
+      "to": "ACTIVE"
+    },
+    {
+      "from": "ON_CALL",
+      "event_type": "MEDIA_DEVICE_STATE",
+      "payload": null,
+      "to": null
+    },
+    {
+      "from": "ON_CALL",
+      "event_type": "MEDIA_DEVICE_STATE",
+      "payload": {
+        "in_use": "true"
+      },
+      "to": null
+    },
+    {
+      "from": "ON_CALL",
+      "event_type": "SYSTEM_LOCK",
+      "payload": {},
+      "to": "ON_CALL"
+    },
+    {
+      "from": "ON_CALL",
+      "event_type": "NETWORK_OFFLINE",
+      "payload": {},
+      "to": "ON_CALL"
+    },
+    {
+      "from": "ON_CALL",
+      "event_type": "BOGUS_EVENT",
+      "payload": {},
+      "to": null
+    },
+    {
+      "from": "ON_BREAK",
+      "event_type": "USER_CLOCK_IN",
+      "payload": {},
+      "to": null
+    },
+    {
+      "from": "ON_BREAK",
+      "event_type": "USER_CLOCK_OUT",
+      "payload": {},
+      "to": "CLOSED"
+    },
+    {
+      "from": "ON_BREAK",
+      "event_type": "USER_START_BREAK",
+      "payload": {
+        "break_kind": "bio"
+      },
+      "to": null
+    },
+    {
+      "from": "ON_BREAK",
+      "event_type": "USER_END_BREAK",
+      "payload": {},
+      "to": "ACTIVE"
+    },
+    {
+      "from": "ON_BREAK",
+      "event_type": "USER_MARK_AWAY",
+      "payload": {},
+      "to": null
+    },
+    {
+      "from": "ON_BREAK",
+      "event_type": "USER_MARK_BACK",
+      "payload": {},
+      "to": null
+    },
+    {
+      "from": "ON_BREAK",
+      "event_type": "INPUT_ACTIVITY",
+      "payload": {},
+      "to": "ON_BREAK"
+    },
+    {
+      "from": "ON_BREAK",
+      "event_type": "INPUT_IDLE_5M",
+      "payload": {},
+      "to": null
+    },
+    {
+      "from": "ON_BREAK",
+      "event_type": "PROMPT_TIMEOUT_30S",
+      "payload": {},
+      "to": null
+    },
+    {
+      "from": "ON_BREAK",
+      "event_type": "USER_PROMPT_RESPONSE",
+      "payload": {
+        "response": "still_working"
+      },
+      "to": null
+    },
+    {
+      "from": "ON_BREAK",
+      "event_type": "USER_PROMPT_RESPONSE",
+      "payload": {
+        "response": "bio_break"
+      },
+      "to": null
+    },
+    {
+      "from": "ON_BREAK",
+      "event_type": "USER_PROMPT_RESPONSE",
+      "payload": {
+        "response": "meal_break"
+      },
+      "to": null
+    },
+    {
+      "from": "ON_BREAK",
+      "event_type": "USER_PROMPT_RESPONSE",
+      "payload": {
+        "response": "on_phone_call"
+      },
+      "to": null
+    },
+    {
+      "from": "ON_BREAK",
+      "event_type": "USER_PROMPT_RESPONSE",
+      "payload": {
+        "response": "working_away"
+      },
+      "to": null
+    },
+    {
+      "from": "ON_BREAK",
+      "event_type": "USER_PROMPT_RESPONSE",
+      "payload": {
+        "response": "end_shift"
+      },
+      "to": null
+    },
+    {
+      "from": "ON_BREAK",
+      "event_type": "USER_PROMPT_RESPONSE",
+      "payload": {
+        "response": "party"
+      },
+      "to": null
+    },
+    {
+      "from": "ON_BREAK",
+      "event_type": "USER_PROMPT_RESPONSE",
+      "payload": null,
+      "to": null
+    },
+    {
+      "from": "ON_BREAK",
+      "event_type": "MEDIA_DEVICE_STATE",
+      "payload": {
+        "in_use": true
+      },
+      "to": "ON_BREAK"
+    },
+    {
+      "from": "ON_BREAK",
+      "event_type": "MEDIA_DEVICE_STATE",
+      "payload": {
+        "in_use": false
+      },
+      "to": "ON_BREAK"
+    },
+    {
+      "from": "ON_BREAK",
+      "event_type": "MEDIA_DEVICE_STATE",
+      "payload": null,
+      "to": null
+    },
+    {
+      "from": "ON_BREAK",
+      "event_type": "MEDIA_DEVICE_STATE",
+      "payload": {
+        "in_use": "true"
+      },
+      "to": null
+    },
+    {
+      "from": "ON_BREAK",
+      "event_type": "SYSTEM_LOCK",
+      "payload": {},
+      "to": "ON_BREAK"
+    },
+    {
+      "from": "ON_BREAK",
+      "event_type": "NETWORK_OFFLINE",
+      "payload": {},
+      "to": "ON_BREAK"
+    },
+    {
+      "from": "ON_BREAK",
+      "event_type": "BOGUS_EVENT",
+      "payload": {},
+      "to": null
+    },
+    {
+      "from": "AWAY",
+      "event_type": "USER_CLOCK_IN",
+      "payload": {},
+      "to": null
+    },
+    {
+      "from": "AWAY",
+      "event_type": "USER_CLOCK_OUT",
+      "payload": {},
+      "to": "CLOSED"
+    },
+    {
+      "from": "AWAY",
+      "event_type": "USER_START_BREAK",
+      "payload": {
+        "break_kind": "bio"
+      },
+      "to": null
+    },
+    {
+      "from": "AWAY",
+      "event_type": "USER_END_BREAK",
+      "payload": {},
+      "to": null
+    },
+    {
+      "from": "AWAY",
+      "event_type": "USER_MARK_AWAY",
+      "payload": {},
+      "to": null
+    },
+    {
+      "from": "AWAY",
+      "event_type": "USER_MARK_BACK",
+      "payload": {},
+      "to": "ACTIVE"
+    },
+    {
+      "from": "AWAY",
+      "event_type": "INPUT_ACTIVITY",
+      "payload": {},
+      "to": "AWAY"
+    },
+    {
+      "from": "AWAY",
+      "event_type": "INPUT_IDLE_5M",
+      "payload": {},
+      "to": null
+    },
+    {
+      "from": "AWAY",
+      "event_type": "PROMPT_TIMEOUT_30S",
+      "payload": {},
+      "to": null
+    },
+    {
+      "from": "AWAY",
+      "event_type": "USER_PROMPT_RESPONSE",
+      "payload": {
+        "response": "still_working"
+      },
+      "to": null
+    },
+    {
+      "from": "AWAY",
+      "event_type": "USER_PROMPT_RESPONSE",
+      "payload": {
+        "response": "bio_break"
+      },
+      "to": null
+    },
+    {
+      "from": "AWAY",
+      "event_type": "USER_PROMPT_RESPONSE",
+      "payload": {
+        "response": "meal_break"
+      },
+      "to": null
+    },
+    {
+      "from": "AWAY",
+      "event_type": "USER_PROMPT_RESPONSE",
+      "payload": {
+        "response": "on_phone_call"
+      },
+      "to": null
+    },
+    {
+      "from": "AWAY",
+      "event_type": "USER_PROMPT_RESPONSE",
+      "payload": {
+        "response": "working_away"
+      },
+      "to": null
+    },
+    {
+      "from": "AWAY",
+      "event_type": "USER_PROMPT_RESPONSE",
+      "payload": {
+        "response": "end_shift"
+      },
+      "to": null
+    },
+    {
+      "from": "AWAY",
+      "event_type": "USER_PROMPT_RESPONSE",
+      "payload": {
+        "response": "party"
+      },
+      "to": null
+    },
+    {
+      "from": "AWAY",
+      "event_type": "USER_PROMPT_RESPONSE",
+      "payload": null,
+      "to": null
+    },
+    {
+      "from": "AWAY",
+      "event_type": "MEDIA_DEVICE_STATE",
+      "payload": {
+        "in_use": true
+      },
+      "to": "AWAY"
+    },
+    {
+      "from": "AWAY",
+      "event_type": "MEDIA_DEVICE_STATE",
+      "payload": {
+        "in_use": false
+      },
+      "to": "AWAY"
+    },
+    {
+      "from": "AWAY",
+      "event_type": "MEDIA_DEVICE_STATE",
+      "payload": null,
+      "to": null
+    },
+    {
+      "from": "AWAY",
+      "event_type": "MEDIA_DEVICE_STATE",
+      "payload": {
+        "in_use": "true"
+      },
+      "to": null
+    },
+    {
+      "from": "AWAY",
+      "event_type": "SYSTEM_LOCK",
+      "payload": {},
+      "to": "AWAY"
+    },
+    {
+      "from": "AWAY",
+      "event_type": "NETWORK_OFFLINE",
+      "payload": {},
+      "to": "AWAY"
+    },
+    {
+      "from": "AWAY",
+      "event_type": "BOGUS_EVENT",
+      "payload": {},
+      "to": null
+    },
+    {
+      "from": "IDLE_PENDING",
+      "event_type": "USER_CLOCK_IN",
+      "payload": {},
+      "to": null
+    },
+    {
+      "from": "IDLE_PENDING",
+      "event_type": "USER_CLOCK_OUT",
+      "payload": {},
+      "to": "CLOSED"
+    },
+    {
+      "from": "IDLE_PENDING",
+      "event_type": "USER_START_BREAK",
+      "payload": {
+        "break_kind": "bio"
+      },
+      "to": null
+    },
+    {
+      "from": "IDLE_PENDING",
+      "event_type": "USER_END_BREAK",
+      "payload": {},
+      "to": null
+    },
+    {
+      "from": "IDLE_PENDING",
+      "event_type": "USER_MARK_AWAY",
+      "payload": {},
+      "to": null
+    },
+    {
+      "from": "IDLE_PENDING",
+      "event_type": "USER_MARK_BACK",
+      "payload": {},
+      "to": null
+    },
+    {
+      "from": "IDLE_PENDING",
+      "event_type": "INPUT_ACTIVITY",
+      "payload": {},
+      "to": "IDLE_PENDING"
+    },
+    {
+      "from": "IDLE_PENDING",
+      "event_type": "INPUT_IDLE_5M",
+      "payload": {},
+      "to": null
+    },
+    {
+      "from": "IDLE_PENDING",
+      "event_type": "PROMPT_TIMEOUT_30S",
+      "payload": {},
+      "to": "CLOSED"
+    },
+    {
+      "from": "IDLE_PENDING",
+      "event_type": "USER_PROMPT_RESPONSE",
+      "payload": {
+        "response": "still_working"
+      },
+      "to": "ACTIVE"
+    },
+    {
+      "from": "IDLE_PENDING",
+      "event_type": "USER_PROMPT_RESPONSE",
+      "payload": {
+        "response": "bio_break"
+      },
+      "to": "ON_BREAK"
+    },
+    {
+      "from": "IDLE_PENDING",
+      "event_type": "USER_PROMPT_RESPONSE",
+      "payload": {
+        "response": "meal_break"
+      },
+      "to": "ON_BREAK"
+    },
+    {
+      "from": "IDLE_PENDING",
+      "event_type": "USER_PROMPT_RESPONSE",
+      "payload": {
+        "response": "on_phone_call"
+      },
+      "to": "AWAY"
+    },
+    {
+      "from": "IDLE_PENDING",
+      "event_type": "USER_PROMPT_RESPONSE",
+      "payload": {
+        "response": "working_away"
+      },
+      "to": "AWAY"
+    },
+    {
+      "from": "IDLE_PENDING",
+      "event_type": "USER_PROMPT_RESPONSE",
+      "payload": {
+        "response": "end_shift"
+      },
+      "to": "CLOSED"
+    },
+    {
+      "from": "IDLE_PENDING",
+      "event_type": "USER_PROMPT_RESPONSE",
+      "payload": {
+        "response": "party"
+      },
+      "to": null
+    },
+    {
+      "from": "IDLE_PENDING",
+      "event_type": "USER_PROMPT_RESPONSE",
+      "payload": null,
+      "to": null
+    },
+    {
+      "from": "IDLE_PENDING",
+      "event_type": "MEDIA_DEVICE_STATE",
+      "payload": {
+        "in_use": true
+      },
+      "to": "ON_CALL"
+    },
+    {
+      "from": "IDLE_PENDING",
+      "event_type": "MEDIA_DEVICE_STATE",
+      "payload": {
+        "in_use": false
+      },
+      "to": "IDLE_PENDING"
+    },
+    {
+      "from": "IDLE_PENDING",
+      "event_type": "MEDIA_DEVICE_STATE",
+      "payload": null,
+      "to": null
+    },
+    {
+      "from": "IDLE_PENDING",
+      "event_type": "MEDIA_DEVICE_STATE",
+      "payload": {
+        "in_use": "true"
+      },
+      "to": null
+    },
+    {
+      "from": "IDLE_PENDING",
+      "event_type": "SYSTEM_LOCK",
+      "payload": {},
+      "to": "IDLE_PENDING"
+    },
+    {
+      "from": "IDLE_PENDING",
+      "event_type": "NETWORK_OFFLINE",
+      "payload": {},
+      "to": "IDLE_PENDING"
+    },
+    {
+      "from": "IDLE_PENDING",
+      "event_type": "BOGUS_EVENT",
+      "payload": {},
+      "to": null
+    },
+    {
+      "from": "CLOSED",
+      "event_type": "USER_CLOCK_IN",
+      "payload": {},
+      "to": null
+    },
+    {
+      "from": "CLOSED",
+      "event_type": "USER_CLOCK_OUT",
+      "payload": {},
+      "to": null
+    },
+    {
+      "from": "CLOSED",
+      "event_type": "USER_START_BREAK",
+      "payload": {
+        "break_kind": "bio"
+      },
+      "to": null
+    },
+    {
+      "from": "CLOSED",
+      "event_type": "USER_END_BREAK",
+      "payload": {},
+      "to": null
+    },
+    {
+      "from": "CLOSED",
+      "event_type": "USER_MARK_AWAY",
+      "payload": {},
+      "to": null
+    },
+    {
+      "from": "CLOSED",
+      "event_type": "USER_MARK_BACK",
+      "payload": {},
+      "to": null
+    },
+    {
+      "from": "CLOSED",
+      "event_type": "INPUT_ACTIVITY",
+      "payload": {},
+      "to": "CLOSED"
+    },
+    {
+      "from": "CLOSED",
+      "event_type": "INPUT_IDLE_5M",
+      "payload": {},
+      "to": null
+    },
+    {
+      "from": "CLOSED",
+      "event_type": "PROMPT_TIMEOUT_30S",
+      "payload": {},
+      "to": null
+    },
+    {
+      "from": "CLOSED",
+      "event_type": "USER_PROMPT_RESPONSE",
+      "payload": {
+        "response": "still_working"
+      },
+      "to": null
+    },
+    {
+      "from": "CLOSED",
+      "event_type": "USER_PROMPT_RESPONSE",
+      "payload": {
+        "response": "bio_break"
+      },
+      "to": null
+    },
+    {
+      "from": "CLOSED",
+      "event_type": "USER_PROMPT_RESPONSE",
+      "payload": {
+        "response": "meal_break"
+      },
+      "to": null
+    },
+    {
+      "from": "CLOSED",
+      "event_type": "USER_PROMPT_RESPONSE",
+      "payload": {
+        "response": "on_phone_call"
+      },
+      "to": null
+    },
+    {
+      "from": "CLOSED",
+      "event_type": "USER_PROMPT_RESPONSE",
+      "payload": {
+        "response": "working_away"
+      },
+      "to": null
+    },
+    {
+      "from": "CLOSED",
+      "event_type": "USER_PROMPT_RESPONSE",
+      "payload": {
+        "response": "end_shift"
+      },
+      "to": null
+    },
+    {
+      "from": "CLOSED",
+      "event_type": "USER_PROMPT_RESPONSE",
+      "payload": {
+        "response": "party"
+      },
+      "to": null
+    },
+    {
+      "from": "CLOSED",
+      "event_type": "USER_PROMPT_RESPONSE",
+      "payload": null,
+      "to": null
+    },
+    {
+      "from": "CLOSED",
+      "event_type": "MEDIA_DEVICE_STATE",
+      "payload": {
+        "in_use": true
+      },
+      "to": "CLOSED"
+    },
+    {
+      "from": "CLOSED",
+      "event_type": "MEDIA_DEVICE_STATE",
+      "payload": {
+        "in_use": false
+      },
+      "to": "CLOSED"
+    },
+    {
+      "from": "CLOSED",
+      "event_type": "MEDIA_DEVICE_STATE",
+      "payload": null,
+      "to": null
+    },
+    {
+      "from": "CLOSED",
+      "event_type": "MEDIA_DEVICE_STATE",
+      "payload": {
+        "in_use": "true"
+      },
+      "to": null
+    },
+    {
+      "from": "CLOSED",
+      "event_type": "SYSTEM_LOCK",
+      "payload": {},
+      "to": "CLOSED"
+    },
+    {
+      "from": "CLOSED",
+      "event_type": "NETWORK_OFFLINE",
+      "payload": {},
+      "to": "CLOSED"
+    },
+    {
+      "from": "CLOSED",
+      "event_type": "BOGUS_EVENT",
+      "payload": {},
+      "to": null
+    }
+  ]
+}
