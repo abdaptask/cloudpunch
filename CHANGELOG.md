@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Phase 2b.7.3 — desktop TS component testing (2026-09-24)
+
+Stands up Vitest + Testing Library for the desktop React UI so the
+upcoming idle-prompt and state-machine slices land with tests. Retires
+the `--passWithNoTests` workaround from `c3db698`.
+
+- `apps/desktop/vitest.config.ts` (new): jsdom environment,
+  `src/**/*.test.{ts,tsx}`, `restoreMocks: true`. Separate from
+  `vite.config.ts` so dev-server settings don't leak into tests.
+  `@tauri-apps/api` has no IPC bridge under jsdom — mock per test.
+- `apps/desktop/src/test/setup.ts` (new): registers jest-dom matchers
+  and runs `cleanup()` after each test.
+- `apps/desktop/src/App.test.tsx` (new): 4 tests covering the home UI
+  transitions (not clocked in → clocked in → on break → clocked in →
+  not clocked in) and which actions are offered in each state.
+- `apps/desktop/package.json`: `test` is now plain `vitest run`.
+  New devDependencies: `jsdom`, `@testing-library/react`,
+  `@testing-library/dom`, `@testing-library/user-event`,
+  `@testing-library/jest-dom`.
+- `eslint.config.js`: test-file rule overrides now also match
+  `**/*.test.tsx`.
+- Full CI-mirror pass green locally: format:check + lint + typecheck +
+  test (desktop 4, backend 197, event-schema 34, shared 19,
+  contract-greythr 8).
+
+Refs: ADR-0003.
+
 ### Phase 2b.7.1 — tray icon + minimal home UI (2026-09-23)
 
 First sub-slice of 2b.7. Tray icon in the Windows notification area
