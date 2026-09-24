@@ -59,6 +59,9 @@ base64 = "0.22"
 sha2 = "0.10"
 url = "2"
 open = "5.4"
+# Native notifications for the tray-residency notice and on-the-clock
+# reminders (ADR-0013). Sent from Rust only; no webview permission.
+tauri-plugin-notification = "2.3"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 windows = { version = "0.58", features = [

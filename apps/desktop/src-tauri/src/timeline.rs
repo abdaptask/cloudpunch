@@ -136,6 +136,14 @@ impl Timeline {
         self.session_started_at
     }
 
+    /// Start of the segment still open, if any (for break length).
+    pub fn open_segment_started_at(&self) -> Option<SystemTime> {
+        self.segments
+            .last()
+            .filter(|s| s.ended_at.is_none())
+            .map(|s| s.started_at)
+    }
+
     pub fn segments(&self) -> &[Segment] {
         &self.segments
     }

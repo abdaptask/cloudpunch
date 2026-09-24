@@ -1,5 +1,6 @@
-import { useRef, type CSSProperties, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { api, type StateView } from './api.js';
+import { CloseDialog, LongShiftBanner, rememberedKeepRunning } from './CloseDialog.js';
 import { TimelineView } from './TimelineView.js';
 import {
   formatClock,
@@ -99,8 +100,20 @@ export function App(): JSX.Element {
   const now = useNow();
   const mainRef = useRef<HTMLElement>(null);
   useFitWindow(mainRef);
-  const { auth, busy, error: authError, signIn, signOut } = useAuth();
+  const { auth, busy, error: authError, signIn, cancelSignIn, signOut } = useAuth();
   const signedIn = auth?.signedIn === true;
+  const [closeAsked, setCloseAsked] = useState(false);
+
+  // The close button asks first, unless "keep running" was remembered
+  // (ADR-0013 §1). The tray's Quit while clocked in lands here too.
+  useEffect(() => {
+    const off = api.onCloseRequested(() => {
+      if (rememberedKeepRunning()) void api.hideToTray();
+      else setCloseAsked(true);
+    });
+    return () => void off.then((fn) => fn());
+  }, []);
+  const clockedIn = view !== null && view.status !== 'clocked_out';
 
   return (
     <main
@@ -139,8 +152,31 @@ export function App(): JSX.Element {
         </span>
       </header>
 
+      {closeAsked && (
+        <CloseDialog
+          clockedIn={clockedIn}
+          onKeepRunning={() => {
+            setCloseAsked(false);
+            void api.hideToTray();
+          }}
+          onQuit={() => {
+            setCloseAsked(false);
+            void (clockedIn ? api.clockOutAndQuit() : api.quitApp());
+          }}
+          onCancel={() => setCloseAsked(false)}
+        />
+      )}
+      {signedIn && view?.longShift && view.sessionStartedAt !== null && (
+        <LongShiftBanner
+          hours={formatHours(now - view.sessionStartedAt)}
+          onStillWorking={() => run(api.ackLongShift)}
+          onClockOut={() => run(api.clockOut)}
+        />
+      )}
       {!auth && <p style={{ margin: 0, fontSize: 13, color: t.muted }}>Loading…</p>}
-      {auth && !signedIn && <SignIn busy={busy} error={authError} onSignIn={signIn} />}
+      {auth && !signedIn && (
+        <SignIn busy={busy} error={authError} onSignIn={signIn} onCancel={cancelSignIn} />
+      )}
       {signedIn && authError === 'clock_out_first' && (
         <p role="alert" style={{ margin: 0, fontSize: 13, color: t.danger }}>
           Clock out before signing out.
@@ -405,6 +441,12 @@ const totalValue: CSSProperties = {
   fontSize: 13,
   fontVariantNumeric: 'tabular-nums',
 };
+
+/** "9 hours" / "11 hours". */
+function formatHours(ms: number): string {
+  const h = Math.floor(ms / 3_600_000);
+  return `${h} hour${h === 1 ? '' : 's'}`;
+}
 
 function linkButton(t: Theme): CSSProperties {
   return {

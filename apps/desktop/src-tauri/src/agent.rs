@@ -30,6 +30,7 @@ use crate::machine::sink::LogSink;
 use crate::machine::{
     AwayReason, BreakKind, CallType, Core, CoreConfig, CoreState, Effect, Input, Rejected,
 };
+use crate::reminders::{self, Inputs as ReminderInputs, Reminder, ReminderConfig, ReminderState};
 use crate::timeline::{epoch_ms, SegmentView, Timeline};
 use crate::tray::{self, TrayStateSnapshot};
 
@@ -58,9 +59,16 @@ pub struct StateView {
     /// Segments tracked on this device since the app started
     /// (`timeline` module). Display only, not payable hours.
     pub timeline: Vec<SegmentView>,
+    /// Long-shift check showing (ADR-0013 §5).
+    pub long_shift: bool,
 }
 
 impl StateView {
+    pub fn with_long_shift(mut self, long_shift: bool) -> Self {
+        self.long_shift = long_shift;
+        self
+    }
+
     pub fn with_call_type(mut self, call_type: Option<CallType>) -> Self {
         self.call_type = call_type.map(CallType::as_str);
         self
@@ -100,6 +108,7 @@ pub fn view_of(
         auto_clocked_out_at: auto_clocked_out_at.map(epoch_ms),
         session_started_at: None,
         timeline: Vec::new(),
+        long_shift: false,
     }
 }
 
@@ -149,6 +158,11 @@ struct UiPlan {
     show_prompt: bool,
     hide_prompt: bool,
     show_main: bool,
+    /// Refresh the tray colour and tooltip.
+    tray: bool,
+    tooltip: String,
+    /// Notifications to show, as (title, body).
+    notes: Vec<(String, String)>,
 }
 
 /// The window/tray side of the agent. Production uses [`TauriUi`];
@@ -160,6 +174,12 @@ pub trait Ui: Send + Sync + 'static {
     fn hide_prompt(&self);
     fn show_main(&self);
     fn state_changed(&self, view: &StateView, tray: TrayStateSnapshot);
+    /// Main window shown and not minimised (reminders only fire when
+    /// it isn't, ADR-0013 §2).
+    fn main_visible(&self) -> bool;
+    fn notify(&self, title: &str, body: &str);
+    /// Tray icon colour and tooltip (ADR-0013 §3).
+    fn tray_status(&self, tray: TrayStateSnapshot, tooltip: &str);
 }
 
 pub struct TauriUi {
@@ -197,12 +217,44 @@ impl Ui for TauriUi {
             eprintln!("[cloudpunch] tray update failed: {e}");
         }
     }
+
+    fn main_visible(&self) -> bool {
+        self.app
+            .get_webview_window("main")
+            .is_some_and(|w| w.is_visible().unwrap_or(false) && !w.is_minimized().unwrap_or(false))
+    }
+
+    fn notify(&self, title: &str, body: &str) {
+        use tauri_plugin_notification::NotificationExt;
+        let shown = self
+            .app
+            .notification()
+            .builder()
+            .title(title)
+            .body(body)
+            .show();
+        if let Err(e) = shown {
+            eprintln!("[cloudpunch] notification failed: {e}");
+        }
+    }
+
+    fn tray_status(&self, tray_state: TrayStateSnapshot, tooltip: &str) {
+        if let Err(e) = tray::set_status(&self.app, tray_state, tooltip) {
+            eprintln!("[cloudpunch] tray status failed: {e}");
+        }
+    }
 }
 
 struct Inner {
     driver: Driver<LogSink>,
     auto_clocked_out_at: Option<SystemTime>,
     timeline: Timeline,
+    reminder_cfg: ReminderConfig,
+    reminders: ReminderState,
+    /// Long-shift banner showing until "Still working" or clock-out.
+    long_shift: bool,
+    /// Last minute the tray tooltip was refreshed.
+    tooltip_minute: Option<u64>,
 }
 
 impl Inner {
@@ -214,12 +266,49 @@ impl Inner {
         )
         .with_call_type(self.driver.core().call_type())
         .with_timeline(&self.timeline)
+        .with_long_shift(self.long_shift)
+    }
+
+    fn tooltip(&self, snapshot: TrayStateSnapshot, now: SystemTime) -> String {
+        let elapsed = self
+            .timeline
+            .session_started_at()
+            .map(|s| reminders::short_duration(now.duration_since(s).unwrap_or_default()));
+        tray::tooltip(snapshot, elapsed.as_deref())
+    }
+}
+
+/// Notification text for a reminder (ADR-0013 §2, §4, §5).
+fn reminder_text(r: &Reminder) -> (String, String) {
+    match r {
+        Reminder::OnTheClock { elapsed } => (
+            "You're on the clock".into(),
+            format!(
+                "{} this session. CloudPunch is running in the system tray.",
+                reminders::short_duration(*elapsed)
+            ),
+        ),
+        Reminder::BreakOverCap { kind, elapsed } => (
+            format!("Still on your {} break?", kind.as_str()),
+            format!(
+                "{} min so far. End it in CloudPunch when you're back.",
+                elapsed.as_secs() / 60
+            ),
+        ),
+        Reminder::LongShift { elapsed } => (
+            "Still working?".into(),
+            format!(
+                "You've been clocked in for {}. Open CloudPunch to confirm or clock out.",
+                reminders::short_duration(*elapsed)
+            ),
+        ),
     }
 }
 
 pub struct Agent<U: Ui = TauriUi> {
     inner: Mutex<Inner>,
     ui: OnceLock<U>,
+    tray_notice: AtomicBool,
 }
 
 impl<U: Ui> Agent<U> {
@@ -230,8 +319,13 @@ impl<U: Ui> Agent<U> {
                 driver: Driver::new(core, LogSink),
                 auto_clocked_out_at: None,
                 timeline: Timeline::new(),
+                reminder_cfg: ReminderConfig::default(),
+                reminders: ReminderState::default(),
+                long_shift: false,
+                tooltip_minute: None,
             }),
             ui: OnceLock::new(),
+            tray_notice: AtomicBool::new(false),
         })
     }
 
@@ -257,6 +351,7 @@ impl<U: Ui> Agent<U> {
     fn handle_at(&self, input: Input, now: SystemTime) -> Result<StateView, Rejected> {
         let is_tick = matches!(input, Input::Tick { .. });
         let is_clock_in = input == Input::ClockIn;
+        let visible = self.ui.get().is_some_and(|u| u.main_visible());
 
         let (view, plan, snapshot) = {
             let mut inner = self.lock();
@@ -295,7 +390,37 @@ impl<U: Ui> Agent<U> {
             if is_clock_in {
                 inner.auto_clocked_out_at = None;
             }
-            (inner.view(), plan, tray_snapshot(after, call_after))
+            if after == CoreState::ClockedOut {
+                inner.long_shift = false;
+            }
+            if is_tick {
+                let inputs = ReminderInputs {
+                    now,
+                    state: after,
+                    session_started_at: inner.timeline.session_started_at(),
+                    segment_started_at: inner.timeline.open_segment_started_at(),
+                    window_visible: visible,
+                    minute_of_day: reminders::local_minute_of_day(),
+                };
+                let cfg = inner.reminder_cfg.clone();
+                for r in reminders::due(&cfg, inputs, &mut inner.reminders) {
+                    if matches!(r, Reminder::LongShift { .. }) {
+                        inner.long_shift = true;
+                        plan.show_main = true;
+                        plan.broadcast = true;
+                    }
+                    plan.notes.push(reminder_text(&r));
+                }
+                let minute = epoch_ms(now) / 60_000;
+                if inner.tooltip_minute != Some(minute) {
+                    inner.tooltip_minute = Some(minute);
+                    plan.tray = true;
+                }
+            }
+            let snapshot = tray_snapshot(after, call_after);
+            plan.tray |= plan.broadcast;
+            plan.tooltip = inner.tooltip(snapshot, now);
+            (inner.view(), plan, snapshot)
         };
 
         self.apply(&view, &plan, snapshot);
@@ -318,6 +443,44 @@ impl<U: Ui> Agent<U> {
         if plan.broadcast {
             ui.state_changed(view, snapshot);
         }
+        if plan.tray {
+            ui.tray_status(snapshot, &plan.tooltip);
+        }
+        for (title, body) in &plan.notes {
+            ui.notify(title, body);
+        }
+    }
+
+    /// "Still working" on the long-shift banner (ADR-0013 §5).
+    pub fn ack_long_shift(&self) -> StateView {
+        let now = SystemTime::now();
+        let (view, snapshot) = {
+            let mut inner = self.lock();
+            inner.long_shift = false;
+            let cfg = inner.reminder_cfg.clone();
+            inner.reminders.ack_long_shift(now, &cfg);
+            let snapshot = tray_snapshot(inner.driver.state(), inner.driver.core().call_type());
+            (inner.view(), snapshot)
+        };
+        if let Some(ui) = self.ui.get() {
+            ui.state_changed(&view, snapshot);
+        }
+        view
+    }
+
+    /// First time this run the window goes to the tray, say so once
+    /// (ADR-0013 §1). Returns whether the notice was shown.
+    pub fn notice_hidden_to_tray(&self) -> bool {
+        if self.tray_notice.swap(true, Ordering::AcqRel) {
+            return false;
+        }
+        if let Some(ui) = self.ui.get() {
+            ui.notify(
+                "CloudPunch is still running",
+                "It keeps tracking your time from the system tray. Open it from the tray icon.",
+            );
+        }
+        true
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, Inner> {
@@ -512,10 +675,13 @@ mod tests {
         assert_eq!(rejection_code(&Rejected::NoteRequired), "note_required");
     }
 
-    /// Records UI calls as short strings.
+    /// Records UI calls as short strings. Tray status refreshes aren't
+    /// recorded (they follow every broadcast); `visible` fakes the main
+    /// window being open.
     #[derive(Default)]
     struct FakeUi {
         calls: Mutex<Vec<String>>,
+        visible: AtomicBool,
     }
 
     impl Ui for Arc<FakeUi> {
@@ -534,6 +700,79 @@ mod tests {
                 .unwrap()
                 .push(format!("state:{}:{tray:?}", view.status));
         }
+        fn main_visible(&self) -> bool {
+            self.visible.load(Ordering::Acquire)
+        }
+        fn notify(&self, title: &str, _body: &str) {
+            self.calls.lock().unwrap().push(format!("notify:{title}"));
+        }
+        fn tray_status(&self, _tray: TrayStateSnapshot, _tooltip: &str) {}
+    }
+
+    fn notes(ui: &FakeUi) -> Vec<String> {
+        ui.calls
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|c| c.starts_with("notify:"))
+            .cloned()
+            .collect()
+    }
+
+    #[test]
+    fn on_the_clock_reminder_every_30_minutes_while_hidden() {
+        let (agent, ui) = agent_with_ui();
+        let base = SystemTime::now();
+        agent.handle_at(Input::ClockIn, base).unwrap();
+        // Recent input keeps the idle prompt away; 30 minutes pass.
+        let tick = |secs: u64| {
+            let now = base + Duration::from_secs(secs);
+            agent
+                .handle_at(Input::Tick { last_input_at: now }, now)
+                .unwrap()
+        };
+        tick(29 * 60);
+        assert!(notes(&ui).is_empty());
+        tick(30 * 60);
+        assert_eq!(notes(&ui), ["notify:You're on the clock"]);
+        ui.visible.store(true, Ordering::Release);
+        tick(61 * 60);
+        assert_eq!(notes(&ui).len(), 1, "not while the window is open");
+    }
+
+    #[test]
+    fn long_shift_raises_the_banner_and_still_working_clears_it() {
+        let (agent, ui) = agent_with_ui();
+        let base = SystemTime::now() - Duration::from_secs(10 * 3600);
+        agent.handle_at(Input::ClockIn, base).unwrap();
+        let now = base + Duration::from_secs(9 * 3600);
+        let view = agent
+            .handle_at(Input::Tick { last_input_at: now }, now)
+            .unwrap();
+        assert!(view.long_shift);
+        assert!(ui.calls.lock().unwrap().contains(&"show_main".to_string()));
+        assert!(notes(&ui).contains(&"notify:Still working?".to_string()));
+        assert!(!agent.ack_long_shift().long_shift);
+    }
+
+    #[test]
+    fn clocking_out_clears_the_long_shift_banner() {
+        let (agent, _ui) = agent_with_ui();
+        let base = SystemTime::now() - Duration::from_secs(10 * 3600);
+        agent.handle_at(Input::ClockIn, base).unwrap();
+        let now = base + Duration::from_secs(9 * 3600);
+        agent
+            .handle_at(Input::Tick { last_input_at: now }, now)
+            .unwrap();
+        assert!(!agent.handle(Input::ClockOut).unwrap().long_shift);
+    }
+
+    #[test]
+    fn tray_notice_only_once_per_run() {
+        let (agent, ui) = agent_with_ui();
+        assert!(agent.notice_hidden_to_tray());
+        assert!(!agent.notice_hidden_to_tray());
+        assert_eq!(notes(&ui), ["notify:CloudPunch is still running"]);
     }
 
     fn agent_with_ui() -> (Arc<Agent<Arc<FakeUi>>>, Arc<FakeUi>) {

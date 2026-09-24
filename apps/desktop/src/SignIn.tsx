@@ -8,7 +8,6 @@ const ERROR_TEXT: Record<string, string> = {
   network: "Couldn't reach Microsoft. Check your connection and try again.",
   rejected: 'Microsoft rejected the sign-in. Please try again.',
   browser: "Couldn't open your browser.",
-  busy: 'Sign-in is already in progress in your browser.',
   keystore: "Couldn't save your sign-in securely on this computer. Please try again.",
 };
 
@@ -17,13 +16,24 @@ export function SignIn({
   busy,
   error,
   onSignIn,
+  onCancel,
 }: {
   busy: boolean;
   error: string | null;
   onSignIn: () => void;
+  onCancel: () => void;
 }): JSX.Element {
   const t = useTheme();
   const small: CSSProperties = { margin: 0, fontSize: 12, lineHeight: 1.5, color: t.muted };
+  const link: CSSProperties = {
+    padding: 0,
+    border: 'none',
+    background: 'none',
+    color: t.accent,
+    font: 'inherit',
+    fontSize: 13,
+    cursor: 'pointer',
+  };
   return (
     <section
       aria-label="sign-in"
@@ -56,6 +66,18 @@ export function SignIn({
           ? 'A browser window has opened. Finish signing in there, then come back here.'
           : 'Sign-in opens in your browser, where your organisation’s security checks apply.'}
       </p>
+
+      {busy && (
+        <div style={{ display: 'flex', justifyContent: 'center', gap: 18 }}>
+          {/* Closed the tab, or it never appeared: start over. */}
+          <button type="button" onClick={onSignIn} style={link}>
+            Open the browser again
+          </button>
+          <button type="button" onClick={onCancel} style={link}>
+            Cancel
+          </button>
+        </div>
+      )}
 
       {error && (
         <p role="alert" style={{ margin: 0, fontSize: 13, color: t.danger }}>

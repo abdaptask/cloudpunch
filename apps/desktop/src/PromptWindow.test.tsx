@@ -25,6 +25,7 @@ function pending(over: Partial<StateView> = {}): StateView {
     autoClockedOutAt: null,
     sessionStartedAt: null,
     timeline: [],
+    longShift: false,
     ...over,
   };
 }

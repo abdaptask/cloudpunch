@@ -9,6 +9,7 @@
 
 use std::io::{BufRead, BufReader, Write};
 use std::net::{Ipv4Addr, Ipv6Addr, TcpListener, TcpStream};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -45,14 +46,20 @@ impl Loopback {
         format!("http://localhost:{}", self.port)
     }
 
-    /// Wait up to `timeout` for the redirect carrying `expected_state`.
+    /// Wait up to `timeout` for the redirect carrying `expected_state`,
+    /// or until `cancel` is set (a newer sign-in, or the user pressed
+    /// Cancel — e.g. after closing the browser tab).
     pub fn wait_for_code(
         &self,
         expected_state: &str,
         timeout: Duration,
+        cancel: &AtomicBool,
     ) -> Result<String, AuthError> {
         let deadline = Instant::now() + timeout;
         while Instant::now() < deadline {
+            if cancel.load(Ordering::Acquire) {
+                return Err(AuthError::Cancelled);
+            }
             let stream = self
                 .v4
                 .accept()
@@ -170,7 +177,9 @@ mod tests {
             c.read_to_string(&mut page).unwrap();
             page
         });
-        let code = lb.wait_for_code("st", Duration::from_secs(5)).unwrap();
+        let code = lb
+            .wait_for_code("st", Duration::from_secs(5), &AtomicBool::new(false))
+            .unwrap();
         assert_eq!(code, "the-code");
         let page = browser.join().unwrap();
         assert!(page.starts_with("HTTP/1.1 200 OK"));
@@ -181,8 +190,25 @@ mod tests {
     fn loopback_times_out() {
         let lb = Loopback::bind().unwrap();
         assert!(matches!(
-            lb.wait_for_code("st", Duration::from_millis(150)),
+            lb.wait_for_code("st", Duration::from_millis(150), &AtomicBool::new(false)),
             Err(AuthError::TimedOut)
         ));
+    }
+
+    #[test]
+    fn loopback_stops_promptly_when_cancelled() {
+        let lb = Loopback::bind().unwrap();
+        let cancel = std::sync::Arc::new(AtomicBool::new(false));
+        let flag = cancel.clone();
+        thread::spawn(move || {
+            thread::sleep(Duration::from_millis(100));
+            flag.store(true, Ordering::Release);
+        });
+        let started = Instant::now();
+        assert!(matches!(
+            lb.wait_for_code("st", Duration::from_secs(30), &cancel),
+            Err(AuthError::Cancelled)
+        ));
+        assert!(started.elapsed() < Duration::from_secs(2));
     }
 }
