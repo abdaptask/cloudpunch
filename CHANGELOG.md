@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Desktop signed-event encoder (2b.4 F3a) (2026-09-24)
+
+- New `event/encode.rs` turns a state-machine event into the signed wire
+  event the backend ingests. It signs 16 canonical fields with Ed25519,
+  including the four that travel on the batch envelope, and adds the
+  base64 `integrity_signature`. Timestamps are RFC 3339 with
+  milliseconds and the local offset (`chrono`). The zone name comes from
+  the OS (`iana-time-zone`) and falls back to `Etc/UTC`.
+- New `event/ulid.rs`: a hand-written monotonic ULID generator. Within a
+  millisecond, or if the clock steps back, IDs keep increasing.
+- **Shared golden fixture** `packages/event-schema/fixtures/signed-events.json`:
+  a whole shift of 11 events signed with a fixed test key. The Rust test
+  requires the encoder to reproduce it exactly. A backend test
+  (`signed-events.fixture.test.ts`) runs the same events through the
+  batch schema, signature verification and ingest, and all of them are
+  accepted.
+- **ADR-0014 (new, Accepted):** one `correlation_id` per session. Today the
+  sync loop creates a new one for each batch, so the backend would
+  reject every signed event. The fix comes in F3c.
+- Dependencies: `chrono` 0.4 (clock and std only) and `iana-time-zone`
+  0.1. Both were already in the lockfile through Tauri.
+- Not wired in yet: the agent still logs events. The outbox sink and a
+  live sync come in F3c.
+
 ### Fix: sign-in stuck after closing the browser tab (2026-09-24)
 
 - Found by the project owner: closing the browser mid-sign-in left the

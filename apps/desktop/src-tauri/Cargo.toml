@@ -62,6 +62,11 @@ open = "5.4"
 # Native notifications for the tray-residency notice and on-the-clock
 # reminders (ADR-0013). Sent from Rust only; no webview permission.
 tauri-plugin-notification = "2.3"
+# Event timestamps with the local UTC offset, and the IANA zone name
+# (ADR-0004 event fields client_ts / utc_offset_minutes / tz_iana).
+# Both already in the tree.
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+iana-time-zone = "0.1"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 windows = { version = "0.58", features = [
