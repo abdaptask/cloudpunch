@@ -28,6 +28,18 @@ executed.
 - **Never store secrets** in migrations. Configuration comes from
   Parameter Store; secrets from Secrets Manager.
 
+## One-time exception: 0001 edited after merge (2026-09-24)
+
+`0001_baseline_identity.sql` was edited after merge, against the
+forward-only rule above. Its `employee_override_active_idx` used a
+partial-index predicate `WHERE effective_until > now()`, which
+Postgres rejects (index predicates must be `IMMUTABLE`), so 0001 had
+never been applied to any database and no later migration could run.
+The index is now `(employee_id, field_name, effective_until)` without
+a predicate. Safe only because no database had 0001 recorded in
+`schema_migrations`. Found on the first real apply (dev VM); the
+Postgres integration tests that would have caught it are not in CI yet.
+
 ## Applied order
 
 | #    | Slug              | Purpose                                                                                       | Introduced in |
