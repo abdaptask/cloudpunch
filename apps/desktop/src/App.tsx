@@ -5,9 +5,12 @@ import {
   formatClock,
   formatDuration,
   formatTimer,
+  groupOf,
   KIND_LABEL,
   KIND_ORDER,
   totalsByKind,
+  WORKING_PART_LABEL,
+  type SegmentKind,
 } from './timelineModel.js';
 import { Button } from './ui/Button.js';
 import { useTheme, type Theme } from './ui/theme.js';
@@ -37,8 +40,14 @@ function statusLabel(v: StateView): string {
     case 'on_break':
       return v.breakKind === 'meal' ? 'On a meal break' : 'On a bio break';
     case 'away':
-      return v.awayReason === 'phone_call' ? 'Away — on a phone call' : 'Away — working away';
+      return KIND_LABEL[awayKind(v)];
   }
+}
+
+function awayKind(v: StateView): 'away_meeting' | 'away_phone' | 'away_working' {
+  if (v.awayReason === 'meeting') return 'away_meeting';
+  if (v.awayReason === 'phone_call') return 'away_phone';
+  return 'away_working';
 }
 
 function statusColor(t: Theme, v: StateView): string {
@@ -54,7 +63,7 @@ function statusColor(t: Theme, v: StateView): string {
             : 'bio_break'
       ];
     case 'away':
-      return t.kind[v.awayReason === 'phone_call' ? 'away_phone' : 'away_working'];
+      return t.kind[awayKind(v)];
     case 'idle_pending':
       return t.kind.prompt;
     case 'active':
@@ -222,6 +231,18 @@ function Actions({
               </Button>
             </>,
           )}
+          {/* Away tags aren't offered during a call: it's already tracked (ADR-0009 §2). */}
+          {view.status === 'active' &&
+            chips(
+              <>
+                <Button variant="chip" onClick={() => run(() => api.markAway('meeting'))}>
+                  In a meeting
+                </Button>
+                <Button variant="chip" onClick={() => run(() => api.markAway('phone_call'))}>
+                  On a phone call
+                </Button>
+              </>,
+            )}
         </>
       );
     case 'idle_pending':
@@ -258,20 +279,52 @@ function Actions({
 function Footer({ view, now }: { view: StateView; now: number }): JSX.Element {
   const t = useTheme();
   const byKind = totalsByKind(view.timeline, now);
-  const rows = KIND_ORDER.filter((k) => k === 'working' || (byKind[k] ?? 0) > 0);
+  const present = KIND_ORDER.filter((k) => (byKind[k] ?? 0) > 0);
+  const workingParts = present.filter((k) => groupOf(k) === 'working');
+  const otherRows = present.filter((k) => groupOf(k) !== 'working');
+  const workingTotal = workingParts.reduce((sum, k) => sum + (byKind[k] ?? 0), 0);
+  // Only break Working down when it's more than plain computer time.
+  const showParts = workingParts.some((k) => k !== 'working');
   const onTheClock = Object.values(byKind).reduce((a, b) => a + b, 0);
+  const dot = (k: SegmentKind): JSX.Element => (
+    <span aria-hidden style={{ width: 8, height: 8, borderRadius: 2, background: t.kind[k] }} />
+  );
   return (
     <footer aria-label="totals" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
       <section style={card(t)}>
         <h2 style={sectionTitle(t)}>Today&apos;s totals</h2>
         <dl style={{ margin: 0, display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {rows.map((k) => (
+          <div style={totalRow}>
+            <dt style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
+              {dot('working')}
+              Working
+            </dt>
+            <dd style={totalValue}>{formatDuration(workingTotal)}</dd>
+          </div>
+          {showParts &&
+            workingParts.map((k) => (
+              <div key={k} style={{ ...totalRow, paddingLeft: 16 }}>
+                <dt
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    fontSize: 12,
+                    color: t.muted,
+                  }}
+                >
+                  {dot(k)}
+                  {WORKING_PART_LABEL[k] ?? KIND_LABEL[k]}
+                </dt>
+                <dd style={{ ...totalValue, fontSize: 12, color: t.muted }}>
+                  {formatDuration(byKind[k] ?? 0)}
+                </dd>
+              </div>
+            ))}
+          {otherRows.map((k) => (
             <div key={k} style={totalRow}>
               <dt style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
-                <span
-                  aria-hidden
-                  style={{ width: 8, height: 8, borderRadius: 2, background: t.kind[k] }}
-                />
+                {dot(k)}
                 {KIND_LABEL[k]}
               </dt>
               <dd style={totalValue}>{formatDuration(byKind[k] ?? 0)}</dd>

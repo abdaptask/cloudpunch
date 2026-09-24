@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 use tauri::{LogicalSize, State, WebviewWindow};
 
-use crate::agent::{parse_break_kind, rejection_code, Agent, StateView};
+use crate::agent::{parse_away_tag, parse_break_kind, rejection_code, Agent, StateView};
 use crate::machine::{Input, PromptResponse};
 
 type CommandResult = Result<StateView, String>;
@@ -87,6 +87,17 @@ pub fn start_break(agent: State<'_, Arc<Agent>>, kind: String) -> CommandResult 
 #[tauri::command]
 pub fn end_break(agent: State<'_, Arc<Agent>>) -> CommandResult {
     run(&agent, Input::EndBreak)
+}
+
+/// Voluntary away tag: `meeting` or `phone_call` (ADR-0011 §2).
+#[tauri::command]
+pub fn mark_away(
+    agent: State<'_, Arc<Agent>>,
+    reason: String,
+    note: Option<String>,
+) -> CommandResult {
+    let reason = parse_away_tag(&reason).ok_or_else(|| "invalid_argument".to_string())?;
+    run(&agent, Input::MarkAway { reason, note })
 }
 
 #[tauri::command]

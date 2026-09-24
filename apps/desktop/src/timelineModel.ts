@@ -10,6 +10,7 @@ export type SegmentKind =
   | 'bio_break'
   | 'meal_break'
   | 'other_break'
+  | 'away_meeting'
   | 'away_phone'
   | 'away_working'
   | 'prompt';
@@ -26,20 +27,24 @@ export interface Segment {
 /** A segment with a definite end (open segments end at "now"). */
 export type ClosedSegment = Segment & { endedAt: number };
 
-export type SegmentGroup = 'working' | 'break' | 'away' | 'prompt';
+/**
+ * Calls, meetings, phone calls and working away all count as working
+ * time; they are shown as separate segments while they happen.
+ */
+export type SegmentGroup = 'working' | 'break' | 'prompt';
 
 export function groupOf(kind: SegmentKind): SegmentGroup {
   switch (kind) {
     case 'working':
     case 'on_call':
+    case 'away_meeting':
+    case 'away_phone':
+    case 'away_working':
       return 'working';
     case 'bio_break':
     case 'meal_break':
     case 'other_break':
       return 'break';
-    case 'away_phone':
-    case 'away_working':
-      return 'away';
     case 'prompt':
       return 'prompt';
   }
@@ -51,9 +56,19 @@ export const KIND_LABEL: Record<SegmentKind, string> = {
   bio_break: 'Bio break',
   meal_break: 'Meal break',
   other_break: 'Break',
-  away_phone: 'Away — phone call',
-  away_working: 'Away — working away',
+  away_meeting: 'In a meeting',
+  away_phone: 'On a phone call',
+  away_working: 'Working away',
   prompt: 'Idle prompt',
+};
+
+/** Label for a kind as a line under the Working total. */
+export const WORKING_PART_LABEL: Partial<Record<SegmentKind, string>> = {
+  working: 'At the computer',
+  on_call: 'On a call',
+  away_meeting: 'In a meeting',
+  away_phone: 'On a phone call',
+  away_working: 'Working away',
 };
 
 export function startOfLocalDay(now: number): number {
@@ -78,7 +93,7 @@ export function today(segments: readonly Segment[], now: number): ClosedSegment[
 export type Totals = Record<SegmentGroup, number>;
 
 export function totals(segments: readonly Segment[], now: number): Totals {
-  const out: Totals = { working: 0, break: 0, away: 0, prompt: 0 };
+  const out: Totals = { working: 0, break: 0, prompt: 0 };
   for (const s of today(segments, now)) {
     out[groupOf(s.kind)] += s.endedAt - s.startedAt;
   }
@@ -120,11 +135,12 @@ export function sessionsToday(segments: readonly Segment[], now: number): Sessio
 export const KIND_ORDER: readonly SegmentKind[] = [
   'working',
   'on_call',
+  'away_meeting',
+  'away_phone',
+  'away_working',
   'bio_break',
   'meal_break',
   'other_break',
-  'away_phone',
-  'away_working',
   'prompt',
 ];
 

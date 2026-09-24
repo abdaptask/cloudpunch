@@ -45,6 +45,14 @@ const AMBIENT_EVENTS: ReadonlySet<string> = new Set([
   'INTEGRITY_VIOLATION',
 ]);
 
+/** `USER_MARK_AWAY.payload.away_reason` (ADR-0011 §2). */
+const AWAY_REASONS: ReadonlySet<string> = new Set([
+  'working_away',
+  'phone_call',
+  'meeting',
+  'other',
+]);
+
 const PROMPT_RESPONSES: ReadonlySet<string> = new Set([
   'still_working',
   'bio_break',
@@ -111,9 +119,13 @@ export function nextState(
       if (current !== 'ON_BREAK') return null;
       return 'ACTIVE';
 
-    case 'USER_MARK_AWAY':
+    case 'USER_MARK_AWAY': {
       if (current !== 'ACTIVE') return null;
+      // ADR-0011 §2: the reason is required and must be known.
+      const reason = payload?.['away_reason'];
+      if (typeof reason !== 'string' || !AWAY_REASONS.has(reason)) return null;
       return 'AWAY';
+    }
 
     case 'USER_MARK_BACK':
       if (current !== 'AWAY') return null;

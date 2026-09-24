@@ -98,13 +98,25 @@ impl BreakKind {
     }
 }
 
-/// Only the reasons reachable from the prompt today. Manual
-/// `USER_MARK_AWAY` (and its `meeting` / `other` reasons) has no
-/// payload schema yet and is not wired.
+/// Why the employee is away from the computer. `PhoneCall` and
+/// `WorkingAway` come from the prompt or a tag; `Meeting` only from a
+/// voluntary tag (ADR-0011 §2). `other` is not offered yet.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AwayReason {
     PhoneCall,
     WorkingAway,
+    Meeting,
+}
+
+impl AwayReason {
+    /// `USER_MARK_AWAY.payload.away_reason`.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            AwayReason::PhoneCall => "phone_call",
+            AwayReason::WorkingAway => "working_away",
+            AwayReason::Meeting => "meeting",
+        }
+    }
 }
 
 /// Why the idle prompt opened (`INPUT_IDLE_5M.payload.trigger`,
@@ -147,6 +159,9 @@ pub struct CoreConfig {
     /// `idle.max_silent_call_minutes` (ADR-0010): prompt anyway after
     /// this long on a call with no input. `None` disables the cap.
     pub max_silent_call: Option<Duration>,
+    /// Away reasons whose note is mandatory when tagged directly
+    /// (`away.require_note`: working_away yes, phone_call / meeting no).
+    pub away_note_required: Vec<AwayReason>,
     /// `idle.prompt_options`.
     pub prompt_options: Vec<PromptResponse>,
     /// Responses whose note is mandatory (`away.require_note`).
@@ -163,6 +178,7 @@ impl Default for CoreConfig {
             max_silent_call: Some(Duration::from_secs(30 * 60)),
             prompt_options: PromptResponse::ALL.to_vec(),
             note_required_for: vec![PromptResponse::WorkingAway],
+            away_note_required: vec![AwayReason::WorkingAway],
         }
     }
 }
@@ -209,6 +225,11 @@ pub enum Input {
     EndBreak,
     /// "I'm back" from `AWAY`.
     MarkBack,
+    /// Voluntary tag: "In a meeting", "On a phone call" (ADR-0011 §2).
+    MarkAway {
+        reason: AwayReason,
+        note: Option<String>,
+    },
     RespondToPrompt {
         response: PromptResponse,
         note: Option<String>,
@@ -234,6 +255,10 @@ pub enum CoreEvent {
     },
     UserEndBreak,
     UserMarkBack,
+    UserMarkAway {
+        reason: AwayReason,
+        note: Option<String>,
+    },
     UserPromptResponse {
         response: PromptResponse,
         note: Option<String>,
@@ -256,6 +281,7 @@ impl CoreEvent {
             CoreEvent::UserStartBreak { .. } => "USER_START_BREAK",
             CoreEvent::UserEndBreak => "USER_END_BREAK",
             CoreEvent::UserMarkBack => "USER_MARK_BACK",
+            CoreEvent::UserMarkAway { .. } => "USER_MARK_AWAY",
             CoreEvent::UserPromptResponse { .. } => "USER_PROMPT_RESPONSE",
             CoreEvent::InputIdle5m { .. } => "INPUT_IDLE_5M",
             CoreEvent::PromptTimeout30s => "PROMPT_TIMEOUT_30S",
@@ -272,6 +298,7 @@ impl CoreEvent {
                 json!({ "response": response.as_str() })
             }
             CoreEvent::MediaDeviceState { in_use } => json!({ "in_use": in_use }),
+            CoreEvent::UserMarkAway { reason, .. } => json!({ "away_reason": reason.as_str() }),
             CoreEvent::InputIdle5m { trigger } => json!({ "trigger": trigger.as_str() }),
             _ => json!({}),
         }
@@ -368,6 +395,11 @@ impl Core {
             Input::MarkBack => {
                 self.apply(CoreEvent::UserMarkBack, now, &mut fx)?;
             }
+            Input::MarkAway { reason, note } => {
+                let required = self.cfg.away_note_required.contains(&reason);
+                let note = clean_note(note, required)?;
+                self.apply(CoreEvent::UserMarkAway { reason, note }, now, &mut fx)?;
+            }
             Input::RespondToPrompt { response, note } => {
                 let CoreState::IdlePending { shown_at, .. } = self.state else {
                     return Err(Rejected::InvalidTransition);
@@ -397,17 +429,7 @@ impl Core {
         if !self.cfg.prompt_options.contains(&response) {
             return Err(Rejected::OptionNotOffered);
         }
-        let note = note.map(|n| n.trim().to_string()).filter(|n| !n.is_empty());
-        if self.cfg.note_required_for.contains(&response) && note.is_none() {
-            return Err(Rejected::NoteRequired);
-        }
-        if note
-            .as_ref()
-            .is_some_and(|n| n.chars().count() > NOTE_MAX_CHARS)
-        {
-            return Err(Rejected::NoteTooLong);
-        }
-        Ok(note)
+        clean_note(note, self.cfg.note_required_for.contains(&response))
     }
 
     /// Check `event` against the server machine, emit it, and move to
@@ -443,6 +465,9 @@ impl Core {
                         BreakKind::Bio
                     },
                 }
+            }
+            (PayrollState::Away, CoreEvent::UserMarkAway { reason, .. }) => {
+                CoreState::Away { reason: *reason }
             }
             (PayrollState::Away, CoreEvent::UserPromptResponse { response, .. }) => {
                 CoreState::Away {
@@ -579,6 +604,21 @@ impl Core {
             _ => {}
         }
     }
+}
+
+/// Trim; blank becomes `None`; enforce `required` and the length cap.
+fn clean_note(note: Option<String>, required: bool) -> Result<Option<String>, Rejected> {
+    let note = note.map(|n| n.trim().to_string()).filter(|n| !n.is_empty());
+    if required && note.is_none() {
+        return Err(Rejected::NoteRequired);
+    }
+    if note
+        .as_ref()
+        .is_some_and(|n| n.chars().count() > NOTE_MAX_CHARS)
+    {
+        return Err(Rejected::NoteTooLong);
+    }
+    Ok(note)
 }
 
 fn elapsed(since: SystemTime, now: SystemTime) -> Duration {

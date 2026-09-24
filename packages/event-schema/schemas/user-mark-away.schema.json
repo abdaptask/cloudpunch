@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cloudpunch.aptask.com/schemas/user-mark-away.schema.json",
+  "title": "USER_MARK_AWAY event",
+  "description": "The employee voluntarily tagged themselves away from the computer (e.g. in a meeting, on a phone call). Valid from ACTIVE only. Note rules follow away.require_note. See ADR-0003 §3 and ADR-0011 §2.",
+  "allOf": [
+    { "$ref": "common/base-event.schema.json" },
+    {
+      "type": "object",
+      "properties": {
+        "event_type": { "const": "USER_MARK_AWAY" },
+        "payload": {
+          "type": "object",
+          "properties": {
+            "away_reason": {
+              "type": "string",
+              "enum": ["working_away", "phone_call", "meeting", "other"]
+            },
+            "note": {
+              "type": ["string", "null"],
+              "maxLength": 500,
+              "description": "Optional employee-written note. Required for reasons listed in away.require_note."
+            }
+          },
+          "required": ["away_reason"],
+          "additionalProperties": false
+        }
+      }
+    }
+  ]
+}

@@ -17,7 +17,7 @@ export type Status = 'clocked_out' | 'active' | 'on_call' | 'idle_pending' | 'on
 export interface StateView {
   status: Status;
   breakKind: 'bio' | 'meal' | 'other' | null;
-  awayReason: 'phone_call' | 'working_away' | null;
+  awayReason: 'phone_call' | 'working_away' | 'meeting' | null;
   promptDeadline: number | null;
   promptOptions: PromptResponse[];
   noteRequiredFor: PromptResponse[];
@@ -39,6 +39,9 @@ export const api = {
     invoke<StateView>('start_break', { kind }),
   endBreak: (): Promise<StateView> => invoke<StateView>('end_break'),
   markBack: (): Promise<StateView> => invoke<StateView>('mark_back'),
+  /** Voluntary tag (ADR-0011 §2). */
+  markAway: (reason: 'meeting' | 'phone_call'): Promise<StateView> =>
+    invoke<StateView>('mark_away', { reason }),
   respondToPrompt: (response: PromptResponse, note: string | null): Promise<StateView> =>
     invoke<StateView>('respond_to_prompt', { response, note }),
   /** Ask the agent to resize the main window to `height` logical px. */

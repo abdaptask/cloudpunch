@@ -73,8 +73,15 @@ describe('nextState — breaks', () => {
 });
 
 describe('nextState — away', () => {
-  it('USER_MARK_AWAY from ACTIVE → AWAY', () => {
-    expect(nextState('ACTIVE', 'USER_MARK_AWAY')).toBe('AWAY');
+  it('USER_MARK_AWAY from ACTIVE → AWAY for each known reason (ADR-0011)', () => {
+    for (const away_reason of ['working_away', 'phone_call', 'meeting', 'other']) {
+      expect(nextState('ACTIVE', 'USER_MARK_AWAY', { away_reason })).toBe('AWAY');
+    }
+  });
+  it('USER_MARK_AWAY without a known reason is invalid', () => {
+    expect(nextState('ACTIVE', 'USER_MARK_AWAY')).toBeNull();
+    expect(nextState('ACTIVE', 'USER_MARK_AWAY', { away_reason: 'lunch' })).toBeNull();
+    expect(nextState('ACTIVE', 'USER_MARK_AWAY', { away_reason: null })).toBeNull();
   });
   it('USER_MARK_AWAY from ON_BREAK is invalid', () => {
     expect(nextState('ON_BREAK', 'USER_MARK_AWAY')).toBeNull();
@@ -280,7 +287,7 @@ describe('deriveState — folding an event stream', () => {
       mk('INPUT_ACTIVITY'),
       mk('USER_START_BREAK'),
       mk('USER_END_BREAK'),
-      mk('USER_MARK_AWAY'),
+      mk('USER_MARK_AWAY', { away_reason: 'meeting' }),
       mk('USER_MARK_BACK'),
       mk('USER_CLOCK_OUT'),
     ];
@@ -319,7 +326,7 @@ describe('deriveState — folding an event stream', () => {
   it('invalid transitions in the stream are skipped (defensive)', () => {
     // USER_END_BREAK from ACTIVE is invalid; state stays ACTIVE.
     // Then USER_MARK_AWAY (valid from ACTIVE) → AWAY.
-    const stream = [mk('USER_END_BREAK'), mk('USER_MARK_AWAY')];
+    const stream = [mk('USER_END_BREAK'), mk('USER_MARK_AWAY', { away_reason: 'meeting' })];
     expect(deriveState(stream)).toBe('AWAY');
   });
 });

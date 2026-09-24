@@ -78,15 +78,7 @@ pub fn view_of(
             ("idle_pending", None, None, Some(epoch_ms(deadline)))
         }
         CoreState::OnBreak { kind } => ("on_break", Some(kind.as_str()), None, None),
-        CoreState::Away { reason } => (
-            "away",
-            None,
-            Some(match reason {
-                AwayReason::PhoneCall => "phone_call",
-                AwayReason::WorkingAway => "working_away",
-            }),
-            None,
-        ),
+        CoreState::Away { reason } => ("away", None, Some(reason.as_str()), None),
     };
     StateView {
         status,
@@ -106,10 +98,9 @@ pub fn tray_snapshot(state: CoreState) -> TrayStateSnapshot {
     match state {
         CoreState::ClockedOut => TrayStateSnapshot::NotClockedIn,
         CoreState::OnBreak { .. } => TrayStateSnapshot::OnBreak,
-        CoreState::Away { .. } => TrayStateSnapshot::Away,
-        CoreState::Active | CoreState::OnCall | CoreState::IdlePending { .. } => {
-            TrayStateSnapshot::ClockedIn
-        }
+        CoreState::Away { reason } => TrayStateSnapshot::Away(reason),
+        CoreState::OnCall => TrayStateSnapshot::OnCall,
+        CoreState::Active | CoreState::IdlePending { .. } => TrayStateSnapshot::ClockedIn,
     }
 }
 
@@ -120,6 +111,16 @@ pub fn rejection_code(r: &Rejected) -> &'static str {
         Rejected::OptionNotOffered => "option_not_offered",
         Rejected::NoteRequired => "note_required",
         Rejected::NoteTooLong => "note_too_long",
+    }
+}
+
+/// Tags the UI may set directly (ADR-0011 §2). `working_away` needs a
+/// note and stays prompt-only for now; `other` is not offered.
+pub fn parse_away_tag(s: &str) -> Option<AwayReason> {
+    match s {
+        "meeting" => Some(AwayReason::Meeting),
+        "phone_call" => Some(AwayReason::PhoneCall),
+        _ => None,
     }
 }
 
@@ -465,7 +466,7 @@ mod tests {
             TrayStateSnapshot::NotClockedIn
         );
         assert_eq!(
-            tray_snapshot(CoreState::OnCall),
+            tray_snapshot(CoreState::Active),
             TrayStateSnapshot::ClockedIn
         );
         assert_eq!(
@@ -478,8 +479,11 @@ mod tests {
             tray_snapshot(CoreState::Away {
                 reason: AwayReason::PhoneCall
             }),
-            TrayStateSnapshot::Away
+            TrayStateSnapshot::Away(AwayReason::PhoneCall)
         );
+        assert_eq!(tray_snapshot(CoreState::OnCall), TrayStateSnapshot::OnCall);
+        assert_eq!(parse_away_tag("meeting"), Some(AwayReason::Meeting));
+        assert_eq!(parse_away_tag("working_away"), None);
     }
 
     #[test]

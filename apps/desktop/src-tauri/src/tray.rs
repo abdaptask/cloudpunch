@@ -18,30 +18,35 @@ use tauri::tray::TrayIconBuilder;
 use tauri::{AppHandle, Manager, Runtime};
 
 use crate::agent::Agent;
-use crate::machine::{BreakKind, Input};
+use crate::machine::{AwayReason, BreakKind, Input};
 
 const TRAY_ID: &str = "cp-tray";
 
-/// The states the tray distinguishes. `ClockedIn` covers active, on
-/// a call, and prompt pending — the tray does not surface calls
-/// (ADR-0003 §1: `ON_CALL` is reported as `ACTIVE`).
+/// The states the tray distinguishes. `ClockedIn` covers active and
+/// prompt pending. Calls are shown on the employee's own tray
+/// (ADR-0011 §1); managers still see them as active.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TrayStateSnapshot {
     NotClockedIn,
     ClockedIn,
+    OnCall,
     OnBreak,
-    Away,
+    Away(AwayReason),
 }
 
 /// Human-readable status label for the first (disabled) tray menu
 /// item. Pure fn — trivially unit-testable.
 pub fn render_status_label(state: &TrayStateSnapshot) -> String {
     match state {
-        TrayStateSnapshot::NotClockedIn => "Status: Not clocked in".to_string(),
-        TrayStateSnapshot::ClockedIn => "Status: Clocked in".to_string(),
-        TrayStateSnapshot::OnBreak => "Status: On break".to_string(),
-        TrayStateSnapshot::Away => "Status: Away".to_string(),
+        TrayStateSnapshot::NotClockedIn => "Status: Not clocked in",
+        TrayStateSnapshot::ClockedIn => "Status: Clocked in",
+        TrayStateSnapshot::OnCall => "Status: On a call",
+        TrayStateSnapshot::OnBreak => "Status: On break",
+        TrayStateSnapshot::Away(AwayReason::Meeting) => "Status: In a meeting",
+        TrayStateSnapshot::Away(AwayReason::PhoneCall) => "Status: On a phone call",
+        TrayStateSnapshot::Away(AwayReason::WorkingAway) => "Status: Working away",
     }
+    .to_string()
 }
 
 /// `(menu id, label)` for the state's action items. Pure.
@@ -52,9 +57,17 @@ pub fn action_items(state: TrayStateSnapshot) -> &'static [(&'static str, &'stat
             ("clock_out", "Clock out"),
             ("bio_break", "Bio break"),
             ("meal_break", "Meal break"),
+            ("meeting", "In a meeting"),
+            ("phone_call", "On a phone call"),
+        ],
+        // Away tags are not offered during a call (ADR-0009 §2).
+        TrayStateSnapshot::OnCall => &[
+            ("clock_out", "Clock out"),
+            ("bio_break", "Bio break"),
+            ("meal_break", "Meal break"),
         ],
         TrayStateSnapshot::OnBreak => &[("end_break", "End break"), ("clock_out", "Clock out")],
-        TrayStateSnapshot::Away => &[("mark_back", "I'm back"), ("clock_out", "Clock out")],
+        TrayStateSnapshot::Away(_) => &[("mark_back", "I'm back"), ("clock_out", "Clock out")],
     }
 }
 
@@ -67,6 +80,14 @@ pub fn input_for(id: &str) -> Option<Input> {
         "meal_break" => Input::StartBreak(BreakKind::Meal),
         "end_break" => Input::EndBreak,
         "mark_back" => Input::MarkBack,
+        "meeting" => Input::MarkAway {
+            reason: AwayReason::Meeting,
+            note: None,
+        },
+        "phone_call" => Input::MarkAway {
+            reason: AwayReason::PhoneCall,
+            note: None,
+        },
         _ => return None,
     })
 }
@@ -147,46 +168,40 @@ pub fn install<R: Runtime>(app: &AppHandle<R>, state: TrayStateSnapshot) -> taur
 mod tests {
     use super::*;
 
-    #[test]
-    fn render_label_for_not_clocked_in() {
-        assert_eq!(
-            render_status_label(&TrayStateSnapshot::NotClockedIn),
-            "Status: Not clocked in"
-        );
+    const ALL: [TrayStateSnapshot; 7] = [
+        TrayStateSnapshot::NotClockedIn,
+        TrayStateSnapshot::ClockedIn,
+        TrayStateSnapshot::OnCall,
+        TrayStateSnapshot::OnBreak,
+        TrayStateSnapshot::Away(AwayReason::Meeting),
+        TrayStateSnapshot::Away(AwayReason::PhoneCall),
+        TrayStateSnapshot::Away(AwayReason::WorkingAway),
+    ];
+
+    fn ids(state: TrayStateSnapshot) -> Vec<&'static str> {
+        action_items(state).iter().map(|(id, _)| *id).collect()
     }
 
     #[test]
-    fn render_label_for_clocked_in() {
+    fn status_labels() {
+        let labels: Vec<String> = ALL.iter().map(render_status_label).collect();
         assert_eq!(
-            render_status_label(&TrayStateSnapshot::ClockedIn),
-            "Status: Clocked in"
-        );
-    }
-
-    #[test]
-    fn render_label_for_on_break() {
-        assert_eq!(
-            render_status_label(&TrayStateSnapshot::OnBreak),
-            "Status: On break"
-        );
-    }
-
-    #[test]
-    fn render_label_for_away() {
-        assert_eq!(
-            render_status_label(&TrayStateSnapshot::Away),
-            "Status: Away"
+            labels,
+            [
+                "Status: Not clocked in",
+                "Status: Clocked in",
+                "Status: On a call",
+                "Status: On break",
+                "Status: In a meeting",
+                "Status: On a phone call",
+                "Status: Working away",
+            ]
         );
     }
 
     #[test]
     fn every_action_item_maps_to_an_input() {
-        for state in [
-            TrayStateSnapshot::NotClockedIn,
-            TrayStateSnapshot::ClockedIn,
-            TrayStateSnapshot::OnBreak,
-            TrayStateSnapshot::Away,
-        ] {
+        for state in ALL {
             for (id, _) in action_items(state) {
                 assert!(input_for(id).is_some(), "{id} has no input");
             }
@@ -200,11 +215,43 @@ mod tests {
     }
 
     #[test]
-    fn clocked_in_offers_bio_and_meal_not_other() {
-        let ids: Vec<_> = action_items(TrayStateSnapshot::ClockedIn)
-            .iter()
-            .map(|(id, _)| *id)
-            .collect();
-        assert_eq!(ids, ["clock_out", "bio_break", "meal_break"]);
+    fn clocked_in_offers_breaks_and_away_tags_not_other() {
+        assert_eq!(
+            ids(TrayStateSnapshot::ClockedIn),
+            [
+                "clock_out",
+                "bio_break",
+                "meal_break",
+                "meeting",
+                "phone_call"
+            ]
+        );
+    }
+
+    #[test]
+    fn on_call_offers_no_away_tags() {
+        assert_eq!(
+            ids(TrayStateSnapshot::OnCall),
+            ["clock_out", "bio_break", "meal_break"]
+        );
+    }
+
+    #[test]
+    fn away_offers_back_and_clock_out() {
+        assert_eq!(
+            ids(TrayStateSnapshot::Away(AwayReason::Meeting)),
+            ["mark_back", "clock_out"]
+        );
+    }
+
+    #[test]
+    fn tag_ids_map_to_mark_away() {
+        assert_eq!(
+            input_for("meeting"),
+            Some(Input::MarkAway {
+                reason: AwayReason::Meeting,
+                note: None
+            })
+        );
     }
 }
