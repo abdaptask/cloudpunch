@@ -7,6 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Phase 2b.7.2b PR E — mic detection via audio sessions (2026-09-24)
+
+Fixes the PR D smoke-test failure: a Teams call did not dismiss the
+idle prompt, because the consent-store registry check never marked
+the mic in use during a live, unmuted call.
+
+- `apps/desktop/src-tauri/src/watchers/audio_session.rs` (new):
+  `capture_session_active()` — true iff any non-system-sounds session
+  on an active capture endpoint is `AudioSessionStateActive`
+  (`IAudioSessionManager2`, the primary source in ADR-0003 §7). One
+  boolean; never the owning process, name, or audio. COM failures read
+  as "not capturing" (fail safe, ADR-0003 §7). Includes an
+  `#[ignore]`d live probe that prints counts only.
+- `watchers/mic_cam.rs`: new `WindowsMediaState` source — mic =
+  capture session active OR consent store; camera = consent store.
+  `lib.rs` uses it instead of `WindowsConsentStore`.
+- `Cargo.toml`: enables the `Win32_Media_Audio` feature of the
+  existing `windows` crate. No new crate; `Cargo.lock` unchanged.
+- Verified on the project owner's machine: during a connected Teams
+  call on a webcam mic the probe reported one active capture session;
+  the consent store reported none.
+- Smoke-tested on top of PR D (Windows): clocking in during a call
+  enters `ON_CALL` at once; hang-up is recorded after the 5 s
+  debounce; a call started while the prompt is showing closes it; Teams
+  stays unmuted.
+
+**Risk:** any app holding a capture stream open (voice assistant,
+browser tab with mic access, streaming software) now suppresses the
+idle prompt while it runs. `idle.suppress_prompt_when_media_active`
+can turn suppression off per policy.
+
+**Doc inconsistency (not changed here):** ADR-0004's example
+`MEDIA_DEVICE_STATE` payload shows `device_kind` and `detected_via`;
+ADR-0009 fixed the payload to `{ in_use }` only.
+
+Refs: ADR-0003 §7, ADR-0009.
+
 ### Phase 2b.7.2b PR C — event sink + driver (2026-09-24)
 
 Connects the desktop state machine to a pluggable event destination.
