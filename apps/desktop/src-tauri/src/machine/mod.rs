@@ -3,8 +3,9 @@
 //! Pure logic: no OS calls, no threads, no clock reads. Callers feed
 //! [`Input`]s with an explicit `now` and act on the returned
 //! [`Effect`]s (emit an event, show/hide the idle prompt, refresh the
-//! tray). Wiring to the watchers, the webview, and the outbox lands in
-//! later PRs.
+//! tray). [`driver::Driver`] routes emitted events to an
+//! [`sink::EventSink`]. Wiring to the watchers, the webview, and the
+//! outbox lands in later PRs.
 //!
 //! The core owns both timers from ADR-0003 / ADR-0008:
 //!   - the idle threshold, measured from the later of the last input
@@ -27,6 +28,8 @@
 //! SLEEPING, OFFLINE_PENDING_SYNC, ERROR_REQUIRING_ATTENTION. Bio/meal
 //! break-cap nudges are also deferred.
 
+pub mod driver;
+pub mod sink;
 pub mod transitions;
 
 use std::time::{Duration, SystemTime};
