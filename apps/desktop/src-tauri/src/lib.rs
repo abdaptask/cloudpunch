@@ -32,6 +32,7 @@ pub mod agent;
 pub mod commands;
 pub mod call_type;
 pub mod event;
+pub mod keystore;
 pub mod machine;
 pub mod outbox;
 pub mod sync;

@@ -33,6 +33,8 @@ src-tauri/            — Rust crate (Tauri backend, OS integration)
     agent.rs          — runs the state machine: shared lock, 1 Hz
                         tick, prompt window, tray, cp://state
     timeline.rs       — today's tracked segments for the home window
+    keystore.rs       — device key + outbox key in Credential Manager /
+                        Keychain (ADR-0007 §5)
     commands.rs       — Tauri commands (clock in/out, breaks, prompt)
     machine/          — Pure time-state machine (no I/O); idle +
                         grace timers, media debounce (ADR-0003/8/9)
