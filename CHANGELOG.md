@@ -7,6 +7,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Desktop UI — Timeline view + ADR-0011 §1 (2026-09-24)
+
+Redesigned home window, chosen by the project owner: status card
+with a live session timer, one primary action with break chips, and
+today's timeline with tracked totals. Light and dark follow the OS.
+No new dependencies.
+
+- `src-tauri/src/timeline.rs` (new): builds today's segments
+  (working / bio, meal, other break / away phone, working / idle
+  prompt) from state changes; active and on-call merge into one
+  working segment (ADR-0003 §1). `StateView` gains
+  `sessionStartedAt` and `timeline`.
+- Frontend: `ui/theme.tsx` (tokens, OS light/dark), `ui/Button.tsx`
+  (primary / secondary / chip), `timelineModel.ts` (clip to today,
+  totals, formatting), `TimelineView.tsx` (day strip + list),
+  `useNow`; `App.tsx` rebuilt; the idle prompt uses the same theme.
+- Per-kind colours (working, bio / meal / other break, away phone /
+  working, idle prompt) with a legend under the day strip; the status
+  dot uses the current segment's colour.
+- Durations are exact to the second ("42s", "12m 04s", "1h 05m 12s")
+  in the list and in a "Today's totals" card: one row per kind plus
+  **On the clock**.
+- Today's segments are grouped by clock-in session ("Session 2 ·
+  14:02 – now · 1h 10m 05s"); the latest session starts expanded,
+  earlier ones collapsed. `Segment` / `SegmentView` gain `session`.
+- The main window resizes to fit its content (clock in/out, a session
+  expanding, a notice): `useFitWindow` measures the page and calls a
+  new `fit_window` command, which clamps height to 360 px … screen
+  work area and ignores other windows. The page itself gets no window
+  permissions.
+- **ADR-0011 (new, Accepted):** calls show as their own **On a call**
+  segment (rose) and status on the employee's own screen; reports and
+  manager views still count them as active (ADR-0003 §1). Also records
+  the voluntary "In a meeting" / "On a phone call" tags, no automatic
+  meeting detection, and no check-in cap for voluntary away — those
+  tags are implemented in the next PR. ADR-0003 status header notes
+  the extension.
+- Totals are labelled as **tracked on this device**, not paid hours:
+  payroll rules (bio cap, unpaid meal, prompt classification) are
+  applied server-side.
+- Styles stay inline objects: the CSP (`default-src 'self'`) blocks
+  the `<style>` tags Vite injects in dev.
+- Tests: Rust 161 (9 new), desktop 38 (11 new).
+
+**Known limitation:** the timeline is in memory until the outbox lands
+(2b.4 F3); restarting the app starts an empty day. Viewing past days
+(date picker) needs server-side history and follows 2b.4.
+
 ### Silent-call cap implementation (ADR-0010) (2026-09-24)
 
 While on a call, the idle prompt now appears after 30 minutes with no

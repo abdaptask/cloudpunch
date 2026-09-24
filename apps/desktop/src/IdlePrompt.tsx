@@ -1,4 +1,6 @@
 import { useEffect, useId, useState, type CSSProperties } from 'react';
+import { Button } from './ui/Button.js';
+import { useTheme } from './ui/theme.js';
 
 /**
  * Slice 2b.7.2a idle prompt (ADR-0003 §3, amended by ADR-0008).
@@ -65,6 +67,7 @@ export function IdlePrompt({
   noteRequiredFor = ['working_away'],
   now = Date.now,
 }: IdlePromptProps): JSX.Element {
+  const t = useTheme();
   const titleId = useId();
   const descId = useId();
   const [remaining, setRemaining] = useState(() => secondsLeft(deadline, now()));
@@ -95,18 +98,21 @@ export function IdlePrompt({
       aria-labelledby={titleId}
       aria-describedby={descId}
       style={{
-        fontFamily: '-apple-system, BlinkMacSystemFont, Segoe UI, sans-serif',
-        padding: 20,
-        color: '#111',
+        fontFamily: t.font,
+        padding: 22,
+        color: t.text,
+        background: t.bg,
+        minHeight: '100vh',
+        boxSizing: 'border-box',
         display: 'flex',
         flexDirection: 'column',
         gap: 14,
       }}
     >
-      <h1 id={titleId} style={{ margin: 0, fontSize: 18 }}>
+      <h1 id={titleId} style={{ margin: 0, fontSize: 19, fontWeight: 650 }}>
         Are you still there?
       </h1>
-      <p id={descId} style={{ margin: 0, fontSize: 14, color: '#445' }}>
+      <p id={descId} style={{ margin: 0, fontSize: 14, lineHeight: 1.45, color: t.muted }}>
         {expired
           ? 'No response — clocking you out.'
           : `We haven't seen any activity for a while. You'll be clocked out in ${remaining}s unless you choose an option.`}
@@ -115,16 +121,15 @@ export function IdlePrompt({
       {pendingNoteFor === null ? (
         <div role="group" aria-label="prompt-options" style={optionList}>
           {options.map((opt, i) => (
-            <button
+            <Button
               key={opt}
-              type="button"
               autoFocus={i === 0}
               disabled={expired}
-              style={opt === 'still_working' ? primaryButton : secondaryButton}
+              variant={opt === 'still_working' ? 'primary' : 'secondary'}
               onClick={() => choose(opt)}
             >
               {OPTION_LABEL[opt]}
-            </button>
+            </Button>
           ))}
         </div>
       ) : (
@@ -145,27 +150,34 @@ export function IdlePrompt({
               rows={3}
               disabled={expired}
               onChange={(e) => setNote(e.target.value)}
-              style={{ display: 'block', width: '100%', marginTop: 6, boxSizing: 'border-box' }}
+              style={{
+                display: 'block',
+                width: '100%',
+                marginTop: 6,
+                boxSizing: 'border-box',
+                padding: 10,
+                borderRadius: 10,
+                border: `1px solid ${t.border}`,
+                background: t.surface,
+                color: t.text,
+                fontFamily: t.font,
+                fontSize: 14,
+              }}
             />
           </label>
-          <button
-            type="submit"
-            disabled={expired || trimmedNote.length === 0}
-            style={primaryButton}
-          >
+          <Button type="submit" variant="primary" disabled={expired || trimmedNote.length === 0}>
             Confirm
-          </button>
-          <button
-            type="button"
+          </Button>
+          <Button
+            variant="secondary"
             disabled={expired}
-            style={secondaryButton}
             onClick={() => {
               setPendingNoteFor(null);
               setNote('');
             }}
           >
             Back
-          </button>
+          </Button>
         </form>
       )}
     </div>
@@ -173,24 +185,3 @@ export function IdlePrompt({
 }
 
 const optionList: CSSProperties = { display: 'flex', flexDirection: 'column', gap: 8 };
-
-const primaryButton: CSSProperties = {
-  padding: '10px 14px',
-  fontSize: 15,
-  fontWeight: 600,
-  border: 'none',
-  borderRadius: 6,
-  background: '#1a2b4c',
-  color: '#fff',
-  cursor: 'pointer',
-};
-
-const secondaryButton: CSSProperties = {
-  padding: '8px 14px',
-  fontSize: 14,
-  border: '1px solid #dce1eb',
-  borderRadius: 6,
-  background: '#fff',
-  color: '#111',
-  cursor: 'pointer',
-};

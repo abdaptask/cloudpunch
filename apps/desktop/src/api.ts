@@ -1,6 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import type { PromptResponse } from './IdlePrompt.js';
+import type { Segment } from './timelineModel.js';
 
 /**
  * Typed wrappers around the Rust agent's Tauri commands (slice
@@ -21,6 +22,10 @@ export interface StateView {
   promptOptions: PromptResponse[];
   noteRequiredFor: PromptResponse[];
   autoClockedOutAt: number | null;
+  /** Clock-in time of the open session; null when clocked out. */
+  sessionStartedAt: number | null;
+  /** Tracked segments since the app started (display only). */
+  timeline: Segment[];
 }
 
 /** Emitted by the agent after every state change. */
@@ -36,6 +41,8 @@ export const api = {
   markBack: (): Promise<StateView> => invoke<StateView>('mark_back'),
   respondToPrompt: (response: PromptResponse, note: string | null): Promise<StateView> =>
     invoke<StateView>('respond_to_prompt', { response, note }),
+  /** Ask the agent to resize the main window to `height` logical px. */
+  fitWindow: (height: number): Promise<void> => invoke<void>('fit_window', { height }),
   onState: (cb: (view: StateView) => void): Promise<UnlistenFn> =>
     listen<StateView>(STATE_EVENT, (e) => cb(e.payload)),
 };

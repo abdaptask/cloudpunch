@@ -22,6 +22,8 @@ function pending(over: Partial<StateView> = {}): StateView {
     promptOptions: [...PROMPT_RESPONSES],
     noteRequiredFor: ['working_away'],
     autoClockedOutAt: null,
+    sessionStartedAt: null,
+    timeline: [],
     ...over,
   };
 }

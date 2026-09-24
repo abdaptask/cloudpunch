@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { App } from './App.js';
 import { PromptWindow } from './PromptWindow.js';
+import { ThemeProvider } from './ui/theme.js';
 
 const root = document.getElementById('root');
 if (!root) {
@@ -21,6 +22,6 @@ function windowLabel(): string {
 
 ReactDOM.createRoot(root).render(
   <React.StrictMode>
-    {windowLabel() === 'idle-prompt' ? <PromptWindow /> : <App />}
+    <ThemeProvider>{windowLabel() === 'idle-prompt' ? <PromptWindow /> : <App />}</ThemeProvider>
   </React.StrictMode>,
 );
