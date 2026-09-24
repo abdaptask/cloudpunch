@@ -166,6 +166,9 @@ describe('nextState — MEDIA_DEVICE_STATE and ON_CALL (ADR-0009)', () => {
     'INPUT_IDLE_5M',
     'PROMPT_TIMEOUT_30S',
   ];
+  // INPUT_IDLE_5M above has no payload, i.e. trigger=input_idle, which
+  // stays invalid from ON_CALL. The silent-call trigger is covered in
+  // the ADR-0010 block below.
   for (const evt of rejectedFromOnCall) {
     it(`${evt} from ON_CALL is invalid`, () => {
       expect(nextState('ON_CALL', evt)).toBeNull();
@@ -173,6 +176,43 @@ describe('nextState — MEDIA_DEVICE_STATE and ON_CALL (ADR-0009)', () => {
   }
   it('USER_PROMPT_RESPONSE from ON_CALL is invalid', () => {
     expect(nextState('ON_CALL', 'USER_PROMPT_RESPONSE', { response: 'still_working' })).toBeNull();
+  });
+});
+
+describe('nextState — INPUT_IDLE_5M trigger (ADR-0010)', () => {
+  const idle = (trigger?: unknown): Record<string, unknown> =>
+    trigger === undefined ? {} : { trigger };
+
+  it('no trigger from ACTIVE → IDLE_PENDING', () => {
+    expect(nextState('ACTIVE', 'INPUT_IDLE_5M', idle())).toBe('IDLE_PENDING');
+  });
+  it('input_idle from ACTIVE → IDLE_PENDING', () => {
+    expect(nextState('ACTIVE', 'INPUT_IDLE_5M', idle('input_idle'))).toBe('IDLE_PENDING');
+  });
+  it('silent_call from ON_CALL → IDLE_PENDING', () => {
+    expect(nextState('ON_CALL', 'INPUT_IDLE_5M', idle('silent_call'))).toBe('IDLE_PENDING');
+  });
+  it('silent_call from ACTIVE is invalid', () => {
+    expect(nextState('ACTIVE', 'INPUT_IDLE_5M', idle('silent_call'))).toBeNull();
+  });
+  it('input_idle from ON_CALL is invalid', () => {
+    expect(nextState('ON_CALL', 'INPUT_IDLE_5M', idle('input_idle'))).toBeNull();
+  });
+  it('unknown or null trigger is invalid', () => {
+    expect(nextState('ACTIVE', 'INPUT_IDLE_5M', idle('bored'))).toBeNull();
+    expect(nextState('ACTIVE', 'INPUT_IDLE_5M', idle(null))).toBeNull();
+  });
+  it('silent_call from ON_BREAK is invalid', () => {
+    expect(nextState('ON_BREAK', 'INPUT_IDLE_5M', idle('silent_call'))).toBeNull();
+  });
+  it('silent-call prompt answered still_working, then the call resumes', () => {
+    const stream = [
+      { eventType: 'MEDIA_DEVICE_STATE', payload: { in_use: true } },
+      { eventType: 'INPUT_IDLE_5M', payload: { trigger: 'silent_call' } },
+      { eventType: 'USER_PROMPT_RESPONSE', payload: { response: 'still_working' } },
+      { eventType: 'MEDIA_DEVICE_STATE', payload: { in_use: true } },
+    ];
+    expect(deriveState(stream)).toBe('ON_CALL');
   });
 });
 

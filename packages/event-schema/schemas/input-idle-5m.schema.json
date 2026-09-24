@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cloudpunch.aptask.com/schemas/input-idle-5m.schema.json",
+  "title": "INPUT_IDLE_5M event",
+  "description": "The idle prompt was shown. trigger says why: input_idle (threshold with no input, from ACTIVE) or silent_call (silent-call cap, from ON_CALL). Absent means input_idle. See ADR-0003 §3 and ADR-0010.",
+  "allOf": [
+    { "$ref": "common/base-event.schema.json" },
+    {
+      "type": "object",
+      "properties": {
+        "event_type": { "const": "INPUT_IDLE_5M" },
+        "payload": {
+          "type": "object",
+          "properties": {
+            "trigger": { "type": "string", "enum": ["input_idle", "silent_call"] }
+          },
+          "additionalProperties": false
+        }
+      }
+    }
+  ]
+}

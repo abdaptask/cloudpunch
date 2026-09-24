@@ -10,7 +10,8 @@
  *
  * ON_CALL is a payroll state (ADR-0009): MEDIA_DEVICE_STATE moves
  * ACTIVE / IDLE_PENDING into it and back out to ACTIVE, and it gates
- * which user events are legal.
+ * which user events are legal. A long silent call can open the prompt
+ * (INPUT_IDLE_5M with trigger=silent_call, ADR-0010).
  *
  * Deferred to a later slice (see docs/architecture/state-machine.md):
  *   - Prior-state resume on SYSTEM_UNLOCK / SYSTEM_WAKE / NETWORK_ONLINE
@@ -118,9 +119,14 @@ export function nextState(
       if (current !== 'AWAY') return null;
       return 'ACTIVE';
 
-    case 'INPUT_IDLE_5M':
-      if (current !== 'ACTIVE') return null;
-      return 'IDLE_PENDING';
+    case 'INPUT_IDLE_5M': {
+      // ADR-0010: `trigger` says why the prompt opened; absent means
+      // input_idle. Each trigger is only legal from its own state.
+      const trigger = payload && 'trigger' in payload ? payload['trigger'] : 'input_idle';
+      if (trigger === 'input_idle') return current === 'ACTIVE' ? 'IDLE_PENDING' : null;
+      if (trigger === 'silent_call') return current === 'ON_CALL' ? 'IDLE_PENDING' : null;
+      return null;
+    }
 
     case 'PROMPT_TIMEOUT_30S':
       if (current !== 'IDLE_PENDING') return null;

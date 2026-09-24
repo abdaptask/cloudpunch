@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Silent-call cap implementation (ADR-0010) (2026-09-24)
+
+While on a call, the idle prompt now appears after 30 minutes with no
+keyboard or pointer input. No new dependencies.
+
+- `packages/policy-schema/idle-policy.schema.json`: new
+  `idle.max_silent_call_minutes` (integer 15–480 or `null`, default
+  30); documented in `docs/policy/idle-policy-defaults.md` §4.
+- `packages/event-schema/schemas/input-idle-5m.schema.json` (new):
+  optional `trigger` = `input_idle` | `silent_call`.
+- Backend `state-machine.ts`: `INPUT_IDLE_5M` checks its trigger —
+  `input_idle` (or absent) only from `ACTIVE`, `silent_call` only from
+  `ON_CALL`, anything else rejected. Slightly stricter than ADR-0010's
+  table, which lists `ON_CALL → IDLE_PENDING` without a guard; stops
+  a mislabelled prompt event being recorded.
+- Shared fixture regenerated: 162 cases (was 144).
+- Desktop `machine`: `CoreConfig.max_silent_call` (default 30 min);
+  `Core` tracks when `ON_CALL` was entered and, while on a call,
+  emits `INPUT_IDLE_5M {trigger: silent_call}` once
+  max(call start, last input) is 30 min old. The normal prompt now
+  carries `trigger: input_idle`. Rust mirror updated.
+- `docs/architecture/state-machine.md`: new Scenario H.
+- Tests: backend 8 new (trigger rules + a fold) plus 18 new fixture
+  rows; desktop 9 new (cap timing, input reset, call not dismissing,
+  still-working restart, timeout, disabled cap).
+
+Not wired to a real policy source yet: the desktop uses the default
+until policy fetch exists.
+
+Refs: ADR-0010, ADR-0009, ADR-0003.
+
 ### ADR-0010 — silent-call cap (2026-09-24)
 
 Docs only; the implementation follows in its own PR.

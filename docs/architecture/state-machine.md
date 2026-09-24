@@ -254,6 +254,25 @@ was closed by that reconstructed event. Manager sees it on the
 timesheet with a warning icon and a "please confirm exact clock-out
 time" prompt.
 
+### Scenario H — user walks away from a meeting left running
+
+Alice joins a Teams call at 14:00 (`ON_CALL`; idle threshold
+suspended). At 14:05 she walks away without leaving; the mic stays
+in use. With no keyboard or mouse input since 14:05, the silent-call
+cap (`idle.max_silent_call_minutes`, default 30) fires at 14:35:
+`INPUT_IDLE_5M {trigger: silent_call}` → `IDLE_PENDING`, prompt shown.
+The call still running does not dismiss it (no new media edge).
+
+- She's back and clicks **I'm still working** → `ACTIVE`, and the
+  agent immediately records the ongoing call → `ON_CALL`; the cap
+  restarts from now.
+- Nobody answers → `PROMPT_TIMEOUT_30S` at 14:35:30 → session closed
+  with `closed_at` = 14:35:00. 14:00–14:35 stays payable as `ON_CALL`
+  (ADR-0010 §4).
+
+Had she typed or clicked at any point during the call, the 30 minutes
+would have restarted from that input.
+
 ## Invariants — one-line summary
 
 1. Exactly one non-`CLOCKED_OUT` session per employee across all devices.

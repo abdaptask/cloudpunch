@@ -421,11 +421,139 @@ fn call_start_enters_on_call_immediately() {
 }
 
 #[test]
-fn no_prompt_during_a_call() {
+fn no_idle_prompt_during_a_call_before_the_cap() {
     let mut core = clocked_in();
     core.handle(Input::MediaInUse(true), t(10)).unwrap();
-    assert!(emitted(&tick(&mut core, 0, 5_000)).is_empty());
+    // Well past the 300 s idle threshold, short of the 30 min cap.
+    assert!(emitted(&tick(&mut core, 0, 1_809)).is_empty());
     assert_eq!(core.state(), CoreState::OnCall);
+}
+
+// ── silent-call cap (ADR-0010) ────────────────────────────────────
+
+fn idle_trigger(fx: &[Effect]) -> Option<IdleTrigger> {
+    fx.iter().find_map(|e| match e {
+        Effect::Emit {
+            event: CoreEvent::InputIdle5m { trigger },
+            ..
+        } => Some(*trigger),
+        _ => None,
+    })
+}
+
+/// Clocked in at t(0); call from t(10); no input since t(0).
+fn on_call() -> Core {
+    let mut core = clocked_in();
+    core.handle(Input::MediaInUse(true), t(10)).unwrap();
+    core
+}
+
+#[test]
+fn silent_call_prompts_at_cap_measured_from_call_start() {
+    let mut core = on_call();
+    assert!(emitted(&tick(&mut core, 0, 1_809)).is_empty());
+    let fx = tick(&mut core, 0, 1_810);
+    assert_eq!(idle_trigger(&fx), Some(IdleTrigger::SilentCall));
+    assert!(fx.contains(&Effect::ShowPrompt { deadline: t(1_840) }));
+    assert!(matches!(core.state(), CoreState::IdlePending { .. }));
+}
+
+#[test]
+fn silent_call_payload_carries_trigger() {
+    let mut core = on_call();
+    let fx = tick(&mut core, 0, 1_810);
+    let Some(Effect::Emit { event, .. }) = fx.first() else {
+        panic!("expected an emit first");
+    };
+    assert_eq!(
+        event.transition_payload(),
+        json!({ "trigger": "silent_call" })
+    );
+}
+
+#[test]
+fn input_during_call_resets_the_cap() {
+    let mut core = on_call();
+    assert!(emitted(&tick(&mut core, 1_000, 1_810)).is_empty());
+    assert!(emitted(&tick(&mut core, 1_000, 2_799)).is_empty());
+    assert_eq!(
+        idle_trigger(&tick(&mut core, 1_000, 2_800)),
+        Some(IdleTrigger::SilentCall)
+    );
+}
+
+#[test]
+fn ongoing_call_does_not_dismiss_the_silent_call_prompt() {
+    let mut core = on_call();
+    tick(&mut core, 0, 1_810);
+    // Watcher re-reports the same state: no edge, prompt stays.
+    let fx = core.handle(Input::MediaInUse(true), t(1_815)).unwrap();
+    assert!(emitted(&fx).is_empty());
+    assert!(matches!(core.state(), CoreState::IdlePending { .. }));
+}
+
+#[test]
+fn call_ending_during_silent_call_prompt_keeps_prompt() {
+    let mut core = on_call();
+    tick(&mut core, 0, 1_810);
+    core.handle(Input::MediaInUse(false), t(1_812)).unwrap();
+    // Debounce elapses inside the grace window; ADR-0009 records
+    // nothing from IDLE_PENDING on in_use=false.
+    let fx = tick(&mut core, 0, 1_820);
+    assert!(emitted(&fx).is_empty());
+    assert!(matches!(core.state(), CoreState::IdlePending { .. }));
+}
+
+#[test]
+fn still_working_returns_to_call_and_restarts_cap() {
+    let mut core = on_call();
+    tick(&mut core, 0, 1_810);
+    let fx = core
+        .handle(
+            Input::RespondToPrompt {
+                response: PromptResponse::StillWorking,
+                note: None,
+            },
+            t(1_815),
+        )
+        .unwrap();
+    assert_eq!(emitted(&fx), ["USER_PROMPT_RESPONSE", "MEDIA_DEVICE_STATE"]);
+    assert_eq!(core.state(), CoreState::OnCall);
+    assert!(emitted(&tick(&mut core, 0, 3_614)).is_empty());
+    assert_eq!(
+        idle_trigger(&tick(&mut core, 0, 3_615)),
+        Some(IdleTrigger::SilentCall)
+    );
+}
+
+#[test]
+fn silent_call_prompt_times_out_to_clock_out() {
+    let mut core = on_call();
+    tick(&mut core, 0, 1_810);
+    assert_eq!(emitted(&tick(&mut core, 0, 1_840)), ["PROMPT_TIMEOUT_30S"]);
+    assert_eq!(core.state(), CoreState::ClockedOut);
+}
+
+#[test]
+fn cap_disabled_means_calls_never_prompt() {
+    let cfg = CoreConfig {
+        max_silent_call: None,
+        ..CoreConfig::default()
+    };
+    let mut core = Core::new(cfg, t(0));
+    core.handle(Input::ClockIn, t(0)).unwrap();
+    core.handle(Input::MediaInUse(true), t(10)).unwrap();
+    assert!(emitted(&tick(&mut core, 0, 100_000)).is_empty());
+    assert_eq!(core.state(), CoreState::OnCall);
+}
+
+#[test]
+fn normal_idle_prompt_is_input_idle() {
+    let mut core = clocked_in();
+    assert_eq!(
+        idle_trigger(&tick(&mut core, 0, 300)),
+        Some(IdleTrigger::InputIdle)
+    );
 }
 
 #[test]

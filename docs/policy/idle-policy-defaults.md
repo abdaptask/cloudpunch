@@ -92,6 +92,20 @@ with work (rare). Disabling means idle prompts fire during meetings.
 we consider a call ended and restart the inactivity timer. Filters
 out transient audio events like system beeps.
 
+**Setting:** `idle.max_silent_call_minutes`
+**Default:** `30`
+**Range:** 15 – 480, or `null` to disable
+**Effect:** While on a call, if there has been no keyboard or pointer
+input for this long (measured from the later of the call starting and
+the last input), CloudPunch shows the normal idle prompt anyway. Any
+input during the call resets it. Bounds the case where someone leaves
+a meeting running, or an app holds the microphone open, and walks
+away. The call time before the prompt stays payable; an unanswered
+prompt ends the session as usual. See ADR-0010.
+
+**When to raise or disable:** roles with long listen-only sessions
+(trainings, all-hands) where a prompt every 30 minutes is disruptive.
+
 ## 5. Idle prompt options
 
 **Setting:** `idle.prompt_options`

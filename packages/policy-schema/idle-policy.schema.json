@@ -17,6 +17,13 @@
           "maximum": 60,
           "default": 5
         },
+        "max_silent_call_minutes": {
+          "type": ["integer", "null"],
+          "minimum": 15,
+          "maximum": 480,
+          "default": 30,
+          "description": "While on a call, show the idle prompt after this many minutes with no keyboard or pointer input. null disables the cap. ADR-0010."
+        },
         "count_as_payable_when_unresponsive": { "type": "boolean", "default": false },
         "prompt_options": {
           "type": "array",
