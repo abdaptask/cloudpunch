@@ -44,6 +44,53 @@ ADR-0009 fixed the payload to `{ in_use }` only.
 
 Refs: ADR-0003 §7, ADR-0009.
 
+### Phase 2b.7.2b PR D — state machine wired into the app (2026-09-24)
+
+The desktop agent now runs the time-state machine for real. Events
+still go to the debug log sink; the signed outbox sink lands with
+2b.4. No new dependencies.
+
+- `src-tauri/src/agent.rs` (new): `Agent` holds the `Driver` behind
+  one lock, shared by commands, tray, watcher drain, and a 1 Hz tick
+  thread (last input from `GetLastInputInfo`; off Windows the tick
+  reports "input now" so the prompt never fires until 2b.8). UI work
+  happens after the lock is released, through a `Ui` trait
+  (`TauriUi` in production, a fake in tests):
+  - every state change emits `cp://state` and rebuilds the tray menu;
+  - `ShowPrompt` opens the `idle-prompt` window (always on top,
+    focused, not closable, not minimisable), created only from the
+    tick thread because building a window in a sync command
+    deadlocks on Windows; `HidePrompt` destroys it;
+  - a grace-timeout clock-out brings the main window forward and sets
+    `autoClockedOutAt` until the next clock-in.
+- `src-tauri/src/commands.rs` (new): `get_state`, `clock_in`,
+  `clock_out`, `start_break`, `end_break`, `mark_back`,
+  `respond_to_prompt`. Return the new `StateView` or a rejection code;
+  all validation is in the core.
+- `src-tauri/src/lib.rs`: watcher drain forwards
+  `MediaInUseChanged` as `mic || cam` (ADR-0009); prompt window close
+  requests are refused (ADR-0008).
+- `src-tauri/src/tray.rs`: menu rebuilt per state (clock in; clock
+  out / bio break / meal break; end break; I'm back) and routed to the
+  agent. New `Away` status. `Take a break` is replaced by bio and
+  meal: `other` breaks need attestation (ADR-0003 §6) and aren't
+  offered yet.
+- `src-tauri/capabilities/default.json` (new): `main` and
+  `idle-prompt` get `core:event:allow-listen` / `allow-unlisten`
+  only.
+- Frontend: `api.ts` + `useAgentState` (new); `App.tsx` renders the
+  agent's state (calls show as "Clocked in", ADR-0003 §1) and explains
+  an auto clock-out; `PromptWindow.tsx` (new) hosts `IdlePrompt`;
+  `main.tsx` routes on window label.
+- Tests: Rust 143 (16 new: view mapping, tray items, agent UI calls
+  incl. prompt → timeout → main window), frontend 27 (14 new).
+
+**Not verified automatically:** window behaviour (always-on-top,
+focus, close blocked, tray menu refresh) needs a manual smoke test on
+Windows.
+
+Refs: ADR-0003, ADR-0008, ADR-0009.
+
 ### Phase 2b.7.2b PR C — event sink + driver (2026-09-24)
 
 Connects the desktop state machine to a pluggable event destination.

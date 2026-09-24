@@ -8,8 +8,9 @@ import { useEffect, useId, useState, type CSSProperties } from 'react';
  * us, and the countdown here is cosmetic. When input resets the
  * timer, the core sends a new `deadline` and the display follows.
  *
- * Not wired into a window yet — slice 2b.7.2b opens this in its own
- * always-on-top window and routes `onRespond` to a Tauri command.
+ * Rendered by `PromptWindow` in the `idle-prompt` window, which the
+ * Rust agent opens and closes; `onRespond` goes to the
+ * `respond_to_prompt` command.
  */
 
 /**

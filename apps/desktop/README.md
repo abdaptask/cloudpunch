@@ -13,14 +13,23 @@ tsconfig.json         — extends the repo base (adds DOM lib + jsx)
 vite.config.ts        — Vite dev server on port 1420 (Tauri convention)
 index.html            — Vite entry
 src/                  — React UI (renders inside the Tauri webview)
+  main.tsx            — routes on window label: main → App,
+                        idle-prompt → PromptWindow
+  api.ts              — typed wrappers for the agent's commands and
+                        the cp://state event
 src-tauri/            — Rust crate (Tauri backend, OS integration)
   Cargo.toml
   build.rs
   tauri.conf.json     — Tauri 2 configuration
+  capabilities/       — least-privilege permissions for the main and
+                        idle-prompt windows
   icons/              — App icons (see icons/README.md)
   src/
     main.rs           — Process entry
-    lib.rs            — Tauri app builder + command handlers
+    lib.rs            — Tauri app builder, watchers, ticker wiring
+    agent.rs          — runs the state machine: shared lock, 1 Hz
+                        tick, prompt window, tray, cp://state
+    commands.rs       — Tauri commands (clock in/out, breaks, prompt)
     machine/          — Pure time-state machine (no I/O); idle +
                         grace timers, media debounce (ADR-0003/8/9)
       transitions.rs  — Rust mirror of the backend `nextState`,
