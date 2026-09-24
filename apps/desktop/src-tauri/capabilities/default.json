@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Least privilege for the two CloudPunch windows: listen for agent state events. App commands (clock in/out, breaks, prompt response) are allowed by default; no other core plugin APIs are granted.",
+  "windows": ["main", "idle-prompt"],
+  "permissions": ["core:event:allow-listen", "core:event:allow-unlisten"]
+}
