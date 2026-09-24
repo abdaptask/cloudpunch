@@ -19,12 +19,17 @@
 //!     from `NetworkReachabilityChanged`; sync loop opts in via env
 //!     vars until 2b.4 supplies real keys + tokens.
 //!   - Phase 2b.7: tray menu + idle prompt window.
-//!   - Phase 2b.7.2b PR B: pure desktop state machine (`machine`);
-//!     not wired to watchers, tray, or webview yet.
+//!   - Phase 2b.7.2b PR B: pure desktop state machine (`machine`).
+//!   - Phase 2b.7.2b PR D: `agent` runs the machine — mic/cam from
+//!     the watcher drain, 1 Hz idle tick, Tauri `commands`, tray, and
+//!     the idle prompt window. Events go to a debug log sink until
+//!     2b.4 supplies the signed outbox sink.
 //!   - Phase 2b.8: macOS parity for OS watchers + menu bar.
 //!   - Phase 2b.9: signed Windows installer + notarised macOS DMG +
 //!     Tauri updater signature verification.
 
+pub mod agent;
+pub mod commands;
 pub mod event;
 pub mod machine;
 pub mod outbox;
@@ -35,6 +40,8 @@ pub mod watchers;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
+use agent::Agent;
+use machine::{CoreConfig, Input};
 use outbox::Outbox;
 use sync::{ReqwestBackendClient, SyncBootstrap, SyncConfig, SyncLoop};
 use watchers::supervisor::Supervisor;
@@ -70,10 +77,11 @@ impl Drop for WatchersGuard {
 }
 
 /// Boot every OS watcher and hand back a guard that owns their
-/// shutdown. On non-Windows platforms this is currently a no-op —
-/// macOS parity lands in slice 2b.8.
+/// shutdown. Mic/camera changes are forwarded to `agent`. On
+/// non-Windows platforms this is currently a no-op — macOS parity
+/// lands in slice 2b.8.
 #[cfg(target_os = "windows")]
-pub fn start_watchers() -> WatchersGuard {
+pub fn start_watchers(agent: Arc<Agent>) -> WatchersGuard {
     use watchers::{idle, mic_cam, network, power, session, OsSignal, Watcher};
 
     let mut sup = Supervisor::new();
@@ -90,8 +98,15 @@ pub fn start_watchers() -> WatchersGuard {
         .name("cp-watcher-drain".into())
         .spawn(move || {
             while let Ok(signal) = rx.recv() {
-                if let OsSignal::NetworkReachabilityChanged { reachable, .. } = &signal {
-                    is_online_drain.store(*reachable, Ordering::Release);
+                match &signal {
+                    OsSignal::NetworkReachabilityChanged { reachable, .. } => {
+                        is_online_drain.store(*reachable, Ordering::Release);
+                    }
+                    OsSignal::MediaInUseChanged { mic, cam, .. } => {
+                        // Boolean only (ADR-0009): mic OR camera.
+                        let _ = agent.handle(Input::MediaInUse(*mic || *cam));
+                    }
+                    _ => {}
                 }
                 #[cfg(debug_assertions)]
                 eprintln!("[cloudpunch] os signal: {signal:?}");
@@ -132,7 +147,7 @@ pub fn start_watchers() -> WatchersGuard {
 /// without conditionally-typed variables. `is_online` defaults to
 /// true so a sync loop wired on a non-Windows dev host still runs.
 #[cfg(not(target_os = "windows"))]
-pub fn start_watchers() -> WatchersGuard {
+pub fn start_watchers(_agent: Arc<Agent>) -> WatchersGuard {
     WatchersGuard {
         inner: None,
         is_online: Arc::new(AtomicBool::new(true)),
@@ -203,22 +218,43 @@ pub fn run() {
     // order (Rust: reverse of declaration): sync first (drains its
     // thread), then watchers (which frees the is_online Arc it
     // shares with sync).
-    let watchers = start_watchers();
+    let agent = Agent::new(CoreConfig::default());
+    let watchers = start_watchers(agent.clone());
     let _sync = start_sync_loop_if_configured(watchers.is_online());
+    let _ticker = agent.start_ticker();
 
+    let setup_agent = agent.clone();
     tauri::Builder::default()
-        .setup(|app| {
-            tray::install(app.handle())?;
+        .manage(agent)
+        .invoke_handler(tauri::generate_handler![
+            commands::get_state,
+            commands::clock_in,
+            commands::clock_out,
+            commands::start_break,
+            commands::end_break,
+            commands::mark_back,
+            commands::respond_to_prompt,
+        ])
+        .setup(move |app| {
+            setup_agent.attach(agent::TauriUi::new(app.handle().clone()));
+            let snapshot = agent::tray_snapshot(setup_agent.state());
+            tray::install(app.handle(), snapshot)?;
             Ok(())
         })
         .on_window_event(|window, event| {
-            // Close-to-tray: intercept the main window's close so the
-            // agent keeps running in the background. Tray menu's
-            // "Quit" is the intended exit.
-            if window.label() == "main" {
-                if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                    let _ = window.hide();
-                    api.prevent_close();
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                match window.label() {
+                    // Close-to-tray: the agent keeps running in the
+                    // background. Tray menu's "Quit" is the intended
+                    // exit.
+                    "main" => {
+                        let _ = window.hide();
+                        api.prevent_close();
+                    }
+                    // The prompt must be answered or time out
+                    // (ADR-0008); the agent destroys it itself.
+                    agent::PROMPT_WINDOW => api.prevent_close(),
+                    _ => {}
                 }
             }
         })

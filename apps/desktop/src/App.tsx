@@ -1,39 +1,38 @@
-import { useState, type CSSProperties } from 'react';
+import type { CSSProperties } from 'react';
+import { api, type StateView } from './api.js';
+import { useAgentState } from './useAgentState.js';
 
 /**
- * Slice 2b.7.1 minimal home UI.
+ * Home window. State lives in the Rust agent (slice 2b.7.2b PR D);
+ * this component renders the current `StateView` and invokes
+ * commands. The idle prompt itself opens in its own window.
  *
- * Local state only — no backend calls yet. Clicks log to console.
- * When the state machine slice lands, these handlers will invoke
- * Tauri commands that enqueue events into the outbox.
+ * Calls are shown as "Clocked in": ON_CALL is reported as ACTIVE
+ * (ADR-0003 §1).
  */
-type ClockState = 'not_clocked_in' | 'clocked_in' | 'on_break';
 
-const STATUS_LABEL: Record<ClockState, string> = {
-  not_clocked_in: 'Not clocked in',
-  clocked_in: 'Clocked in',
-  on_break: 'On a break',
+function statusLabel(v: StateView): string {
+  switch (v.status) {
+    case 'clocked_out':
+      return 'Not clocked in';
+    case 'active':
+    case 'on_call':
+      return 'Clocked in';
+    case 'idle_pending':
+      return 'Clocked in — are you still there?';
+    case 'on_break':
+      return v.breakKind === 'meal' ? 'On a meal break' : 'On a bio break';
+    case 'away':
+      return v.awayReason === 'phone_call' ? 'Away — on a phone call' : 'Away — working away';
+  }
+}
+
+const ERROR_TEXT: Record<string, string> = {
+  invalid_transition: "That action isn't available right now.",
 };
 
 export function App(): JSX.Element {
-  const [state, setState] = useState<ClockState>('not_clocked_in');
-
-  const clockIn = (): void => {
-    console.log('[cloudpunch] home: clock_in (state machine wiring TBD)');
-    setState('clocked_in');
-  };
-  const clockOut = (): void => {
-    console.log('[cloudpunch] home: clock_out (state machine wiring TBD)');
-    setState('not_clocked_in');
-  };
-  const takeBreak = (): void => {
-    console.log('[cloudpunch] home: take_break (state machine wiring TBD)');
-    setState('on_break');
-  };
-  const endBreak = (): void => {
-    console.log('[cloudpunch] home: end_break (state machine wiring TBD)');
-    setState('clocked_in');
-  };
+  const { view, error, run } = useAgentState();
 
   return (
     <main
@@ -62,35 +61,71 @@ export function App(): JSX.Element {
         }}
       >
         <div style={{ fontSize: 12, color: '#556', textTransform: 'uppercase' }}>Status</div>
-        <div style={{ fontSize: 18, fontWeight: 600, marginTop: 4 }}>{STATUS_LABEL[state]}</div>
+        <div style={{ fontSize: 18, fontWeight: 600, marginTop: 4 }}>
+          {view ? statusLabel(view) : 'Loading…'}
+        </div>
       </section>
 
-      <section aria-label="actions" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-        {state === 'not_clocked_in' && (
-          <button style={primaryButton} onClick={clockIn}>
-            Clock in
-          </button>
-        )}
-        {state === 'clocked_in' && (
-          <>
-            <button style={primaryButton} onClick={clockOut}>
+      {view?.status === 'clocked_out' && view.autoClockedOutAt !== null && (
+        <p role="status" style={{ margin: 0, fontSize: 14, color: '#7a3b00' }}>
+          You were clocked out at {new Date(view.autoClockedOutAt).toLocaleTimeString()} because the
+          idle prompt wasn&apos;t answered. Time up to when the prompt appeared is kept.
+        </p>
+      )}
+
+      {view && (
+        <section aria-label="actions" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {view.status === 'clocked_out' && (
+            <button style={primaryButton} onClick={() => run(api.clockIn)}>
+              Clock in
+            </button>
+          )}
+          {(view.status === 'active' || view.status === 'on_call') && (
+            <>
+              <button style={primaryButton} onClick={() => run(api.clockOut)}>
+                Clock out
+              </button>
+              <button style={secondaryButton} onClick={() => run(() => api.startBreak('bio'))}>
+                Bio break
+              </button>
+              <button style={secondaryButton} onClick={() => run(() => api.startBreak('meal'))}>
+                Meal break
+              </button>
+            </>
+          )}
+          {view.status === 'idle_pending' && (
+            <button style={primaryButton} onClick={() => run(api.clockOut)}>
               Clock out
             </button>
-            <button style={secondaryButton} onClick={takeBreak}>
-              Take a break
-            </button>
-          </>
-        )}
-        {state === 'on_break' && (
-          <button style={primaryButton} onClick={endBreak}>
-            End break
-          </button>
-        )}
-      </section>
+          )}
+          {view.status === 'on_break' && (
+            <>
+              <button style={primaryButton} onClick={() => run(api.endBreak)}>
+                End break
+              </button>
+              <button style={secondaryButton} onClick={() => run(api.clockOut)}>
+                Clock out
+              </button>
+            </>
+          )}
+          {view.status === 'away' && (
+            <>
+              <button style={primaryButton} onClick={() => run(api.markBack)}>
+                I&apos;m back
+              </button>
+              <button style={secondaryButton} onClick={() => run(api.clockOut)}>
+                Clock out
+              </button>
+            </>
+          )}
+        </section>
+      )}
 
-      <footer style={{ marginTop: 'auto', fontSize: 11, color: '#889' }}>
-        Slice 2b.7.1 — local state only. Backend wiring lands with the state-machine slice.
-      </footer>
+      {error && (
+        <p role="alert" style={{ margin: 0, fontSize: 13, color: '#a00' }}>
+          {ERROR_TEXT[error] ?? `Something went wrong (${error}).`}
+        </p>
+      )}
     </main>
   );
 }
