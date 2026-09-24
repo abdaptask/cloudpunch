@@ -1,6 +1,7 @@
 # ADR-0003 — Time-tracking state machine
 
-- **Status:** Accepted (Phase 0)
+- **Status:** Accepted (Phase 0); §3 `IDLE_PENDING` transitions amended
+  by ADR-0008
 - **Date:** 2026-09-23
 - **Deciders:** Abdulla Sheikh (project owner), Architecture (Claude)
 - **Confidence:** High on states and transitions; medium on the exact

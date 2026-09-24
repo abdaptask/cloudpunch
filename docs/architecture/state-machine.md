@@ -16,7 +16,7 @@ this file is out of date.
 | `CLOCKING_IN` | Awaiting server ack (transitional, ≤ 15 s) | Pending | yes |
 | `ACTIVE` | Working, input recent, no call | Yes | **yes** |
 | `ON_CALL` | Mic/camera in use, or user chose "on a call" | Yes | **yes** (reports as `ACTIVE`) |
-| `IDLE_PENDING` | 5 min of silence, prompt shown, 30-s grace ticking | Yes | up to prompt only |
+| `IDLE_PENDING` | 5 min of silence, prompt shown, 30-s grace ticking (input resets the countdown but does not dismiss — ADR-0008) | Yes | classified by the prompt response; not payable on timeout |
 | `ON_BREAK` (`bio` \| `meal` \| `other`) | On a break with attributed kind | Yes | policy-dependent (bio yes, meal no by default) |
 | `AWAY` (`working_away` \| `phone_call` \| `meeting` \| `other`) | Away from computer with a reason | Yes | yes for attested reasons |
 | `LOCKED` | System screen locked | Yes | no |
@@ -140,7 +140,7 @@ The event stream, in order:
 | 5 | 11:00:00 | `MEDIA_DEVICE_STATE {in_use:false}` | `ACTIVE` | Zoom ends. Timer re-armed. |
 | 6 | 11:05:00 | last `INPUT_ACTIVITY` for a while | `ACTIVE` | Alice on whiteboard |
 | 7 | 11:10:00 | `INPUT_IDLE_5M` fires | `IDLE_PENDING` | Prompt shown |
-| 8 | 11:10:20 | `INPUT_ACTIVITY` — Alice moves mouse | `ACTIVE` | Prompt dismissed automatically |
+| 8 | 11:10:20 | `USER_PROMPT_RESPONSE {response: still_working}` — Alice clicks "I'm still working" | `ACTIVE` | Moving the mouse reset the grace countdown but did not dismiss the prompt (ADR-0008) |
 | 9 | 13:00:00 | Alice explicitly clicks Bio → Meal Break | `ON_BREAK` (meal) | Sequence marches on |
 | 10 | 14:02:00 | `USER_END_BREAK` | `ACTIVE` | |
 | 11 | 14:02–16:00 | `INPUT_ACTIVITY` | `ACTIVE` | |
@@ -160,7 +160,7 @@ The event stream, in order:
 | 10:30:00–11:00:00 | ON_CALL | 0:30:00 | yes |
 | 11:00:00–11:05:00 | ACTIVE | 0:05:00 | yes |
 | 11:05:00–11:10:00 | ACTIVE (silent input) | 0:05:00 | yes |
-| 11:10:00–11:10:20 | IDLE_PENDING (dismissed by input) | 0:00:20 | yes (prompt dismissed within grace) |
+| 11:10:00–11:10:20 | IDLE_PENDING (answered `still_working`) | 0:00:20 | yes (classified by response, ADR-0008 §3) |
 | 11:10:20–13:00:00 | ACTIVE | 1:49:40 | yes |
 | 13:00:00–14:02:00 | ON_BREAK (meal) | 1:02:00 | **no** (meal default) |
 | 14:02:00–15:59:40 | ACTIVE | 1:57:40 | yes |
