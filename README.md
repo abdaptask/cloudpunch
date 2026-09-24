@@ -1,6 +1,6 @@
 # CloudPunch
 
-Employee time and attendance platform for remote workers at apTask. Provides
+Employee time and attendance platform for remote workers at ApTask. Provides
 dependable clock in / out, break management, timesheet approvals, reporting,
 payroll exports, and privacy-conscious integrity controls — without capturing
 private employee content.

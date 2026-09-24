@@ -96,8 +96,8 @@ mod tests {
 
     #[test]
     fn idle_mic_holders_are_ignored_by_path_or_consent_key() {
-        assert!(is_ignored(r"C:\Program Files\apTask\ACE Dialer.exe"));
-        assert!(is_ignored(r"C:#Program Files#apTask#ace dialer.exe"));
+        assert!(is_ignored(r"C:\Program Files\ApTask\ACE Dialer.exe"));
+        assert!(is_ignored(r"C:#Program Files#ApTask#ace dialer.exe"));
         assert!(!is_ignored("ms-teams.exe"));
         assert!(!is_ignored("dialer.exe"));
     }

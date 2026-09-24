@@ -10,7 +10,7 @@
 ## Context
 
 CloudPunch is a greenfield, internal, India-only, Entra-authenticated time and
-attendance platform for apTask remote workers. It must ship a signed Windows
+attendance platform for ApTask remote workers. It must ship a signed Windows
 and macOS desktop agent, a web dashboard, a backend API, a relational data
 store, and integrations to greytHR (deferred until API access is confirmed).
 
@@ -78,7 +78,7 @@ Repository layout is a **pnpm workspace monorepo** with `apps/*`,
   partitioning for the event stream, and managed HA. Read replicas cover
   reports without pressuring the write path.
 - **AWS in `ap-south-1`** matches an India-only workforce, minimises DPDPA
-  transfer complexity, and matches apTask's existing AWS access.
+  transfer complexity, and matches ApTask's existing AWS access.
 - **MSAL Node / MSAL.js** provide the vendor-supported Entra integration
   and avoid rolling our own OIDC.
 - **pnpm monorepo** keeps `node_modules` compact and gives per-package
@@ -130,7 +130,7 @@ Phase 2, Electron remains a defensible fallback.
 ### Desktop: Qt (C++/QML)
 
 The most powerful OS surface. **Rejected on hiring/maintenance risk** —
-Qt/C++ engineers are scarcer than TS/Rust engineers at apTask's scale, and
+Qt/C++ engineers are scarcer than TS/Rust engineers at ApTask's scale, and
 the previous WorkSight/EmpMonitor Qt agent was proof-of-concept quality.
 
 ### Desktop: Native x2 (WinUI 3 + Swift/AppKit) with shared Rust core
@@ -153,7 +153,7 @@ operations add complexity we do not need at MVP.
 
 ### Cloud: Azure
 
-The natural pairing with Entra. **Rejected** because apTask has AWS access
+The natural pairing with Entra. **Rejected** because ApTask has AWS access
 already; adding a new cloud contract has procurement overhead. Entra works
 identically against AWS-hosted apps.
 

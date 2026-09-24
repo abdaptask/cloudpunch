@@ -7,6 +7,7 @@ import type { SegmentKind } from '../timelineModel.js';
  * in dev, while style properties set through React are allowed.
  */
 export interface Theme {
+  mode: 'light' | 'dark';
   bg: string;
   surface: string;
   surfaceAlt: string;
@@ -27,6 +28,7 @@ export interface Theme {
 const font = '"Segoe UI Variable Text", "Segoe UI", -apple-system, BlinkMacSystemFont, sans-serif';
 
 export const light: Theme = {
+  mode: 'light',
   bg: '#f4f5f8',
   surface: '#ffffff',
   surfaceAlt: '#eef0f4',
@@ -56,6 +58,7 @@ export const light: Theme = {
 };
 
 export const dark: Theme = {
+  mode: 'dark',
   bg: '#0f1115',
   surface: '#171a21',
   surfaceAlt: '#1f232c',

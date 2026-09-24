@@ -14,7 +14,9 @@ import {
 } from './timelineModel.js';
 import { Button } from './ui/Button.js';
 import { useTheme, type Theme } from './ui/theme.js';
+import { SignIn } from './SignIn.js';
 import { useAgentState } from './useAgentState.js';
+import { useAuth } from './useAuth.js';
 import { useFitWindow } from './useFitWindow.js';
 import { useNow } from './useNow.js';
 
@@ -97,6 +99,8 @@ export function App(): JSX.Element {
   const now = useNow();
   const mainRef = useRef<HTMLElement>(null);
   useFitWindow(mainRef);
+  const { auth, busy, error: authError, signIn, signOut } = useAuth();
+  const signedIn = auth?.signedIn === true;
 
   return (
     <main
@@ -116,97 +120,127 @@ export function App(): JSX.Element {
         <h1 style={{ margin: 0, fontSize: 17, fontWeight: 650, letterSpacing: -0.2 }}>
           CloudPunch
         </h1>
-        <span style={{ fontSize: 12, color: t.muted }}>{formatClock(now)}</span>
+        <span style={{ fontSize: 12, color: t.muted }}>
+          {signedIn && (auth.name ?? auth.username) && (
+            <>
+              {auth.name ?? auth.username}
+              {view?.status === 'clocked_out' && (
+                <>
+                  {' · '}
+                  <button type="button" onClick={signOut} style={linkButton(t)}>
+                    Sign out
+                  </button>
+                </>
+              )}
+              {' · '}
+            </>
+          )}
+          {formatClock(now)}
+        </span>
       </header>
 
-      <section
-        aria-label="current-status"
-        style={{
-          ...card(t),
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 4,
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span
-            aria-hidden
+      {!auth && <p style={{ margin: 0, fontSize: 13, color: t.muted }}>Loading…</p>}
+      {auth && !signedIn && <SignIn busy={busy} error={authError} onSignIn={signIn} />}
+      {signedIn && authError === 'clock_out_first' && (
+        <p role="alert" style={{ margin: 0, fontSize: 13, color: t.danger }}>
+          Clock out before signing out.
+        </p>
+      )}
+      {signedIn && (
+        <>
+          <section
+            aria-label="current-status"
             style={{
-              width: 9,
-              height: 9,
-              borderRadius: 999,
-              background: view ? statusColor(t, view) : t.border,
+              ...card(t),
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 4,
             }}
-          />
-          <span style={{ fontSize: 13, fontWeight: 600 }}>
-            {view ? statusLabel(view) : 'Loading…'}
-          </span>
-        </div>
-        {view?.sessionStartedAt != null ? (
-          <>
-            <div
-              aria-label="session-timer"
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span
+                aria-hidden
+                style={{
+                  width: 9,
+                  height: 9,
+                  borderRadius: 999,
+                  background: view ? statusColor(t, view) : t.border,
+                }}
+              />
+              <span style={{ fontSize: 13, fontWeight: 600 }}>
+                {view ? statusLabel(view) : 'Loading…'}
+              </span>
+            </div>
+            {view?.sessionStartedAt != null ? (
+              <>
+                <div
+                  aria-label="session-timer"
+                  style={{
+                    fontSize: 38,
+                    fontWeight: 600,
+                    letterSpacing: -0.5,
+                    fontVariantNumeric: 'tabular-nums',
+                    marginTop: 4,
+                  }}
+                >
+                  {formatTimer(now - view.sessionStartedAt)}
+                </div>
+                <div style={{ fontSize: 12, color: t.muted }}>
+                  since {formatClock(view.sessionStartedAt)}
+                </div>
+              </>
+            ) : (
+              view && (
+                <div style={{ fontSize: 13, color: t.muted, marginTop: 2 }}>
+                  Clock in to start tracking your day.
+                </div>
+              )
+            )}
+          </section>
+
+          {view?.status === 'clocked_out' && view.autoClockedOutAt !== null && (
+            <p
+              role="status"
               style={{
-                fontSize: 38,
-                fontWeight: 600,
-                letterSpacing: -0.5,
-                fontVariantNumeric: 'tabular-nums',
-                marginTop: 4,
+                margin: 0,
+                padding: '10px 12px',
+                borderRadius: 10,
+                fontSize: 13,
+                lineHeight: 1.4,
+                background: t.warnBg,
+                color: t.warnText,
               }}
             >
-              {formatTimer(now - view.sessionStartedAt)}
-            </div>
-            <div style={{ fontSize: 12, color: t.muted }}>
-              since {formatClock(view.sessionStartedAt)}
-            </div>
-          </>
-        ) : (
-          view && (
-            <div style={{ fontSize: 13, color: t.muted, marginTop: 2 }}>
-              Clock in to start tracking your day.
-            </div>
-          )
-        )}
-      </section>
+              You were clocked out at {formatClock(view.autoClockedOutAt)} because the idle prompt
+              wasn&apos;t answered. Time up to when the prompt appeared is kept.
+            </p>
+          )}
 
-      {view?.status === 'clocked_out' && view.autoClockedOutAt !== null && (
-        <p
-          role="status"
-          style={{
-            margin: 0,
-            padding: '10px 12px',
-            borderRadius: 10,
-            fontSize: 13,
-            lineHeight: 1.4,
-            background: t.warnBg,
-            color: t.warnText,
-          }}
-        >
-          You were clocked out at {formatClock(view.autoClockedOutAt)} because the idle prompt
-          wasn&apos;t answered. Time up to when the prompt appeared is kept.
-        </p>
+          {view && (
+            <section
+              aria-label="actions"
+              style={{ display: 'flex', flexDirection: 'column', gap: 10 }}
+            >
+              <Actions view={view} run={run} />
+            </section>
+          )}
+
+          {error && (
+            <p role="alert" style={{ margin: 0, fontSize: 13, color: t.danger }}>
+              {ERROR_TEXT[error] ?? `Something went wrong (${error}).`}
+            </p>
+          )}
+
+          {view && (
+            <section aria-label="today" style={card(t)}>
+              <h2 style={sectionTitle(t)}>Today</h2>
+              <TimelineView segments={view.timeline} now={now} />
+            </section>
+          )}
+
+          {view && view.timeline.length > 0 && <Footer view={view} now={now} />}
+        </>
       )}
-
-      {view && (
-        <section aria-label="actions" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          <Actions view={view} run={run} />
-        </section>
-      )}
-
-      {error && (
-        <p role="alert" style={{ margin: 0, fontSize: 13, color: t.danger }}>
-          {ERROR_TEXT[error] ?? `Something went wrong (${error}).`}
-        </p>
-      )}
-
-      {view && (
-        <section aria-label="today" style={card(t)}>
-          <h2 style={sectionTitle(t)}>Today</h2>
-          <TimelineView segments={view.timeline} now={now} />
-        </section>
-      )}
-
-      {view && view.timeline.length > 0 && <Footer view={view} now={now} />}
     </main>
   );
 }
@@ -371,6 +405,17 @@ const totalValue: CSSProperties = {
   fontSize: 13,
   fontVariantNumeric: 'tabular-nums',
 };
+
+function linkButton(t: Theme): CSSProperties {
+  return {
+    padding: 0,
+    border: 'none',
+    background: 'none',
+    color: t.accent,
+    font: 'inherit',
+    cursor: 'pointer',
+  };
+}
 
 function card(t: Theme): CSSProperties {
   return {

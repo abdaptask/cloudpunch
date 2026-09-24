@@ -5,7 +5,7 @@ here should be looked up in `docs/`.
 
 ## Product summary
 
-Employee time and attendance for apTask remote workers. Windows and macOS
+Employee time and attendance for ApTask remote workers. Windows and macOS
 desktop agent + web dashboard + Node.js API. India-only workforce for now.
 Microsoft Entra ID SSO. greytHR as system of record (integration deferred
 until API access is confirmed). AWS `ap-south-1` primary region.

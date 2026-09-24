@@ -1,10 +1,10 @@
 # CloudPunch — Employee privacy notice
 
-- **Status:** Template draft. Requires review by apTask HR and by
+- **Status:** Template draft. Requires review by ApTask HR and by
   legal counsel qualified under India's Digital Personal Data
   Protection Act, 2023 (DPDPA) before being shown to employees.
 - **Last updated:** 2026-09-23.
-- **Intended audience:** every apTask employee who uses CloudPunch.
+- **Intended audience:** every ApTask employee who uses CloudPunch.
 
 This notice explains, in plain language, what CloudPunch records about
 your workday, what it does not record, why, who can see the data, how
@@ -16,7 +16,7 @@ at the end.
 
 ## What CloudPunch is
 
-CloudPunch is apTask's internal system for recording your work hours,
+CloudPunch is ApTask's internal system for recording your work hours,
 breaks, and attendance. It replaces manual timesheets and pushes
 approved attendance to greytHR for payroll processing.
 
@@ -79,7 +79,7 @@ following:
 - Any **health, biometric, financial, or personal messages** data.
 
 If a future version of CloudPunch ever adds any capability from this
-list, apTask will notify you separately, explain the reason, and give
+list, ApTask will notify you separately, explain the reason, and give
 you a chance to raise concerns before it becomes active.
 
 ## Why we collect what we collect
@@ -149,7 +149,7 @@ Access is on a strict need-to-know basis:
   today"). They can also access individual data during a support
   ticket you have opened, and every such access is logged.
 
-No one outside apTask can see your data. Approved attendance totals
+No one outside ApTask can see your data. Approved attendance totals
 are sent to greytHR for payroll. Raw activity data is never sent to
 greytHR.
 
@@ -176,13 +176,13 @@ If you see a mistake on your timesheet:
 After the retention period, records are moved to encrypted archival
 storage and eventually deleted, except where legal hold applies.
 
-If you leave apTask, your records are retained per the retention
+If you leave ApTask, your records are retained per the retention
 periods above. They are not immediately deleted because payroll
 records typically have a statutory minimum retention.
 
 ## Your rights under DPDPA
 
-Under the Digital Personal Data Protection Act, 2023, and apTask
+Under the Digital Personal Data Protection Act, 2023, and ApTask
 policy, you have the right to:
 
 - **See** the personal data CloudPunch holds about you. Ask through
@@ -199,7 +199,7 @@ policy, you have the right to:
   your rights are being violated.
 
 Requests are answered within the timeline required by DPDPA and
-apTask's internal data-request policy.
+ApTask's internal data-request policy.
 
 ## Security
 
@@ -216,14 +216,14 @@ apTask's internal data-request policy.
 
 ## Changes to this notice
 
-If apTask changes how CloudPunch collects or uses your data, this
+If ApTask changes how CloudPunch collects or uses your data, this
 notice will be updated and every employee will be notified at least
 30 days before the change takes effect. Changes that expand what is
 collected require a fresh review by HR and legal counsel.
 
 ## Contact
 
-- **CloudPunch administrator:** *(to be filled by apTask before
+- **CloudPunch administrator:** *(to be filled by ApTask before
   distribution)*
 - **HR:** *(to be filled)*
 - **Data protection contact:** *(to be filled — the person or
@@ -233,4 +233,4 @@ collected require a fresh review by HR and legal counsel.
 
 *This notice is a plain-language explanation, not a legal contract.
 For the full legal terms governing CloudPunch's data handling, refer
-to your employment agreement and apTask's Data Protection Policy.*
+to your employment agreement and ApTask's Data Protection Policy.*

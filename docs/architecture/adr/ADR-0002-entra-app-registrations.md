@@ -343,7 +343,7 @@ Every item below is required to pass before Phase 1 sign-off:
 
 ### Six registrations (dev pair + prod pair for each)
 
-Cleaner isolation. **Rejected for MVP** at apTask's scale. Migration is
+Cleaner isolation. **Rejected for MVP** at ApTask's scale. Migration is
 mechanical if we ever want it. Recorded here so future engineers see the
 option.
 
