@@ -1,6 +1,7 @@
 # ADR-0008 — Idle prompt: input while the prompt is visible
 
-- **Status:** Accepted (2026-09-24)
+- **Status:** Accepted (2026-09-24); §3 extended by ADR-0009 (call
+  dismissing the prompt)
 - **Date:** 2026-09-24
 - **Deciders:** Abdulla Sheikh (project owner), Architecture (Claude)
 - **Amends:** ADR-0003 §3 (`IDLE_PENDING` transitions). ADR-0003

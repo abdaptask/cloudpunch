@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cloudpunch.aptask.com/schemas/media-device-state.schema.json",
+  "title": "MEDIA_DEVICE_STATE event",
+  "description": "Mic-or-camera in-use edge. One boolean only: never which device, which app, or any audio/video. See ADR-0003 §7 and ADR-0009.",
+  "allOf": [
+    { "$ref": "common/base-event.schema.json" },
+    {
+      "type": "object",
+      "properties": {
+        "event_type": { "const": "MEDIA_DEVICE_STATE" },
+        "payload": {
+          "type": "object",
+          "properties": {
+            "in_use": {
+              "type": "boolean",
+              "description": "True when any process is using the microphone or any camera (mic OR camera)."
+            }
+          },
+          "required": ["in_use"],
+          "additionalProperties": false
+        }
+      }
+    }
+  ]
+}

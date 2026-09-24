@@ -13,8 +13,10 @@
  *   - `USER_PROMPT_RESPONSE` with `bio_break` / `meal_break` opens a
  *     break (the prompt itself is both an idle end and a break start).
  *   - `INPUT_IDLE_5M` opens an idle period; it closes on
- *     `USER_PROMPT_RESPONSE` or `PROMPT_TIMEOUT_30S`. `INPUT_ACTIVITY`
- *     does not close it (ADR-0008) — the prompt stays until answered.
+ *     `USER_PROMPT_RESPONSE`, `PROMPT_TIMEOUT_30S`, or a call starting
+ *     (`MEDIA_DEVICE_STATE` with `in_use: true`, ADR-0009).
+ *     `INPUT_ACTIVITY` does not close it (ADR-0008) — the prompt stays
+ *     until answered.
  *   - If the session closes while a break or idle is open, the period
  *     is emitted with the session's `closedAt` as `endedAt` and
  *     `sourceEndEventUlid = null`.
@@ -34,7 +36,7 @@ export interface DerivedBreakPeriod {
   sourceEndEventUlid: string | null;
 }
 
-export type IdleResolution = 'user_response' | 'timeout_close' | 'session_close';
+export type IdleResolution = 'user_response' | 'timeout_close' | 'media_dismiss' | 'session_close';
 
 export interface DerivedIdlePeriod {
   startedAt: Date;
@@ -94,6 +96,17 @@ export function derivePeriods(
           startedAt: openIdle.clientTs,
           endedAt: evt.clientTs,
           resolution: 'timeout_close',
+          response: null,
+          sourceStartEventUlid: openIdle.eventUlid,
+          sourceEndEventUlid: evt.eventUlid,
+        });
+        openIdle = null;
+      } else if (evt.eventType === 'MEDIA_DEVICE_STATE' && evt.payload['in_use'] === true) {
+        // A call dismissed the prompt; the interval is ON_CALL time (ADR-0009 §3).
+        idles.push({
+          startedAt: openIdle.clientTs,
+          endedAt: evt.clientTs,
+          resolution: 'media_dismiss',
           response: null,
           sourceStartEventUlid: openIdle.eventUlid,
           sourceEndEventUlid: evt.eventUlid,

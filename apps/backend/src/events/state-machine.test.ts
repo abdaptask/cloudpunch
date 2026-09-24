@@ -3,7 +3,6 @@ import { INITIAL_STATE, deriveState, nextState, type PayrollState } from './stat
 
 describe('nextState — ambient events (never change state)', () => {
   const ambient = [
-    'MEDIA_DEVICE_STATE',
     'SYSTEM_LOCK',
     'SYSTEM_UNLOCK',
     'SYSTEM_SLEEP',
@@ -16,7 +15,7 @@ describe('nextState — ambient events (never change state)', () => {
     'SESSION_RECOVERED',
     'INTEGRITY_VIOLATION',
   ];
-  const states: PayrollState[] = ['ACTIVE', 'ON_BREAK', 'AWAY', 'IDLE_PENDING'];
+  const states: PayrollState[] = ['ACTIVE', 'ON_CALL', 'ON_BREAK', 'AWAY', 'IDLE_PENDING'];
 
   for (const evt of ambient) {
     for (const s of states) {
@@ -28,7 +27,14 @@ describe('nextState — ambient events (never change state)', () => {
 });
 
 describe('nextState — USER_CLOCK_IN is invalid whenever the session exists', () => {
-  const states: PayrollState[] = ['ACTIVE', 'ON_BREAK', 'AWAY', 'IDLE_PENDING', 'CLOSED'];
+  const states: PayrollState[] = [
+    'ACTIVE',
+    'ON_CALL',
+    'ON_BREAK',
+    'AWAY',
+    'IDLE_PENDING',
+    'CLOSED',
+  ];
   for (const s of states) {
     it(`USER_CLOCK_IN from ${s} is null (invalid)`, () => {
       expect(nextState(s, 'USER_CLOCK_IN')).toBeNull();
@@ -37,7 +43,7 @@ describe('nextState — USER_CLOCK_IN is invalid whenever the session exists', (
 });
 
 describe('nextState — USER_CLOCK_OUT closes the session from any open state', () => {
-  const open: PayrollState[] = ['ACTIVE', 'ON_BREAK', 'AWAY', 'IDLE_PENDING'];
+  const open: PayrollState[] = ['ACTIVE', 'ON_CALL', 'ON_BREAK', 'AWAY', 'IDLE_PENDING'];
   for (const s of open) {
     it(`USER_CLOCK_OUT from ${s} → CLOSED`, () => {
       expect(nextState(s, 'USER_CLOCK_OUT')).toBe('CLOSED');
@@ -106,6 +112,67 @@ describe('nextState — idle and prompt', () => {
   });
   it('INPUT_ACTIVITY from ACTIVE stays ACTIVE', () => {
     expect(nextState('ACTIVE', 'INPUT_ACTIVITY')).toBe('ACTIVE');
+  });
+});
+
+describe('nextState — MEDIA_DEVICE_STATE and ON_CALL (ADR-0009)', () => {
+  const media = (inUse: unknown): Record<string, unknown> => ({ in_use: inUse });
+
+  it('in_use=true from ACTIVE → ON_CALL', () => {
+    expect(nextState('ACTIVE', 'MEDIA_DEVICE_STATE', media(true))).toBe('ON_CALL');
+  });
+  it('in_use=true from IDLE_PENDING → ON_CALL (call dismisses the prompt)', () => {
+    expect(nextState('IDLE_PENDING', 'MEDIA_DEVICE_STATE', media(true))).toBe('ON_CALL');
+  });
+  it('in_use=false from ON_CALL → ACTIVE', () => {
+    expect(nextState('ON_CALL', 'MEDIA_DEVICE_STATE', media(false))).toBe('ACTIVE');
+  });
+
+  const unchanged: [PayrollState, boolean][] = [
+    ['ACTIVE', false],
+    ['IDLE_PENDING', false],
+    ['ON_CALL', true],
+    ['ON_BREAK', true],
+    ['ON_BREAK', false],
+    ['AWAY', true],
+    ['AWAY', false],
+    ['CLOSED', true],
+    ['CLOSED', false],
+  ];
+  for (const [s, inUse] of unchanged) {
+    it(`in_use=${inUse} from ${s} stays ${s}`, () => {
+      expect(nextState(s, 'MEDIA_DEVICE_STATE', media(inUse))).toBe(s);
+    });
+  }
+
+  it('missing payload is invalid', () => {
+    expect(nextState('ACTIVE', 'MEDIA_DEVICE_STATE')).toBeNull();
+  });
+  it('non-boolean in_use is invalid, even where the event would be ambient', () => {
+    expect(nextState('ACTIVE', 'MEDIA_DEVICE_STATE', media('true'))).toBeNull();
+    expect(nextState('ON_BREAK', 'MEDIA_DEVICE_STATE', media(1))).toBeNull();
+  });
+
+  it('USER_START_BREAK from ON_CALL → ON_BREAK', () => {
+    expect(nextState('ON_CALL', 'USER_START_BREAK')).toBe('ON_BREAK');
+  });
+  it('INPUT_ACTIVITY from ON_CALL stays ON_CALL', () => {
+    expect(nextState('ON_CALL', 'INPUT_ACTIVITY')).toBe('ON_CALL');
+  });
+  const rejectedFromOnCall = [
+    'USER_MARK_AWAY',
+    'USER_MARK_BACK',
+    'USER_END_BREAK',
+    'INPUT_IDLE_5M',
+    'PROMPT_TIMEOUT_30S',
+  ];
+  for (const evt of rejectedFromOnCall) {
+    it(`${evt} from ON_CALL is invalid`, () => {
+      expect(nextState('ON_CALL', evt)).toBeNull();
+    });
+  }
+  it('USER_PROMPT_RESPONSE from ON_CALL is invalid', () => {
+    expect(nextState('ON_CALL', 'USER_PROMPT_RESPONSE', { response: 'still_working' })).toBeNull();
   });
 });
 
@@ -194,9 +261,17 @@ describe('deriveState — folding an event stream', () => {
       mk('INPUT_ACTIVITY'),
       mk('SYSTEM_LOCK'),
       mk('SYSTEM_UNLOCK'),
-      mk('MEDIA_DEVICE_STATE'),
       mk('NETWORK_OFFLINE'),
       mk('NETWORK_ONLINE'),
+    ];
+    expect(deriveState(stream)).toBe('ACTIVE');
+  });
+
+  it('call during the idle prompt: IDLE_PENDING → ON_CALL → ACTIVE', () => {
+    const stream = [
+      mk('INPUT_IDLE_5M'),
+      mk('MEDIA_DEVICE_STATE', { in_use: true }),
+      mk('MEDIA_DEVICE_STATE', { in_use: false }),
     ];
     expect(deriveState(stream)).toBe('ACTIVE');
   });

@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Phase 2b.7.2b PR A — backend `ON_CALL` state + ADR-0009 (2026-09-24)
+
+Closes the known gap from the ADR-0008 backend follow-up: a call
+starting during the idle prompt now leaves `IDLE_PENDING`
+server-side.
+
+- **ADR-0009 (new, Accepted)** — `ON_CALL` state and media events.
+  `MEDIA_DEVICE_STATE` payload is exactly `{ in_use: boolean }`
+  (mic OR camera); a call dismissing the prompt makes the
+  prompt-pending interval payable as `ON_CALL`; `USER_MARK_AWAY` is
+  rejected from `ON_CALL`; grace-countdown resets emit no event.
+- `apps/backend/src/events/state-machine.ts`: `ON_CALL` added to
+  `PayrollState`. `MEDIA_DEVICE_STATE` is no longer ambient:
+  `in_use=true` moves `ACTIVE` / `IDLE_PENDING` → `ON_CALL`,
+  `in_use=false` moves `ON_CALL` → `ACTIVE`, other combinations
+  keep state. A missing or non-boolean `in_use` is rejected.
+  `USER_START_BREAK` is now also valid from `ON_CALL`.
+- `apps/backend/src/events/derive.ts`: `MEDIA_DEVICE_STATE
+  {in_use:true}` closes an open idle period with new resolution
+  `media_dismiss`. Not persisted anywhere yet; no schema change.
+- `packages/event-schema/schemas/media-device-state.schema.json`
+  (new).
+- ADR-0008 status header notes §3 extended by ADR-0009 (content
+  unchanged). `docs/architecture/state-machine.md` updated.
+- Tests: `ON_CALL` transitions (positive + negative), malformed
+  payloads, call-during-prompt fold, `media_dismiss` derivation.
+
+Refs: ADR-0003, ADR-0008, ADR-0009.
+
 ### ADR-0008 backend follow-up + LF line endings (2026-09-24)
 
 - **Backend now implements ADR-0008.**
