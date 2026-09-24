@@ -7,6 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Phase 2b.7.2a — idle prompt component + ADR-0008 (2026-09-24)
+
+First half of 2b.7.2. Fixes a gap in ADR-0003 and adds the idle
+prompt as a presentation-only React component. No window, no Rust,
+no Tauri commands yet — 2b.7.2b wires it once the desktop state
+machine exists.
+
+- **ADR-0008 (new, Accepted)** — input while the idle prompt is
+  visible. ADR-0003 had `INPUT_ACTIVITY` in `IDLE_PENDING` dismiss the
+  prompt as `ACTIVE`, which made every non-"still working" option
+  unreachable (moving the mouse to click one dismissed it first).
+  Now: input keeps the prompt up and resets the grace countdown;
+  only an explicit response, a call starting, or the timeout leaves
+  `IDLE_PENDING`. The prompt-pending interval is classified by the
+  response. The Rust core owns the grace timer.
+- `docs/architecture/adr/ADR-0003-time-state-machine.md`: status
+  header notes §3 amended by ADR-0008. Content unchanged.
+- `docs/architecture/state-machine.md`: `IDLE_PENDING` row and
+  worked-example row 8 / payable table updated for ADR-0008.
+- `apps/desktop/src/IdlePrompt.tsx` (new): `alertdialog` with the six
+  `idle.prompt_options`, a required note for `working_away`
+  (`noteRequiredFor` prop, 500-char cap from the event schema), and a
+  cosmetic countdown driven by a core-supplied `deadline`. Buttons
+  disable at zero; the component never auto-responds.
+- `apps/desktop/src/IdlePrompt.test.tsx` (new): 13 tests — option
+  order/subset, each response, note validation + trimming, Back,
+  countdown, deadline reset, expiry. One test reads
+  `packages/event-schema/schemas/user-prompt-response.schema.json` and
+  fails if the local `PromptResponse` list or note cap drifts.
+- Full CI-mirror pass green locally (desktop 17, backend 197,
+  event-schema 34, shared 19, contract-greythr 8).
+
+**Follow-ups (ADR-0008 §Consequences)**
+- Backend `state-machine.ts`: `INPUT_ACTIVITY` from `IDLE_PENDING`
+  must stay `IDLE_PENDING`. Separate PR — backend currently still
+  implements the ADR-0003 rule.
+- 2b.7.2b: prompt window, Rust-owned grace timer, Tauri capabilities.
+
+Refs: ADR-0003, ADR-0008.
+
 ### Phase 2b.7.3 — desktop TS component testing (2026-09-24)
 
 Stands up Vitest + Testing Library for the desktop React UI so the
