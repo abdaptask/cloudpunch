@@ -1,0 +1,17 @@
+# Normalise text to LF in the repo and in every working copy, whatever
+# the contributor's core.autocrlf. Prettier (endOfLine: lf) and rustfmt
+# both expect LF; without this, Windows clones get CRLF on checkout and
+# local `pnpm format:check` fails while CI passes.
+* text=auto eol=lf
+
+# Binary assets — never touch.
+*.png binary
+*.ico binary
+*.icns binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.pdf binary
