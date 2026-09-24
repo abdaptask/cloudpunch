@@ -1,6 +1,13 @@
 //! Microphone / camera in-use boolean watcher (Windows 10+).
 //!
-//! Data source: the Windows Capability Access Manager Consent Store.
+//! Production source is [`WindowsMediaState`]: the mic is in use if
+//! any process has an active capture session
+//! (`audio_session::capture_session_active`, ADR-0003 §7 primary) **or**
+//! the consent store below says so (cross-check). The camera uses the
+//! consent store only — there is no session API for video. The
+//! consent store alone missed a live Teams call in the PR D smoke test.
+//!
+//! Consent-store source: the Windows Capability Access Manager Consent Store.
 //! Under
 //! `HKCU\Software\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore\{microphone,webcam}\`
 //! (and mirrored in `HKLM` for packaged/system apps), each app has a
@@ -66,6 +73,21 @@ pub struct WindowsConsentStore;
 impl ConsentSource for WindowsConsentStore {
     fn mic_in_use(&self) -> bool {
         device_in_use(MIC_KEY)
+    }
+    fn cam_in_use(&self) -> bool {
+        device_in_use(CAM_KEY)
+    }
+}
+
+/// Mic from Core Audio capture sessions OR the consent store; camera
+/// from the consent store. Still two booleans, never which app.
+#[cfg(target_os = "windows")]
+pub struct WindowsMediaState;
+
+#[cfg(target_os = "windows")]
+impl ConsentSource for WindowsMediaState {
+    fn mic_in_use(&self) -> bool {
+        super::audio_session::capture_session_active() || device_in_use(MIC_KEY)
     }
     fn cam_in_use(&self) -> bool {
         device_in_use(CAM_KEY)

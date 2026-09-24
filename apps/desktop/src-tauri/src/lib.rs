@@ -122,7 +122,7 @@ pub fn start_watchers(agent: Arc<Agent>) -> WatchersGuard {
     let power_h = power::PowerWatcher::new().start(sup.sender());
     let miccam_h = mic_cam::MicCamWatcher::new(
         mic_cam::MicCamConfig::default(),
-        mic_cam::WindowsConsentStore,
+        mic_cam::WindowsMediaState,
     )
     .start(sup.sender());
     let network_h = network::NetworkWatcher::new(

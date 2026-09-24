@@ -19,6 +19,9 @@ use std::time::SystemTime;
 pub mod supervisor;
 
 #[cfg(target_os = "windows")]
+pub mod audio_session;
+
+#[cfg(target_os = "windows")]
 pub mod idle;
 
 #[cfg(target_os = "windows")]
