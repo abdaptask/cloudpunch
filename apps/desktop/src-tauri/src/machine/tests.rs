@@ -78,7 +78,8 @@ fn clock_in_twice_is_rejected_without_effects() {
 #[test]
 fn clock_in_during_a_call_goes_straight_to_on_call() {
     let mut core = Core::new(CoreConfig::default(), t(0));
-    core.handle(Input::MediaInUse(true), t(0)).unwrap();
+    core.handle(Input::MediaInUse(Some(CallType::Teams)), t(0))
+        .unwrap();
     let fx = core.handle(Input::ClockIn, t(1)).unwrap();
     assert_eq!(emitted(&fx), ["USER_CLOCK_IN", "MEDIA_DEVICE_STATE"]);
     assert_eq!(core.state(), CoreState::OnCall);
@@ -88,7 +89,9 @@ fn clock_in_during_a_call_goes_straight_to_on_call() {
 fn clock_out_from_each_open_state() {
     let mut active = clocked_in();
     let mut on_call = clocked_in();
-    on_call.handle(Input::MediaInUse(true), t(1)).unwrap();
+    on_call
+        .handle(Input::MediaInUse(Some(CallType::Teams)), t(1))
+        .unwrap();
     let mut on_break = clocked_in();
     on_break
         .handle(Input::StartBreak(BreakKind::Bio), t(1))
@@ -411,19 +414,25 @@ fn response_without_a_prompt_is_rejected() {
 #[test]
 fn call_start_enters_on_call_immediately() {
     let mut core = clocked_in();
-    let fx = core.handle(Input::MediaInUse(true), t(10)).unwrap();
+    let fx = core
+        .handle(Input::MediaInUse(Some(CallType::Teams)), t(10))
+        .unwrap();
     assert_eq!(emitted(&fx), ["MEDIA_DEVICE_STATE"]);
     let Some(Effect::Emit { event, .. }) = fx.first() else {
         panic!("expected an emit first");
     };
-    assert_eq!(event.transition_payload(), json!({ "in_use": true }));
+    assert_eq!(
+        event.transition_payload(),
+        json!({ "in_use": true, "call_type": "teams" })
+    );
     assert_eq!(core.state(), CoreState::OnCall);
 }
 
 #[test]
 fn no_idle_prompt_during_a_call_before_the_cap() {
     let mut core = clocked_in();
-    core.handle(Input::MediaInUse(true), t(10)).unwrap();
+    core.handle(Input::MediaInUse(Some(CallType::Teams)), t(10))
+        .unwrap();
     // Well past the 300 s idle threshold, short of the 30 min cap.
     assert!(emitted(&tick(&mut core, 0, 1_809)).is_empty());
     assert_eq!(core.state(), CoreState::OnCall);
@@ -444,7 +453,8 @@ fn idle_trigger(fx: &[Effect]) -> Option<IdleTrigger> {
 /// Clocked in at t(0); call from t(10); no input since t(0).
 fn on_call() -> Core {
     let mut core = clocked_in();
-    core.handle(Input::MediaInUse(true), t(10)).unwrap();
+    core.handle(Input::MediaInUse(Some(CallType::Teams)), t(10))
+        .unwrap();
     core
 }
 
@@ -487,7 +497,9 @@ fn ongoing_call_does_not_dismiss_the_silent_call_prompt() {
     let mut core = on_call();
     tick(&mut core, 0, 1_810);
     // Watcher re-reports the same state: no edge, prompt stays.
-    let fx = core.handle(Input::MediaInUse(true), t(1_815)).unwrap();
+    let fx = core
+        .handle(Input::MediaInUse(Some(CallType::Teams)), t(1_815))
+        .unwrap();
     assert!(emitted(&fx).is_empty());
     assert!(matches!(core.state(), CoreState::IdlePending { .. }));
 }
@@ -496,7 +508,7 @@ fn ongoing_call_does_not_dismiss_the_silent_call_prompt() {
 fn call_ending_during_silent_call_prompt_keeps_prompt() {
     let mut core = on_call();
     tick(&mut core, 0, 1_810);
-    core.handle(Input::MediaInUse(false), t(1_812)).unwrap();
+    core.handle(Input::MediaInUse(None), t(1_812)).unwrap();
     // Debounce elapses inside the grace window; ADR-0009 records
     // nothing from IDLE_PENDING on in_use=false.
     let fx = tick(&mut core, 0, 1_820);
@@ -542,7 +554,8 @@ fn cap_disabled_means_calls_never_prompt() {
     };
     let mut core = Core::new(cfg, t(0));
     core.handle(Input::ClockIn, t(0)).unwrap();
-    core.handle(Input::MediaInUse(true), t(10)).unwrap();
+    core.handle(Input::MediaInUse(Some(CallType::Teams)), t(10))
+        .unwrap();
     assert!(emitted(&tick(&mut core, 0, 100_000)).is_empty());
     assert_eq!(core.state(), CoreState::OnCall);
 }
@@ -559,8 +572,9 @@ fn normal_idle_prompt_is_input_idle() {
 #[test]
 fn call_end_is_debounced_then_re_arms_idle_timer() {
     let mut core = clocked_in();
-    core.handle(Input::MediaInUse(true), t(10)).unwrap();
-    core.handle(Input::MediaInUse(false), t(1_000)).unwrap();
+    core.handle(Input::MediaInUse(Some(CallType::Teams)), t(10))
+        .unwrap();
+    core.handle(Input::MediaInUse(None), t(1_000)).unwrap();
     assert!(emitted(&tick(&mut core, 0, 1_004)).is_empty());
     assert_eq!(core.state(), CoreState::OnCall);
 
@@ -576,9 +590,12 @@ fn call_end_is_debounced_then_re_arms_idle_timer() {
 #[test]
 fn media_blip_inside_debounce_keeps_the_call() {
     let mut core = clocked_in();
-    core.handle(Input::MediaInUse(true), t(10)).unwrap();
-    core.handle(Input::MediaInUse(false), t(100)).unwrap();
-    let fx = core.handle(Input::MediaInUse(true), t(103)).unwrap();
+    core.handle(Input::MediaInUse(Some(CallType::Teams)), t(10))
+        .unwrap();
+    core.handle(Input::MediaInUse(None), t(100)).unwrap();
+    let fx = core
+        .handle(Input::MediaInUse(Some(CallType::Teams)), t(103))
+        .unwrap();
     assert!(emitted(&fx).is_empty());
     assert!(emitted(&tick(&mut core, 0, 200)).is_empty());
     assert_eq!(core.state(), CoreState::OnCall);
@@ -587,7 +604,9 @@ fn media_blip_inside_debounce_keeps_the_call() {
 #[test]
 fn call_start_dismisses_the_prompt() {
     let mut core = prompting();
-    let fx = core.handle(Input::MediaInUse(true), t(310)).unwrap();
+    let fx = core
+        .handle(Input::MediaInUse(Some(CallType::Teams)), t(310))
+        .unwrap();
     assert_eq!(emitted(&fx), ["MEDIA_DEVICE_STATE"]);
     assert!(fx.contains(&Effect::HidePrompt));
     assert_eq!(core.state(), CoreState::OnCall);
@@ -598,7 +617,9 @@ fn call_during_break_is_not_recorded_until_break_ends() {
     let mut core = clocked_in();
     core.handle(Input::StartBreak(BreakKind::Bio), t(10))
         .unwrap();
-    let fx = core.handle(Input::MediaInUse(true), t(20)).unwrap();
+    let fx = core
+        .handle(Input::MediaInUse(Some(CallType::Teams)), t(20))
+        .unwrap();
     assert!(emitted(&fx).is_empty());
     assert_eq!(
         core.state(),
@@ -615,10 +636,11 @@ fn call_during_break_is_not_recorded_until_break_ends() {
 #[test]
 fn call_ending_during_break_leaves_active_on_return() {
     let mut core = clocked_in();
-    core.handle(Input::MediaInUse(true), t(10)).unwrap();
+    core.handle(Input::MediaInUse(Some(CallType::Teams)), t(10))
+        .unwrap();
     core.handle(Input::StartBreak(BreakKind::Bio), t(20))
         .unwrap();
-    core.handle(Input::MediaInUse(false), t(30)).unwrap();
+    core.handle(Input::MediaInUse(None), t(30)).unwrap();
     assert!(emitted(&tick(&mut core, 0, 40)).is_empty());
     let fx = core.handle(Input::EndBreak, t(50)).unwrap();
     assert_eq!(emitted(&fx), ["USER_END_BREAK"]);
@@ -633,21 +655,32 @@ fn media_ignored_when_suppression_disabled() {
     };
     let mut core = Core::new(cfg, t(0));
     core.handle(Input::ClockIn, t(0)).unwrap();
-    assert!(emitted(&core.handle(Input::MediaInUse(true), t(10)).unwrap()).is_empty());
+    assert!(emitted(
+        &core
+            .handle(Input::MediaInUse(Some(CallType::Teams)), t(10))
+            .unwrap()
+    )
+    .is_empty());
     assert_eq!(emitted(&tick(&mut core, 0, 300)), ["INPUT_IDLE_5M"]);
 }
 
 #[test]
 fn media_while_clocked_out_emits_nothing() {
     let mut core = Core::new(CoreConfig::default(), t(0));
-    assert!(emitted(&core.handle(Input::MediaInUse(true), t(1)).unwrap()).is_empty());
+    assert!(emitted(
+        &core
+            .handle(Input::MediaInUse(Some(CallType::Teams)), t(1))
+            .unwrap()
+    )
+    .is_empty());
     assert_eq!(core.state(), CoreState::ClockedOut);
 }
 
 #[test]
 fn start_break_from_on_call_is_allowed() {
     let mut core = clocked_in();
-    core.handle(Input::MediaInUse(true), t(10)).unwrap();
+    core.handle(Input::MediaInUse(Some(CallType::Teams)), t(10))
+        .unwrap();
     core.handle(Input::StartBreak(BreakKind::Other), t(20))
         .unwrap();
     assert_eq!(
@@ -671,8 +704,8 @@ fn emitted_stream_is_accepted_by_server_machine() {
         all.extend(core.handle(input, t(now)).unwrap());
     };
     run(&mut core, Input::ClockIn, 0);
-    run(&mut core, Input::MediaInUse(true), 60);
-    run(&mut core, Input::MediaInUse(false), 1_800);
+    run(&mut core, Input::MediaInUse(Some(CallType::Teams)), 60);
+    run(&mut core, Input::MediaInUse(None), 1_800);
     run(
         &mut core,
         Input::Tick {
@@ -703,7 +736,7 @@ fn emitted_stream_is_accepted_by_server_machine() {
         },
         2_800,
     );
-    run(&mut core, Input::MediaInUse(true), 2_810);
+    run(&mut core, Input::MediaInUse(Some(CallType::Teams)), 2_810);
     run(&mut core, Input::StartBreak(BreakKind::Meal), 3_000);
     run(&mut core, Input::EndBreak, 6_000);
     run(&mut core, Input::ClockOut, 9_000);
@@ -820,4 +853,79 @@ fn away_tags_are_rejected_during_a_call_and_on_break() {
         mark_away(&mut on_break, AwayReason::PhoneCall, None),
         Err(Rejected::InvalidTransition)
     );
+}
+
+// ── call type (ADR-0012) ──────────────────────────────────────────
+
+fn media_payloads(fx: &[Effect]) -> Vec<Value> {
+    fx.iter()
+        .filter_map(|e| match e {
+            Effect::Emit {
+                event: event @ CoreEvent::MediaDeviceState { .. },
+                ..
+            } => Some(event.transition_payload()),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn call_start_records_the_call_type() {
+    let mut core = clocked_in();
+    let fx = core
+        .handle(Input::MediaInUse(Some(CallType::Zoom)), t(10))
+        .unwrap();
+    assert_eq!(
+        media_payloads(&fx),
+        [json!({ "in_use": true, "call_type": "zoom" })]
+    );
+    assert_eq!(core.call_type(), Some(CallType::Zoom));
+}
+
+#[test]
+fn switching_app_mid_call_records_the_new_type_and_stays_on_call() {
+    let mut core = clocked_in();
+    core.handle(Input::MediaInUse(Some(CallType::Teams)), t(10))
+        .unwrap();
+    let fx = core
+        .handle(Input::MediaInUse(Some(CallType::Zoom)), t(20))
+        .unwrap();
+    assert_eq!(
+        media_payloads(&fx),
+        [json!({ "in_use": true, "call_type": "zoom" })]
+    );
+    assert_eq!(core.state(), CoreState::OnCall);
+    assert_eq!(core.call_type(), Some(CallType::Zoom));
+    // Same type again: nothing new recorded.
+    let fx = core
+        .handle(Input::MediaInUse(Some(CallType::Zoom)), t(22))
+        .unwrap();
+    assert!(emitted(&fx).is_empty());
+}
+
+#[test]
+fn call_end_payload_has_no_call_type() {
+    let mut core = clocked_in();
+    core.handle(Input::MediaInUse(Some(CallType::Teams)), t(10))
+        .unwrap();
+    core.handle(Input::MediaInUse(None), t(100)).unwrap();
+    let fx = tick(&mut core, 0, 105);
+    assert_eq!(media_payloads(&fx), [json!({ "in_use": false })]);
+    assert_eq!(core.call_type(), None);
+}
+
+#[test]
+fn call_type_is_none_unless_on_call() {
+    let mut core = clocked_in();
+    core.handle(Input::StartBreak(BreakKind::Bio), t(5))
+        .unwrap();
+    core.handle(Input::MediaInUse(Some(CallType::Teams)), t(10))
+        .unwrap();
+    assert_eq!(core.call_type(), None);
+    let fx = core.handle(Input::EndBreak, t(20)).unwrap();
+    assert_eq!(
+        media_payloads(&fx),
+        [json!({ "in_use": true, "call_type": "teams" })]
+    );
+    assert_eq!(core.call_type(), Some(CallType::Teams));
 }

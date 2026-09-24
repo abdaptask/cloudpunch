@@ -30,6 +30,7 @@
 
 pub mod agent;
 pub mod commands;
+pub mod call_type;
 pub mod event;
 pub mod machine;
 pub mod outbox;
@@ -42,7 +43,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use agent::Agent;
-use machine::{CoreConfig, Input};
+use machine::{CallType, CoreConfig, Input};
 use outbox::Outbox;
 use sync::{ReqwestBackendClient, SyncBootstrap, SyncConfig, SyncLoop};
 use watchers::supervisor::Supervisor;
@@ -103,9 +104,10 @@ pub fn start_watchers(agent: Arc<Agent>) -> WatchersGuard {
                     OsSignal::NetworkReachabilityChanged { reachable, .. } => {
                         is_online_drain.store(*reachable, Ordering::Release);
                     }
-                    OsSignal::MediaInUseChanged { mic, cam, .. } => {
-                        // Boolean only (ADR-0009): mic OR camera.
-                        let _ = agent.handle(Input::MediaInUse(*mic || *cam));
+                    OsSignal::MediaInUseChanged { mic, cam, call_type, .. } => {
+                        // Mic OR camera, with the kind of call (ADR-0012).
+                        let raw = (*mic || *cam).then_some(call_type.unwrap_or(CallType::Other));
+                        let _ = agent.handle(Input::MediaInUse(raw));
                     }
                     _ => {}
                 }
@@ -240,7 +242,7 @@ pub fn run() {
         ])
         .setup(move |app| {
             setup_agent.attach(agent::TauriUi::new(app.handle().clone()));
-            let snapshot = agent::tray_snapshot(setup_agent.state());
+            let snapshot = agent::tray_snapshot(setup_agent.state(), None);
             tray::install(app.handle(), snapshot)?;
             Ok(())
         })

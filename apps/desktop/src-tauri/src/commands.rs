@@ -89,7 +89,7 @@ pub fn end_break(agent: State<'_, Arc<Agent>>) -> CommandResult {
     run(&agent, Input::EndBreak)
 }
 
-/// Voluntary away tag: `meeting` or `phone_call` (ADR-0011 §2).
+/// Voluntary away tag: `meeting` (ADR-0011 §2).
 #[tauri::command]
 pub fn mark_away(
     agent: State<'_, Arc<Agent>>,

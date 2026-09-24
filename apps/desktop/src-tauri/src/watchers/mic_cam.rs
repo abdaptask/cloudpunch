@@ -35,9 +35,10 @@ use std::thread;
 use std::time::{Duration, SystemTime};
 
 use winreg::enums::{HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, KEY_READ};
-use winreg::{HKEY, RegKey};
+use winreg::{RegKey, HKEY};
 
 use super::{OsSignal, Watcher, WatcherHandle};
+use crate::call_type::CallType;
 
 const CONSENT_STORE_ROOT: &str =
     r"Software\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore";
@@ -64,6 +65,12 @@ impl Default for MicCamConfig {
 pub trait ConsentSource: Send {
     fn mic_in_use(&self) -> bool;
     fn cam_in_use(&self) -> bool;
+    /// `(mic, cam, call_type)` in one read. Sources that can't tell
+    /// the kind of call report `None`; the watcher maps an in-use
+    /// device with no type to [`CallType::Other`].
+    fn snapshot(&self) -> (bool, bool, Option<CallType>) {
+        (self.mic_in_use(), self.cam_in_use(), None)
+    }
 }
 
 #[cfg(target_os = "windows")]
@@ -92,6 +99,13 @@ impl ConsentSource for WindowsMediaState {
     fn cam_in_use(&self) -> bool {
         device_in_use(CAM_KEY)
     }
+    /// One capture-session enumeration per poll: it yields both "in
+    /// use" and the call type (ADR-0012).
+    fn snapshot(&self) -> (bool, bool, Option<CallType>) {
+        let session = super::audio_session::active_call_type();
+        let mic = session.is_some() || device_in_use(MIC_KEY);
+        (mic, device_in_use(CAM_KEY), session)
+    }
 }
 
 /// True iff any app subkey under either HKCU or HKLM consent-store
@@ -117,6 +131,11 @@ fn check_root(root: HKEY, device: &str) -> bool {
         if name == "NonPackaged" {
             if let Ok(np) = key.open_subkey(&name) {
                 for exe in np.enum_keys().flatten() {
+                    // Apps that hold the mic open while idle never
+                    // count (ADR-0012 §1a).
+                    if crate::call_type::is_ignored(&exe) {
+                        continue;
+                    }
                     if let Ok(sub) = np.open_subkey(&exe) {
                         if let Ok(stop) = sub.get_value::<u64, _>("LastUsedTimeStop") {
                             if stop == 0 {
@@ -180,13 +199,16 @@ impl<S: ConsentSource + 'static> Watcher for MicCamWatcher<S> {
         let thread = thread::Builder::new()
             .name("cp-miccam-watcher".into())
             .spawn(move || {
-                let mut last: Option<(bool, bool)> = None;
+                let mut last: Option<(bool, bool, Option<CallType>)> = None;
                 while !stop_clone.load(Ordering::Acquire) {
-                    let current = (source.mic_in_use(), source.cam_in_use());
+                    let (mic, cam, kind) = source.snapshot();
+                    let call_type = (mic || cam).then(|| kind.unwrap_or(CallType::Other));
+                    let current = (mic, cam, call_type);
                     if last != Some(current) {
                         let _ = tx.send(OsSignal::MediaInUseChanged {
-                            mic: current.0,
-                            cam: current.1,
+                            mic,
+                            cam,
+                            call_type,
                             at: SystemTime::now(),
                         });
                         last = Some(current);

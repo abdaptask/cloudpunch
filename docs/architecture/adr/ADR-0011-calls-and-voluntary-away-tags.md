@@ -1,6 +1,8 @@
 # ADR-0011 — Calls on the employee's own screen, and voluntary away tags
 
-- **Status:** Accepted (2026-09-24)
+- **Status:** Accepted (2026-09-24); §1 "employee only" superseded by
+  ADR-0012 (managers and reports see the call type); §2 "On a phone call"
+  tag removed by ADR-0012 §6
 - **Date:** 2026-09-24
 - **Deciders:** Abdulla Sheikh (project owner), Architecture (Claude)
 - **Extends:** ADR-0003 §1 (the `ON_CALL` reporting note) and §3

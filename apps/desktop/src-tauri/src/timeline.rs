@@ -15,14 +15,14 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::Serialize;
 
-use crate::machine::{AwayReason, BreakKind, CoreState};
+use crate::machine::{AwayReason, BreakKind, CallType, CoreState};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SegmentKind {
     /// Active, no call.
     Working,
-    /// Mic or camera in use (ADR-0011: shown to the employee only).
-    OnCall,
+    /// Mic or camera in use, by kind of call (ADR-0012).
+    OnCall(CallType),
     Break(BreakKind),
     Away(AwayReason),
     /// Idle prompt showing.
@@ -30,11 +30,11 @@ pub enum SegmentKind {
 }
 
 impl SegmentKind {
-    fn of(state: CoreState) -> Option<Self> {
+    fn of(state: CoreState, call_type: Option<CallType>) -> Option<Self> {
         Some(match state {
             CoreState::ClockedOut => return None,
             CoreState::Active => SegmentKind::Working,
-            CoreState::OnCall => SegmentKind::OnCall,
+            CoreState::OnCall => SegmentKind::OnCall(call_type.unwrap_or(CallType::Other)),
             CoreState::IdlePending { .. } => SegmentKind::Prompt,
             CoreState::OnBreak { kind } => SegmentKind::Break(kind),
             CoreState::Away { reason } => SegmentKind::Away(reason),
@@ -44,7 +44,9 @@ impl SegmentKind {
     pub fn as_str(self) -> &'static str {
         match self {
             SegmentKind::Working => "working",
-            SegmentKind::OnCall => "on_call",
+            SegmentKind::OnCall(CallType::Teams) => "call_teams",
+            SegmentKind::OnCall(CallType::Zoom) => "call_zoom",
+            SegmentKind::OnCall(CallType::Other) => "call_other",
             SegmentKind::Break(BreakKind::Bio) => "bio_break",
             SegmentKind::Break(BreakKind::Meal) => "meal_break",
             SegmentKind::Break(BreakKind::Other) => "other_break",
@@ -88,11 +90,17 @@ impl Timeline {
         Self::default()
     }
 
-    /// Record that the core is now in `state` as of `at`. Consecutive
-    /// states of the same kind merge (active → on call stays one
-    /// working segment).
+    /// Record that the core is now in `state` as of `at`; a call with
+    /// no known kind counts as [`CallType::Other`].
     pub fn on_state(&mut self, state: CoreState, at: SystemTime) {
-        let kind = SegmentKind::of(state);
+        self.record(state, None, at);
+    }
+
+    /// Record `state` (and, while on a call, its kind) as of `at`.
+    /// Consecutive identical kinds merge; a new kind of call mid-call
+    /// starts a new segment.
+    pub fn record(&mut self, state: CoreState, call_type: Option<CallType>, at: SystemTime) {
+        let kind = SegmentKind::of(state, call_type);
         if let Some(open) = self.segments.last() {
             if open.ended_at.is_none() && Some(open.kind) == kind {
                 return;
@@ -178,17 +186,33 @@ mod tests {
     fn calls_get_their_own_segment() {
         let mut tl = Timeline::new();
         tl.on_state(CoreState::Active, t(0));
-        tl.on_state(CoreState::OnCall, t(60));
+        tl.record(CoreState::OnCall, Some(CallType::Teams), t(60));
         tl.on_state(CoreState::Active, t(120));
-        assert_eq!(kinds(&tl), ["working", "on_call", "working"]);
+        assert_eq!(kinds(&tl), ["working", "call_teams", "working"]);
         assert_eq!(tl.segments()[1].ended_at, Some(t(120)));
+    }
+
+    #[test]
+    fn switching_call_app_starts_a_new_segment() {
+        let mut tl = Timeline::new();
+        tl.record(CoreState::OnCall, Some(CallType::Teams), t(0));
+        tl.record(CoreState::OnCall, Some(CallType::Teams), t(30));
+        tl.record(CoreState::OnCall, Some(CallType::Zoom), t(60));
+        assert_eq!(kinds(&tl), ["call_teams", "call_zoom"]);
+    }
+
+    #[test]
+    fn call_without_a_known_kind_is_other() {
+        let mut tl = Timeline::new();
+        tl.on_state(CoreState::OnCall, t(0));
+        assert_eq!(kinds(&tl), ["call_other"]);
     }
 
     #[test]
     fn clock_in_during_a_call_starts_with_on_call() {
         let mut tl = Timeline::new();
-        tl.on_state(CoreState::OnCall, t(0));
-        assert_eq!(kinds(&tl), ["on_call"]);
+        tl.record(CoreState::OnCall, Some(CallType::Zoom), t(0));
+        assert_eq!(kinds(&tl), ["call_zoom"]);
         assert_eq!(tl.session_started_at(), Some(t(0)));
     }
 

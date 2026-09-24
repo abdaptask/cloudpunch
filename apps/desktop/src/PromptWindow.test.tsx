@@ -18,6 +18,7 @@ function pending(over: Partial<StateView> = {}): StateView {
     status: 'idle_pending',
     breakKind: null,
     awayReason: null,
+    callType: null,
     promptDeadline: Date.now() + 30_000,
     promptOptions: [...PROMPT_RESPONSES],
     noteRequiredFor: ['working_away'],

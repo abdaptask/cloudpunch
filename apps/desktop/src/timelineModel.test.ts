@@ -86,7 +86,7 @@ describe('timelineModel', () => {
     expect(groupOf('other_break')).toBe('break');
     expect(groupOf('away_working')).toBe('working');
     expect(groupOf('away_meeting')).toBe('working');
-    expect(groupOf('on_call')).toBe('working');
+    expect(groupOf('call_teams')).toBe('working');
   });
 
   it('formats durations and timers', () => {

@@ -18,18 +18,18 @@ use tauri::tray::TrayIconBuilder;
 use tauri::{AppHandle, Manager, Runtime};
 
 use crate::agent::Agent;
-use crate::machine::{AwayReason, BreakKind, Input};
+use crate::machine::{AwayReason, BreakKind, CallType, Input};
 
 const TRAY_ID: &str = "cp-tray";
 
 /// The states the tray distinguishes. `ClockedIn` covers active and
-/// prompt pending. Calls are shown on the employee's own tray
-/// (ADR-0011 §1); managers still see them as active.
+/// prompt pending. Calls show their kind (ADR-0012).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TrayStateSnapshot {
     NotClockedIn,
     ClockedIn,
-    OnCall,
+    /// Kind of call (ADR-0012).
+    OnCall(CallType),
     OnBreak,
     Away(AwayReason),
 }
@@ -40,7 +40,9 @@ pub fn render_status_label(state: &TrayStateSnapshot) -> String {
     match state {
         TrayStateSnapshot::NotClockedIn => "Status: Not clocked in",
         TrayStateSnapshot::ClockedIn => "Status: Clocked in",
-        TrayStateSnapshot::OnCall => "Status: On a call",
+        TrayStateSnapshot::OnCall(CallType::Teams) => "Status: On a Teams call",
+        TrayStateSnapshot::OnCall(CallType::Zoom) => "Status: On a Zoom call",
+        TrayStateSnapshot::OnCall(CallType::Other) => "Status: On a call",
         TrayStateSnapshot::OnBreak => "Status: On break",
         TrayStateSnapshot::Away(AwayReason::Meeting) => "Status: In a meeting",
         TrayStateSnapshot::Away(AwayReason::PhoneCall) => "Status: On a phone call",
@@ -58,10 +60,9 @@ pub fn action_items(state: TrayStateSnapshot) -> &'static [(&'static str, &'stat
             ("bio_break", "Bio break"),
             ("meal_break", "Meal break"),
             ("meeting", "In a meeting"),
-            ("phone_call", "On a phone call"),
         ],
         // Away tags are not offered during a call (ADR-0009 §2).
-        TrayStateSnapshot::OnCall => &[
+        TrayStateSnapshot::OnCall(_) => &[
             ("clock_out", "Clock out"),
             ("bio_break", "Bio break"),
             ("meal_break", "Meal break"),
@@ -82,10 +83,6 @@ pub fn input_for(id: &str) -> Option<Input> {
         "mark_back" => Input::MarkBack,
         "meeting" => Input::MarkAway {
             reason: AwayReason::Meeting,
-            note: None,
-        },
-        "phone_call" => Input::MarkAway {
-            reason: AwayReason::PhoneCall,
             note: None,
         },
         _ => return None,
@@ -171,7 +168,7 @@ mod tests {
     const ALL: [TrayStateSnapshot; 7] = [
         TrayStateSnapshot::NotClockedIn,
         TrayStateSnapshot::ClockedIn,
-        TrayStateSnapshot::OnCall,
+        TrayStateSnapshot::OnCall(CallType::Teams),
         TrayStateSnapshot::OnBreak,
         TrayStateSnapshot::Away(AwayReason::Meeting),
         TrayStateSnapshot::Away(AwayReason::PhoneCall),
@@ -190,7 +187,7 @@ mod tests {
             [
                 "Status: Not clocked in",
                 "Status: Clocked in",
-                "Status: On a call",
+                "Status: On a Teams call",
                 "Status: On break",
                 "Status: In a meeting",
                 "Status: On a phone call",
@@ -218,20 +215,14 @@ mod tests {
     fn clocked_in_offers_breaks_and_away_tags_not_other() {
         assert_eq!(
             ids(TrayStateSnapshot::ClockedIn),
-            [
-                "clock_out",
-                "bio_break",
-                "meal_break",
-                "meeting",
-                "phone_call"
-            ]
+            ["clock_out", "bio_break", "meal_break", "meeting"]
         );
     }
 
     #[test]
     fn on_call_offers_no_away_tags() {
         assert_eq!(
-            ids(TrayStateSnapshot::OnCall),
+            ids(TrayStateSnapshot::OnCall(CallType::Zoom)),
             ["clock_out", "bio_break", "meal_break"]
         );
     }

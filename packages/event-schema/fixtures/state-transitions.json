@@ -1,5 +1,5 @@
 {
-  "$comment": "Payroll-state transitions shared by the backend (state-machine.ts) and desktop core (core/state.rs). to=null means the transition is rejected. payload=null means no payload. See ADR-0003, ADR-0008, ADR-0009, ADR-0010, ADR-0011.",
+  "$comment": "Payroll-state transitions shared by the backend (state-machine.ts) and desktop core (core/state.rs). to=null means the transition is rejected. payload=null means no payload. See ADR-0003, ADR-0008, ADR-0009, ADR-0010, ADR-0011, ADR-0012.",
   "cases": [
     {
       "from": "ACTIVE",
@@ -179,6 +179,33 @@
       "from": "ACTIVE",
       "event_type": "MEDIA_DEVICE_STATE",
       "payload": {
+        "in_use": true,
+        "call_type": "teams"
+      },
+      "to": "ON_CALL"
+    },
+    {
+      "from": "ACTIVE",
+      "event_type": "MEDIA_DEVICE_STATE",
+      "payload": {
+        "in_use": true,
+        "call_type": "skype"
+      },
+      "to": null
+    },
+    {
+      "from": "ACTIVE",
+      "event_type": "MEDIA_DEVICE_STATE",
+      "payload": {
+        "in_use": false,
+        "call_type": "zoom"
+      },
+      "to": null
+    },
+    {
+      "from": "ACTIVE",
+      "event_type": "MEDIA_DEVICE_STATE",
+      "payload": {
         "in_use": false
       },
       "to": "ACTIVE"
@@ -393,6 +420,33 @@
       "from": "ON_CALL",
       "event_type": "MEDIA_DEVICE_STATE",
       "payload": {
+        "in_use": true,
+        "call_type": "teams"
+      },
+      "to": "ON_CALL"
+    },
+    {
+      "from": "ON_CALL",
+      "event_type": "MEDIA_DEVICE_STATE",
+      "payload": {
+        "in_use": true,
+        "call_type": "skype"
+      },
+      "to": null
+    },
+    {
+      "from": "ON_CALL",
+      "event_type": "MEDIA_DEVICE_STATE",
+      "payload": {
+        "in_use": false,
+        "call_type": "zoom"
+      },
+      "to": null
+    },
+    {
+      "from": "ON_CALL",
+      "event_type": "MEDIA_DEVICE_STATE",
+      "payload": {
         "in_use": false
       },
       "to": "ACTIVE"
@@ -607,6 +661,33 @@
       "from": "ON_BREAK",
       "event_type": "MEDIA_DEVICE_STATE",
       "payload": {
+        "in_use": true,
+        "call_type": "teams"
+      },
+      "to": "ON_BREAK"
+    },
+    {
+      "from": "ON_BREAK",
+      "event_type": "MEDIA_DEVICE_STATE",
+      "payload": {
+        "in_use": true,
+        "call_type": "skype"
+      },
+      "to": null
+    },
+    {
+      "from": "ON_BREAK",
+      "event_type": "MEDIA_DEVICE_STATE",
+      "payload": {
+        "in_use": false,
+        "call_type": "zoom"
+      },
+      "to": null
+    },
+    {
+      "from": "ON_BREAK",
+      "event_type": "MEDIA_DEVICE_STATE",
+      "payload": {
         "in_use": false
       },
       "to": "ON_BREAK"
@@ -816,6 +897,33 @@
         "in_use": true
       },
       "to": "AWAY"
+    },
+    {
+      "from": "AWAY",
+      "event_type": "MEDIA_DEVICE_STATE",
+      "payload": {
+        "in_use": true,
+        "call_type": "teams"
+      },
+      "to": "AWAY"
+    },
+    {
+      "from": "AWAY",
+      "event_type": "MEDIA_DEVICE_STATE",
+      "payload": {
+        "in_use": true,
+        "call_type": "skype"
+      },
+      "to": null
+    },
+    {
+      "from": "AWAY",
+      "event_type": "MEDIA_DEVICE_STATE",
+      "payload": {
+        "in_use": false,
+        "call_type": "zoom"
+      },
+      "to": null
     },
     {
       "from": "AWAY",
@@ -1035,6 +1143,33 @@
       "from": "IDLE_PENDING",
       "event_type": "MEDIA_DEVICE_STATE",
       "payload": {
+        "in_use": true,
+        "call_type": "teams"
+      },
+      "to": "ON_CALL"
+    },
+    {
+      "from": "IDLE_PENDING",
+      "event_type": "MEDIA_DEVICE_STATE",
+      "payload": {
+        "in_use": true,
+        "call_type": "skype"
+      },
+      "to": null
+    },
+    {
+      "from": "IDLE_PENDING",
+      "event_type": "MEDIA_DEVICE_STATE",
+      "payload": {
+        "in_use": false,
+        "call_type": "zoom"
+      },
+      "to": null
+    },
+    {
+      "from": "IDLE_PENDING",
+      "event_type": "MEDIA_DEVICE_STATE",
+      "payload": {
         "in_use": false
       },
       "to": "IDLE_PENDING"
@@ -1244,6 +1379,33 @@
         "in_use": true
       },
       "to": "CLOSED"
+    },
+    {
+      "from": "CLOSED",
+      "event_type": "MEDIA_DEVICE_STATE",
+      "payload": {
+        "in_use": true,
+        "call_type": "teams"
+      },
+      "to": "CLOSED"
+    },
+    {
+      "from": "CLOSED",
+      "event_type": "MEDIA_DEVICE_STATE",
+      "payload": {
+        "in_use": true,
+        "call_type": "skype"
+      },
+      "to": null
+    },
+    {
+      "from": "CLOSED",
+      "event_type": "MEDIA_DEVICE_STATE",
+      "payload": {
+        "in_use": false,
+        "call_type": "zoom"
+      },
+      "to": null
     },
     {
       "from": "CLOSED",

@@ -11,7 +11,7 @@ const mocks = vi.hoisted(() => ({
   startBreak: vi.fn<(kind: 'bio' | 'meal') => Promise<StateView>>(),
   endBreak: vi.fn<() => Promise<StateView>>(),
   markBack: vi.fn<() => Promise<StateView>>(),
-  markAway: vi.fn<(reason: 'meeting' | 'phone_call') => Promise<StateView>>(),
+  markAway: vi.fn<(reason: 'meeting') => Promise<StateView>>(),
   respondToPrompt: vi.fn(),
   onState: vi.fn<(cb: (v: StateView) => void) => Promise<() => void>>(),
 }));
@@ -23,6 +23,7 @@ function view(over: Partial<StateView> = {}): StateView {
     status: 'clocked_out',
     breakKind: null,
     awayReason: null,
+    callType: null,
     promptDeadline: null,
     promptOptions: [],
     noteRequiredFor: [],
@@ -70,13 +71,7 @@ describe('App home UI', () => {
     await user.click(await screen.findByRole('button', { name: 'Clock in' }));
     expect(mocks.clockIn).toHaveBeenCalledOnce();
     expect(statusText()).toBe('Clocked in');
-    expect(actionButtons()).toEqual([
-      'Clock out',
-      'Bio break',
-      'Meal break',
-      'In a meeting',
-      'On a phone call',
-    ]);
+    expect(actionButtons()).toEqual(['Clock out', 'Bio break', 'Meal break', 'In a meeting']);
   });
 
   it('away tags call mark_away with their reason (ADR-0011)', async () => {
@@ -101,7 +96,20 @@ describe('App home UI', () => {
     expect(actionButtons()).toEqual(['End break', 'Clock out']);
   });
 
-  it('on a call shows as On a call to the employee (ADR-0011)', async () => {
+  it('on a call shows the kind of call (ADR-0012)', async () => {
+    mocks.getState.mockResolvedValue(view({ status: 'on_call', callType: 'teams' }));
+    render(<App />);
+    expect(await screen.findByText('On a Teams call')).toBeInTheDocument();
+  });
+
+  it('there is no manual phone-call tag', async () => {
+    mocks.getState.mockResolvedValue(view({ status: 'active' }));
+    render(<App />);
+    await screen.findByRole('button', { name: 'In a meeting' });
+    expect(screen.queryByRole('button', { name: 'On a phone call' })).not.toBeInTheDocument();
+  });
+
+  it('on a call with no known kind shows On a call', async () => {
     mocks.getState.mockResolvedValue(view({ status: 'on_call' }));
     render(<App />);
     expect(await screen.findByText('On a call')).toBeInTheDocument();
@@ -211,7 +219,7 @@ describe('App home UI', () => {
         sessionStartedAt: now - 60 * MIN,
         timeline: [
           { kind: 'working', startedAt: now - 60 * MIN, endedAt: now - 40 * MIN, session: 1 },
-          { kind: 'on_call', startedAt: now - 40 * MIN, endedAt: now - 30 * MIN, session: 1 },
+          { kind: 'call_teams', startedAt: now - 40 * MIN, endedAt: now - 30 * MIN, session: 1 },
           { kind: 'away_meeting', startedAt: now - 30 * MIN, endedAt: now - 10 * MIN, session: 1 },
           { kind: 'bio_break', startedAt: now - 10 * MIN, endedAt: now - 5 * MIN, session: 1 },
           { kind: 'working', startedAt: now - 5 * MIN, endedAt: now, session: 1 },
@@ -226,7 +234,7 @@ describe('App home UI', () => {
     expect(pairs).toEqual([
       'Working = 55m 00s',
       'At the computer = 25m 00s',
-      'On a call = 10m 00s',
+      'Teams calls = 10m 00s',
       'In a meeting = 20m 00s',
       'Bio break = 5m 00s',
       'On the clock = 1h 00m 00s',

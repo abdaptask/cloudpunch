@@ -90,7 +90,7 @@ mod tests {
     use std::time::{Duration, UNIX_EPOCH};
 
     use super::super::sink::RecordingSink;
-    use super::super::{BreakKind, CoreConfig};
+    use super::super::{BreakKind, CallType, CoreConfig};
     use super::*;
 
     fn t(secs: u64) -> SystemTime {
@@ -120,7 +120,8 @@ mod tests {
     fn records_emits_in_order_and_returns_only_ui_effects() {
         let sink = RecordingSink::new();
         let mut d = driver_with(sink.clone());
-        d.handle(Input::MediaInUse(true), t(0)).unwrap();
+        d.handle(Input::MediaInUse(Some(CallType::Teams)), t(0))
+            .unwrap();
         let out = d.handle(Input::ClockIn, t(1)).unwrap();
 
         assert_eq!(sink.event_types(), ["USER_CLOCK_IN", "MEDIA_DEVICE_STATE"]);
