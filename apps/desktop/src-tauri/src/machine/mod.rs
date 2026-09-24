@@ -14,6 +14,11 @@
 //!   - the grace countdown, which input pushes out to
 //!     `last_input + grace` but never stops.
 //!
+//! While on a call the idle threshold is suspended, but the
+//! silent-call cap (ADR-0010) prompts after `max_silent_call` with no
+//! input. The ongoing call does not dismiss that prompt: only a new
+//! media edge does (ADR-0009), and there is none mid-call.
+//!
 //! It is driven by a ~1 Hz [`Input::Tick`] carrying the last-input
 //! time rather than by `IdleWatcher`'s signals, because that watcher
 //! reports only the first input after an idle period and cannot be
@@ -102,6 +107,25 @@ pub enum AwayReason {
     WorkingAway,
 }
 
+/// Why the idle prompt opened (`INPUT_IDLE_5M.payload.trigger`,
+/// ADR-0010).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IdleTrigger {
+    /// No input for `idle_threshold` while `ACTIVE`.
+    InputIdle,
+    /// No input for `max_silent_call` while `ON_CALL`.
+    SilentCall,
+}
+
+impl IdleTrigger {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            IdleTrigger::InputIdle => "input_idle",
+            IdleTrigger::SilentCall => "silent_call",
+        }
+    }
+}
+
 /// Maximum `note` length (`user-prompt-response.schema.json`).
 pub const NOTE_MAX_CHARS: usize = 500;
 
@@ -120,6 +144,9 @@ pub struct CoreConfig {
     /// `idle.suppress_prompt_when_media_active`. When false, media
     /// state is ignored entirely and `ON_CALL` is never entered.
     pub suppress_prompt_when_media_active: bool,
+    /// `idle.max_silent_call_minutes` (ADR-0010): prompt anyway after
+    /// this long on a call with no input. `None` disables the cap.
+    pub max_silent_call: Option<Duration>,
     /// `idle.prompt_options`.
     pub prompt_options: Vec<PromptResponse>,
     /// Responses whose note is mandatory (`away.require_note`).
@@ -133,6 +160,7 @@ impl Default for CoreConfig {
             grace: Duration::from_secs(30),
             media_off_debounce: Duration::from_secs(5),
             suppress_prompt_when_media_active: true,
+            max_silent_call: Some(Duration::from_secs(30 * 60)),
             prompt_options: PromptResponse::ALL.to_vec(),
             note_required_for: vec![PromptResponse::WorkingAway],
         }
@@ -211,7 +239,9 @@ pub enum CoreEvent {
         note: Option<String>,
         prompt_shown_at: SystemTime,
     },
-    InputIdle5m,
+    InputIdle5m {
+        trigger: IdleTrigger,
+    },
     PromptTimeout30s,
     MediaDeviceState {
         in_use: bool,
@@ -227,7 +257,7 @@ impl CoreEvent {
             CoreEvent::UserEndBreak => "USER_END_BREAK",
             CoreEvent::UserMarkBack => "USER_MARK_BACK",
             CoreEvent::UserPromptResponse { .. } => "USER_PROMPT_RESPONSE",
-            CoreEvent::InputIdle5m => "INPUT_IDLE_5M",
+            CoreEvent::InputIdle5m { .. } => "INPUT_IDLE_5M",
             CoreEvent::PromptTimeout30s => "PROMPT_TIMEOUT_30S",
             CoreEvent::MediaDeviceState { .. } => "MEDIA_DEVICE_STATE",
         }
@@ -242,6 +272,7 @@ impl CoreEvent {
                 json!({ "response": response.as_str() })
             }
             CoreEvent::MediaDeviceState { in_use } => json!({ "in_use": in_use }),
+            CoreEvent::InputIdle5m { trigger } => json!({ "trigger": trigger.as_str() }),
             _ => json!({}),
         }
     }
@@ -287,6 +318,9 @@ pub struct Core {
     media_on: bool,
     /// Set while raw media is off but the debounce has not elapsed.
     media_off_since: Option<SystemTime>,
+    /// When `ON_CALL` was last entered. The silent-call cap is
+    /// measured from max(last input, this) (ADR-0010).
+    on_call_since: SystemTime,
 }
 
 impl Core {
@@ -297,6 +331,7 @@ impl Core {
             idle_armed_at: now,
             media_on: false,
             media_off_since: None,
+            on_call_since: now,
         }
     }
 
@@ -433,6 +468,10 @@ impl Core {
                 self.set_state(next, fx);
                 fx.push(Effect::ShowPrompt { deadline });
             }
+            CoreState::OnCall => {
+                self.on_call_since = now;
+                self.set_state(next, fx);
+            }
             _ => self.set_state(next, fx),
         }
         Ok(())
@@ -506,7 +545,21 @@ impl Core {
             CoreState::Active => {
                 let since = last_input_at.max(self.idle_armed_at);
                 if elapsed(since, now) >= self.cfg.idle_threshold {
-                    let _ = self.apply(CoreEvent::InputIdle5m, now, fx);
+                    let event = CoreEvent::InputIdle5m {
+                        trigger: IdleTrigger::InputIdle,
+                    };
+                    let _ = self.apply(event, now, fx);
+                }
+            }
+            CoreState::OnCall => {
+                if let Some(cap) = self.cfg.max_silent_call {
+                    let since = last_input_at.max(self.on_call_since);
+                    if elapsed(since, now) >= cap {
+                        let event = CoreEvent::InputIdle5m {
+                            trigger: IdleTrigger::SilentCall,
+                        };
+                        let _ = self.apply(event, now, fx);
+                    }
                 }
             }
             CoreState::IdlePending { shown_at, deadline } => {

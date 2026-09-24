@@ -15,6 +15,7 @@ schemas/
   user-clock-in.schema.json       — one payload per event_type
   user-prompt-response.schema.json
   media-device-state.schema.json  — { in_use } only (ADR-0009)
+  input-idle-5m.schema.json       — optional trigger (ADR-0010)
   … (more added as Phase 2 lands the desktop agent)
 fixtures/
   state-transitions.json          — payroll-state transition table run

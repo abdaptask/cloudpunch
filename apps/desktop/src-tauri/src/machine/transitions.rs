@@ -102,7 +102,18 @@ pub fn next_payroll_state(
         "USER_END_BREAK" => (current == OnBreak).then_some(Active),
         "USER_MARK_AWAY" => (current == Active).then_some(Away),
         "USER_MARK_BACK" => (current == Away).then_some(Active),
-        "INPUT_IDLE_5M" => (current == Active).then_some(IdlePending),
+        // ADR-0010: the trigger must match the state; absent means
+        // input_idle.
+        "INPUT_IDLE_5M" => {
+            let trigger = match field("trigger") {
+                None => "input_idle",
+                Some(t) => t.as_str()?,
+            };
+            match (trigger, current) {
+                ("input_idle", Active) | ("silent_call", OnCall) => Some(IdlePending),
+                _ => None,
+            }
+        }
         "PROMPT_TIMEOUT_30S" => (current == IdlePending).then_some(Closed),
 
         "USER_PROMPT_RESPONSE" => {

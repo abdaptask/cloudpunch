@@ -1,5 +1,5 @@
 {
-  "$comment": "Payroll-state transitions shared by the backend (state-machine.ts) and desktop core (core/state.rs). to=null means the transition is rejected. payload=null means no payload. See ADR-0003, ADR-0008, ADR-0009.",
+  "$comment": "Payroll-state transitions shared by the backend (state-machine.ts) and desktop core (core/state.rs). to=null means the transition is rejected. payload=null means no payload. See ADR-0003, ADR-0008, ADR-0009, ADR-0010.",
   "cases": [
     {
       "from": "ACTIVE",
@@ -53,6 +53,30 @@
     },
     {
       "from": "ACTIVE",
+      "event_type": "INPUT_IDLE_5M",
+      "payload": {
+        "trigger": "input_idle"
+      },
+      "to": "IDLE_PENDING"
+    },
+    {
+      "from": "ACTIVE",
+      "event_type": "INPUT_IDLE_5M",
+      "payload": {
+        "trigger": "silent_call"
+      },
+      "to": null
+    },
+    {
+      "from": "ACTIVE",
+      "event_type": "INPUT_IDLE_5M",
+      "payload": {
+        "trigger": "bored"
+      },
+      "to": null
+    },
+    {
+      "from": "ACTIVE",
       "event_type": "PROMPT_TIMEOUT_30S",
       "payload": {},
       "to": null
@@ -219,6 +243,30 @@
     },
     {
       "from": "ON_CALL",
+      "event_type": "INPUT_IDLE_5M",
+      "payload": {
+        "trigger": "input_idle"
+      },
+      "to": null
+    },
+    {
+      "from": "ON_CALL",
+      "event_type": "INPUT_IDLE_5M",
+      "payload": {
+        "trigger": "silent_call"
+      },
+      "to": "IDLE_PENDING"
+    },
+    {
+      "from": "ON_CALL",
+      "event_type": "INPUT_IDLE_5M",
+      "payload": {
+        "trigger": "bored"
+      },
+      "to": null
+    },
+    {
+      "from": "ON_CALL",
       "event_type": "PROMPT_TIMEOUT_30S",
       "payload": {},
       "to": null
@@ -381,6 +429,30 @@
       "from": "ON_BREAK",
       "event_type": "INPUT_IDLE_5M",
       "payload": {},
+      "to": null
+    },
+    {
+      "from": "ON_BREAK",
+      "event_type": "INPUT_IDLE_5M",
+      "payload": {
+        "trigger": "input_idle"
+      },
+      "to": null
+    },
+    {
+      "from": "ON_BREAK",
+      "event_type": "INPUT_IDLE_5M",
+      "payload": {
+        "trigger": "silent_call"
+      },
+      "to": null
+    },
+    {
+      "from": "ON_BREAK",
+      "event_type": "INPUT_IDLE_5M",
+      "payload": {
+        "trigger": "bored"
+      },
       "to": null
     },
     {
@@ -547,6 +619,30 @@
       "from": "AWAY",
       "event_type": "INPUT_IDLE_5M",
       "payload": {},
+      "to": null
+    },
+    {
+      "from": "AWAY",
+      "event_type": "INPUT_IDLE_5M",
+      "payload": {
+        "trigger": "input_idle"
+      },
+      "to": null
+    },
+    {
+      "from": "AWAY",
+      "event_type": "INPUT_IDLE_5M",
+      "payload": {
+        "trigger": "silent_call"
+      },
+      "to": null
+    },
+    {
+      "from": "AWAY",
+      "event_type": "INPUT_IDLE_5M",
+      "payload": {
+        "trigger": "bored"
+      },
       "to": null
     },
     {
@@ -717,6 +813,30 @@
     },
     {
       "from": "IDLE_PENDING",
+      "event_type": "INPUT_IDLE_5M",
+      "payload": {
+        "trigger": "input_idle"
+      },
+      "to": null
+    },
+    {
+      "from": "IDLE_PENDING",
+      "event_type": "INPUT_IDLE_5M",
+      "payload": {
+        "trigger": "silent_call"
+      },
+      "to": null
+    },
+    {
+      "from": "IDLE_PENDING",
+      "event_type": "INPUT_IDLE_5M",
+      "payload": {
+        "trigger": "bored"
+      },
+      "to": null
+    },
+    {
+      "from": "IDLE_PENDING",
       "event_type": "PROMPT_TIMEOUT_30S",
       "payload": {},
       "to": "CLOSED"
@@ -879,6 +999,30 @@
       "from": "CLOSED",
       "event_type": "INPUT_IDLE_5M",
       "payload": {},
+      "to": null
+    },
+    {
+      "from": "CLOSED",
+      "event_type": "INPUT_IDLE_5M",
+      "payload": {
+        "trigger": "input_idle"
+      },
+      "to": null
+    },
+    {
+      "from": "CLOSED",
+      "event_type": "INPUT_IDLE_5M",
+      "payload": {
+        "trigger": "silent_call"
+      },
+      "to": null
+    },
+    {
+      "from": "CLOSED",
+      "event_type": "INPUT_IDLE_5M",
+      "payload": {
+        "trigger": "bored"
+      },
       "to": null
     },
     {
