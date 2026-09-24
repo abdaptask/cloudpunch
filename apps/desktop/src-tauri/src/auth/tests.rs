@@ -241,3 +241,44 @@ fn denied_in_browser_reports_denied() {
     ));
     assert!(!auth.status().signed_in);
 }
+
+/// Browser the user closed: opens nothing, never redirects.
+fn closed_browser(_url: &str) -> Result<(), AuthError> {
+    Ok(())
+}
+
+#[test]
+fn signing_in_again_replaces_a_stuck_attempt() {
+    let server = MockServer::start();
+    server.mock(|when, then| {
+        when.method(POST).path("/token");
+        then.status(200)
+            .json_body(token_json("at", Some("rt"), OID, 3600));
+    });
+    let auth = std::sync::Arc::new(manager(&server));
+    let first = {
+        let auth = auth.clone();
+        thread::spawn(move || auth.sign_in(&closed_browser, Duration::from_secs(30)))
+    };
+    thread::sleep(Duration::from_millis(150));
+    let second = auth.sign_in(&fake_browser, Duration::from_secs(5)).unwrap();
+    assert!(second.signed_in);
+    assert!(matches!(first.join().unwrap(), Err(AuthError::Cancelled)));
+    assert!(auth.status().signed_in, "the newer attempt wins");
+}
+
+#[test]
+fn cancel_stops_a_waiting_sign_in() {
+    let server = MockServer::start();
+    let auth = std::sync::Arc::new(manager(&server));
+    let waiting = {
+        let auth = auth.clone();
+        thread::spawn(move || auth.sign_in(&closed_browser, Duration::from_secs(30)))
+    };
+    thread::sleep(Duration::from_millis(150));
+    auth.cancel_sign_in();
+    assert!(matches!(waiting.join().unwrap(), Err(AuthError::Cancelled)));
+    assert!(!auth.status().signed_in);
+    // Cancelling with nothing in progress is harmless.
+    auth.cancel_sign_in();
+}

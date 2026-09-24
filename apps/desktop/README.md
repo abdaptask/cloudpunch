@@ -37,6 +37,8 @@ src-tauri/            — Rust crate (Tauri backend, OS integration)
                         Keychain (ADR-0007 §5)
     auth/             — Entra sign-in: PKCE, loopback redirect, token
                         refresh, sign-out (ADR-0002 §5)
+    reminders.rs      — when to show on-the-clock / break / long-shift
+                        reminders (ADR-0013)
     commands.rs       — Tauri commands (clock in/out, breaks, prompt)
     machine/          — Pure time-state machine (no I/O); idle +
                         grace timers, media debounce (ADR-0003/8/9)

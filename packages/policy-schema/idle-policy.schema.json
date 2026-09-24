@@ -159,6 +159,16 @@
       },
       "additionalProperties": false
     },
+    "reminders": {
+      "type": "object",
+      "description": "Desktop on-the-clock reminders. ADR-0013.",
+      "properties": {
+        "on_clock_minutes": { "type": "integer", "minimum": 10, "maximum": 240, "default": 30 },
+        "long_shift_hours": { "type": "integer", "minimum": 4, "maximum": 16, "default": 9 },
+        "long_shift_repeat_hours": { "type": "integer", "minimum": 1, "maximum": 8, "default": 2 }
+      },
+      "additionalProperties": false
+    },
     "integrity": {
       "type": "object",
       "properties": {

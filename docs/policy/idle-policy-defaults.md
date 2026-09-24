@@ -215,6 +215,27 @@ the agent settings. If `false`, only administrators can change it.
 (auto-clock-out, session-frozen, correction rejected) are delivered.
 Reminder notifications are held until after the window.
 
+**Desktop reminders (ADR-0013):**
+
+**Setting:** `reminders.on_clock_minutes`
+**Default:** `30` · **Range:** 10 – 240
+**Effect:** While clocked in and the CloudPunch window is hidden, a
+notification every this many minutes ("You're on the clock — 2h 30m
+this session"). Not during a detected call, while the idle prompt is
+showing, or in quiet hours.
+
+**Setting:** `reminders.long_shift_hours` /
+`reminders.long_shift_repeat_hours`
+**Default:** `9` / `2` · **Range:** 4 – 16 / 1 – 8
+**Effect:** After this many hours in one session, CloudPunch brings its
+window forward: "You've been clocked in for 9 hours — still working?"
+(**Still working** asks again after the repeat interval; **Clock out**).
+Delivered even in quiet hours — it exists to catch forgotten overnight
+clock-ins.
+
+The break-cap nudges (§6, §7) use the same notifications and respect
+quiet hours.
+
 **Setting:** `notifications.rate_limit_per_hour`
 **Default:** `6`
 **Effect:** Maximum notifications any single user receives per hour,

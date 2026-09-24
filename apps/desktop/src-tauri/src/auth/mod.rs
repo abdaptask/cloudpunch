@@ -13,6 +13,7 @@ pub mod loopback;
 pub mod pkce;
 pub mod token;
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 
@@ -72,8 +73,9 @@ pub enum AuthError {
     BadToken(&'static str),
     #[error("random number generator failed: {0}")]
     Rng(String),
-    #[error("already signing in")]
-    Busy,
+    /// Replaced by a newer sign-in, or cancelled by the user.
+    #[error("sign-in cancelled")]
+    Cancelled,
     #[error("not signed in")]
     NotSignedIn,
     #[error(transparent)]
@@ -93,7 +95,7 @@ impl AuthError {
             AuthError::Rejected(_) => "rejected",
             AuthError::BadToken(_) => "bad_token",
             AuthError::Rng(_) => "rng",
-            AuthError::Busy => "busy",
+            AuthError::Cancelled => "cancelled",
             AuthError::NotSignedIn => "not_signed_in",
             AuthError::Keystore(_) => "keystore",
         }
@@ -135,7 +137,8 @@ pub struct AuthManager<S: SecretStore> {
     token_url: String,
     store: Arc<S>,
     session: Mutex<Option<Session>>,
-    signing_in: Mutex<bool>,
+    /// Cancel flag of the interactive sign-in in progress, if any.
+    attempt: Mutex<Option<Arc<AtomicBool>>>,
 }
 
 impl<S: SecretStore> AuthManager<S> {
@@ -151,7 +154,7 @@ impl<S: SecretStore> AuthManager<S> {
             token_url,
             store: Arc::new(store),
             session: Mutex::new(None),
-            signing_in: Mutex::new(false),
+            attempt: Mutex::new(None),
         }
     }
 
@@ -173,27 +176,42 @@ impl<S: SecretStore> AuthManager<S> {
 
     /// Interactive sign-in. `open_browser` is called with the authorize
     /// URL (the real app passes [`open_system_browser`]). Blocks until
-    /// the redirect arrives or `timeout` passes — call off the UI thread.
+    /// the redirect arrives, `timeout` passes, or the attempt is
+    /// cancelled — call off the UI thread.
+    ///
+    /// Starting a new sign-in cancels one already in progress (e.g. the
+    /// user closed that browser tab and clicked Sign in again); the old
+    /// call returns [`AuthError::Cancelled`].
     pub fn sign_in(
         &self,
         open_browser: &dyn Fn(&str) -> Result<(), AuthError>,
         timeout: Duration,
     ) -> Result<AuthStatus, AuthError> {
-        let _busy = self.begin()?;
+        let attempt = self.begin();
         let pkce = pkce::Pkce::generate()?;
         let state = pkce::random_token()?;
         let listener = loopback::Loopback::bind()?;
         let redirect = listener.redirect_uri();
         open_browser(&pkce::authorize_url(&self.cfg, &redirect, &pkce, &state))?;
-        let code = listener.wait_for_code(&state, timeout)?;
+        let code = listener.wait_for_code(&state, timeout, &attempt.cancel)?;
         let tokens =
             token::exchange_code(&self.cfg, &self.token_url, &code, &pkce.verifier, &redirect)?;
+        if attempt.cancel.load(Ordering::Acquire) {
+            return Err(AuthError::Cancelled);
+        }
         let id_token = tokens
             .id_token
             .as_deref()
             .ok_or(AuthError::BadToken("no id token"))?;
         let claims = token::id_claims(&self.cfg, id_token)?;
         self.adopt(claims.oid, claims.name, claims.preferred_username, tokens)
+    }
+
+    /// Stop the interactive sign-in in progress, if any.
+    pub fn cancel_sign_in(&self) {
+        if let Some(cancel) = self.attempt_lock().as_ref() {
+            cancel.store(true, Ordering::Release);
+        }
     }
 
     /// Silent sign-in at start-up from the stored refresh token.
@@ -297,13 +315,20 @@ impl<S: SecretStore> AuthManager<S> {
         Ok(self.status())
     }
 
-    fn begin(&self) -> Result<BusyGuard<'_>, AuthError> {
-        let mut busy = self.signing_in.lock().unwrap_or_else(|p| p.into_inner());
-        if *busy {
-            return Err(AuthError::Busy);
+    /// Register a new attempt, cancelling any earlier one.
+    fn begin(&self) -> Attempt<'_> {
+        let cancel = Arc::new(AtomicBool::new(false));
+        if let Some(old) = self.attempt_lock().replace(cancel.clone()) {
+            old.store(true, Ordering::Release);
         }
-        *busy = true;
-        Ok(BusyGuard(&self.signing_in))
+        Attempt {
+            slot: &self.attempt,
+            cancel,
+        }
+    }
+
+    fn attempt_lock(&self) -> std::sync::MutexGuard<'_, Option<Arc<AtomicBool>>> {
+        self.attempt.lock().unwrap_or_else(|p| p.into_inner())
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, Option<Session>> {
@@ -311,11 +336,19 @@ impl<S: SecretStore> AuthManager<S> {
     }
 }
 
-struct BusyGuard<'a>(&'a Mutex<bool>);
+/// One interactive sign-in; clears itself from the manager when done
+/// unless a newer attempt has already replaced it.
+struct Attempt<'a> {
+    slot: &'a Mutex<Option<Arc<AtomicBool>>>,
+    cancel: Arc<AtomicBool>,
+}
 
-impl Drop for BusyGuard<'_> {
+impl Drop for Attempt<'_> {
     fn drop(&mut self) {
-        *self.0.lock().unwrap_or_else(|p| p.into_inner()) = false;
+        let mut slot = self.slot.lock().unwrap_or_else(|p| p.into_inner());
+        if slot.as_ref().is_some_and(|c| Arc::ptr_eq(c, &self.cancel)) {
+            *slot = None;
+        }
     }
 }
 

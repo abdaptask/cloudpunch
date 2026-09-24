@@ -28,7 +28,12 @@ export interface StateView {
   sessionStartedAt: number | null;
   /** Tracked segments since the app started (display only). */
   timeline: Segment[];
+  /** Long-shift check showing (ADR-0013 §5). */
+  longShift: boolean;
 }
+
+/** The window's close button was pressed (ADR-0013 §1). */
+export const CLOSE_REQUESTED_EVENT = 'cp://close-requested';
 
 /** Emitted by the agent after every state change. */
 export const STATE_EVENT = 'cp://state';
@@ -60,9 +65,19 @@ export const api = {
   authStatus: (): Promise<AuthStatus> => invoke<AuthStatus>('auth_status'),
   /** Opens the system browser; resolves once sign-in completes. */
   signIn: (): Promise<AuthStatus> => invoke<AuthStatus>('sign_in'),
+  /** Stop a sign-in waiting on the browser. */
+  cancelSignIn: (): Promise<void> => invoke<void>('cancel_sign_in'),
   signOut: (): Promise<AuthStatus> => invoke<AuthStatus>('sign_out'),
   onAuth: (cb: (status: AuthStatus) => void): Promise<UnlistenFn> =>
     listen<AuthStatus>(AUTH_EVENT, (e) => cb(e.payload)),
   onState: (cb: (view: StateView) => void): Promise<UnlistenFn> =>
     listen<StateView>(STATE_EVENT, (e) => cb(e.payload)),
+  /** Close dialog answers (ADR-0013 §1). */
+  hideToTray: (): Promise<void> => invoke<void>('hide_to_tray'),
+  quitApp: (): Promise<void> => invoke<void>('quit_app'),
+  clockOutAndQuit: (): Promise<void> => invoke<void>('clock_out_and_quit'),
+  onCloseRequested: (cb: () => void): Promise<UnlistenFn> =>
+    listen<null>(CLOSE_REQUESTED_EVENT, () => cb()),
+  /** Long-shift banner: "Still working" (ADR-0013 §5). */
+  ackLongShift: (): Promise<StateView> => invoke<StateView>('ack_long_shift'),
 };

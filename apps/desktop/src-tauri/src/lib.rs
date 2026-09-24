@@ -36,6 +36,7 @@ pub mod event;
 pub mod keystore;
 pub mod machine;
 pub mod outbox;
+pub mod reminders;
 pub mod sync;
 pub mod timeline;
 pub mod tray;
@@ -233,12 +234,18 @@ pub fn run() {
 
     let setup_agent = agent.clone();
     tauri::Builder::default()
+        .plugin(tauri_plugin_notification::init())
         .manage(agent)
         .manage(auth)
         .invoke_handler(tauri::generate_handler![
             commands::get_state,
+            commands::hide_to_tray,
+            commands::quit_app,
+            commands::clock_out_and_quit,
+            commands::ack_long_shift,
             commands::auth_status,
             commands::sign_in,
+            commands::cancel_sign_in,
             commands::sign_out,
             commands::fit_window,
             commands::clock_in,
@@ -269,12 +276,13 @@ pub fn run() {
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 match window.label() {
-                    // Close-to-tray: the agent keeps running in the
-                    // background. Tray menu's "Quit" is the intended
-                    // exit.
+                    // Never close silently: the window asks "keep
+                    // running in tray / quit" (ADR-0013 §1). The
+                    // webview answers through hide_to_tray, quit_app,
+                    // or clock_out_and_quit.
                     "main" => {
-                        let _ = window.hide();
                         api.prevent_close();
+                        let _ = window.emit(tray::CLOSE_REQUESTED_EVENT, ());
                     }
                     // The prompt must be answered or time out
                     // (ADR-0008); the agent destroys it itself.

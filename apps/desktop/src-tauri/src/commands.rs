@@ -116,6 +116,12 @@ pub async fn sign_in(app: AppHandle, auth: State<'_, Arc<Auth>>) -> Result<AuthS
     Ok(status)
 }
 
+/// Stop a sign-in waiting on the browser (e.g. the tab was closed).
+#[tauri::command]
+pub fn cancel_sign_in(auth: State<'_, Arc<Auth>>) {
+    auth.cancel_sign_in();
+}
+
 /// Sign out: only while clocked out, so no session is left open.
 #[tauri::command]
 pub fn sign_out(
@@ -130,6 +136,44 @@ pub fn sign_out(
     let status = auth.status();
     let _ = app.emit(AUTH_EVENT, &status);
     Ok(status)
+}
+
+/// Close dialog: "Keep running in tray" (ADR-0013 §1).
+#[tauri::command]
+pub fn hide_to_tray(window: WebviewWindow, agent: State<'_, Arc<Agent>>) -> Result<(), String> {
+    if window.label() != "main" {
+        return Err("invalid_argument".to_string());
+    }
+    window.hide().map_err(|e| e.to_string())?;
+    agent.notice_hidden_to_tray();
+    Ok(())
+}
+
+/// Close dialog: "Quit" — only while clocked out; clocked in must use
+/// "Clock out & quit" so no session is left open.
+#[tauri::command]
+pub fn quit_app(app: AppHandle, agent: State<'_, Arc<Agent>>) -> Result<(), String> {
+    if agent.state() != CoreState::ClockedOut {
+        return Err("clock_out_first".to_string());
+    }
+    app.exit(0);
+    Ok(())
+}
+
+/// Close dialog: "Clock out & quit".
+#[tauri::command]
+pub fn clock_out_and_quit(app: AppHandle, agent: State<'_, Arc<Agent>>) -> Result<(), String> {
+    if agent.state() != CoreState::ClockedOut {
+        run(&agent, Input::ClockOut)?;
+    }
+    app.exit(0);
+    Ok(())
+}
+
+/// Long-shift banner: "Still working" (ADR-0013 §5).
+#[tauri::command]
+pub fn ack_long_shift(agent: State<'_, Arc<Agent>>) -> StateView {
+    agent.ack_long_shift()
 }
 
 #[tauri::command]

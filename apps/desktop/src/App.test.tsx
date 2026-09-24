@@ -16,8 +16,14 @@ const mocks = vi.hoisted(() => ({
   onState: vi.fn<(cb: (v: StateView) => void) => Promise<() => void>>(),
   authStatus: vi.fn<() => Promise<AuthStatus>>(),
   signIn: vi.fn<() => Promise<AuthStatus>>(),
+  cancelSignIn: vi.fn<() => Promise<void>>(),
   signOut: vi.fn<() => Promise<AuthStatus>>(),
   onAuth: vi.fn<(cb: (s: AuthStatus) => void) => Promise<() => void>>(),
+  hideToTray: vi.fn<() => Promise<void>>(),
+  quitApp: vi.fn<() => Promise<void>>(),
+  clockOutAndQuit: vi.fn<() => Promise<void>>(),
+  onCloseRequested: vi.fn<(cb: () => void) => Promise<() => void>>(),
+  ackLongShift: vi.fn<() => Promise<StateView>>(),
 }));
 
 const SIGNED_IN: AuthStatus = { signedIn: true, name: 'Test User', username: 'test@aptask.com' };
@@ -37,12 +43,14 @@ function view(over: Partial<StateView> = {}): StateView {
     autoClockedOutAt: null,
     sessionStartedAt: null,
     timeline: [],
+    longShift: false,
     ...over,
   };
 }
 
 let pushState: (v: StateView) => void = () => undefined;
 let pushAuth: (s: AuthStatus) => void = () => undefined;
+let pressClose: () => void = () => undefined;
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -55,6 +63,140 @@ beforeEach(() => {
   mocks.onAuth.mockImplementation((cb) => {
     pushAuth = cb;
     return Promise.resolve(() => undefined);
+  });
+  mocks.onCloseRequested.mockImplementation((cb) => {
+    pressClose = cb;
+    return Promise.resolve(() => undefined);
+  });
+  mocks.hideToTray.mockResolvedValue(undefined);
+  mocks.quitApp.mockResolvedValue(undefined);
+  mocks.clockOutAndQuit.mockResolvedValue(undefined);
+  window.localStorage.clear();
+});
+
+describe('closing the window (ADR-0013)', () => {
+  it('clocked in: asks, and Keep running hides to the tray', async () => {
+    mocks.getState.mockResolvedValue(view({ status: 'active' }));
+    const user = userEvent.setup();
+    render(<App />);
+    await screen.findByRole('button', { name: 'Clock out' });
+    act(() => pressClose());
+    const dialog = screen.getByRole('dialog', { name: 'close-dialog' });
+    expect(dialog).toHaveTextContent("You're still clocked in");
+    await user.click(within(dialog).getByRole('button', { name: 'Keep running in tray' }));
+    expect(mocks.hideToTray).toHaveBeenCalledOnce();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('clocked in: Clock out & quit clocks out through the agent', async () => {
+    mocks.getState.mockResolvedValue(view({ status: 'active' }));
+    const user = userEvent.setup();
+    render(<App />);
+    await screen.findByRole('button', { name: 'Clock out' });
+    act(() => pressClose());
+    await user.click(screen.getByRole('button', { name: 'Clock out & quit' }));
+    expect(mocks.clockOutAndQuit).toHaveBeenCalledOnce();
+    expect(mocks.quitApp).not.toHaveBeenCalled();
+  });
+
+  it('clocked out: offers a plain Quit', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await screen.findByRole('button', { name: 'Clock in' });
+    act(() => pressClose());
+    expect(screen.getByRole('dialog')).toHaveTextContent('Close CloudPunch?');
+    await user.click(screen.getByRole('button', { name: 'Quit' }));
+    expect(mocks.quitApp).toHaveBeenCalledOnce();
+  });
+
+  it("Don't ask again remembers keep-running only", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await screen.findByRole('button', { name: 'Clock in' });
+    act(() => pressClose());
+    await user.click(screen.getByRole('checkbox', { name: "Don't ask again" }));
+    await user.click(screen.getByRole('button', { name: 'Keep running in tray' }));
+    act(() => pressClose());
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(mocks.hideToTray).toHaveBeenCalledTimes(2);
+  });
+
+  it('Cancel just closes the dialog', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await screen.findByRole('button', { name: 'Clock in' });
+    act(() => pressClose());
+    await user.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(mocks.hideToTray).not.toHaveBeenCalled();
+  });
+});
+
+describe('long-shift check (ADR-0013)', () => {
+  it('shows the banner; Still working acknowledges it', async () => {
+    const started = Date.now() - 9 * 3_600_000 - 60_000;
+    mocks.getState.mockResolvedValue(
+      view({ status: 'active', sessionStartedAt: started, longShift: true }),
+    );
+    mocks.ackLongShift.mockResolvedValue(view({ status: 'active', sessionStartedAt: started }));
+    const user = userEvent.setup();
+    render(<App />);
+    const banner = await screen.findByRole('alertdialog', { name: 'long-shift' });
+    expect(banner).toHaveTextContent("You've been clocked in for 9 hours");
+    await user.click(within(banner).getByRole('button', { name: 'Still working' }));
+    expect(mocks.ackLongShift).toHaveBeenCalledOnce();
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+  });
+
+  it('Clock out from the banner clocks out', async () => {
+    const started = Date.now() - 10 * 3_600_000;
+    mocks.getState.mockResolvedValue(
+      view({ status: 'active', sessionStartedAt: started, longShift: true }),
+    );
+    mocks.clockOut.mockResolvedValue(view());
+    const user = userEvent.setup();
+    render(<App />);
+    const banner = await screen.findByRole('alertdialog', { name: 'long-shift' });
+    await user.click(within(banner).getByRole('button', { name: 'Clock out' }));
+    expect(mocks.clockOut).toHaveBeenCalledOnce();
+  });
+});
+
+describe('sign-in recovery when the browser tab was closed', () => {
+  it('Open the browser again restarts sign-in; the old attempt is ignored', async () => {
+    mocks.authStatus.mockResolvedValue(SIGNED_OUT);
+    let rejectFirst: (e: unknown) => void = () => undefined;
+    let finishSecond: (s: AuthStatus) => void = () => undefined;
+    mocks.signIn
+      .mockReturnValueOnce(new Promise((_, reject) => (rejectFirst = reject)))
+      .mockReturnValueOnce(new Promise((resolve) => (finishSecond = resolve)));
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole('button', { name: 'Sign in with Microsoft' }));
+    await user.click(screen.getByRole('button', { name: 'Open the browser again' }));
+    expect(mocks.signIn).toHaveBeenCalledTimes(2);
+
+    // The agent cancels the first attempt; that must not show an error
+    // or end the waiting state.
+    await act(async () => rejectFirst('cancelled'));
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Sign in with Microsoft' })).toBeDisabled();
+
+    await act(async () => finishSecond(SIGNED_IN));
+    expect(await screen.findByRole('button', { name: 'Clock in' })).toBeInTheDocument();
+  });
+
+  it('Cancel stops waiting and re-enables sign-in', async () => {
+    mocks.authStatus.mockResolvedValue(SIGNED_OUT);
+    mocks.signIn.mockReturnValue(new Promise(() => undefined));
+    mocks.cancelSignIn.mockResolvedValue(undefined);
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole('button', { name: 'Sign in with Microsoft' }));
+    await user.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(mocks.cancelSignIn).toHaveBeenCalledOnce();
+    expect(screen.getByRole('button', { name: 'Sign in with Microsoft' })).toBeEnabled();
+    expect(screen.queryByRole('button', { name: 'Cancel' })).not.toBeInTheDocument();
   });
 });
 

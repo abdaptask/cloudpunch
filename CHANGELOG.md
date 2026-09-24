@@ -7,6 +7,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fix: sign-in stuck after closing the browser tab (2026-09-24)
+
+- Found by the project owner: closing the browser mid-sign-in left the
+  app waiting up to 5 minutes, and signing in again failed with
+  "already in progress".
+- A new sign-in now **cancels** the one in progress and opens a fresh
+  browser tab (`AuthManager` keeps one cancel flag per attempt; the
+  loopback listener checks it while waiting). The replaced attempt ends
+  with `cancelled`, which the webview ignores.
+- While waiting, the sign-in screen offers **Open the browser again**
+  and **Cancel** (new `cancel_sign_in` command). The "busy" error is
+  gone.
+- Tests: 3 Rust (cancel stops the listener; a second sign-in replaces a
+  stuck one; Cancel stops a waiting one), 2 frontend.
+
+### Tray residency and on-the-clock reminders (ADR-0013) (2026-09-24)
+
+- **ADR-0013 (new, Accepted).**
+- **Closing the window asks:** clocked in → "You're still clocked in…"
+  **Keep running in tray** / **Clock out & quit**; clocked out → **Keep
+  running in tray** / **Quit**; "Don't ask again" remembers keep-running
+  only (per PC). The tray's **Quit** while clocked in opens the same
+  dialog, so the app never exits mid-session. First hide per run shows
+  "CloudPunch is still running".
+- **Reminders** (`reminders.rs`, pure, on the 1 Hz tick): every 30 min
+  while clocked in and hidden; not during calls, the idle prompt, or
+  quiet hours (22:00–07:00 local via `GetLocalTime`). Break-cap nudge
+  (bio 10 min, meal 60) once per break. **Long-shift check** after 9 h:
+  notification + window forward + "still working?" banner (again 2 h
+  after **Still working**), even in quiet hours.
+- **Live tray status:** coloured status disc drawn in code (green on the
+  clock, amber on a break, grey clocked out) and a tooltip ("CloudPunch
+  — Clocked in · 2h 30m") refreshed every minute.
+- Commands `hide_to_tray`, `quit_app` (refused while clocked in),
+  `clock_out_and_quit`, `ack_long_shift`; `cp://close-requested` event.
+- Policy: `reminders.on_clock_minutes` (30), `reminders.long_shift_hours`
+  (9), `reminders.long_shift_repeat_hours` (2) in the policy schema and
+  `idle-policy-defaults.md`. Compiled-in defaults until policy fetch.
+- **New dependency (approved):** `tauri-plugin-notification` 2.4
+  (notifications sent from Rust only). Lockfile gains 23 entries, mostly
+  Linux / macOS back-ends.
+- Found: Tauri 2.11 already requires Rust 1.77.2, so the workspace
+  `rust-version = "1.75"` is stale — added to doc fixes.
+- Tests: Rust 223 (8 scheduler, tray icon/tooltip, agent reminder and
+  long-shift tests), desktop 54 (7 new).
+
 ### 2b.4 F2 — Microsoft sign-in on the desktop (2026-09-24)
 
 - `apps/desktop/src-tauri/src/auth/` (new), per ADR-0002 §5:
