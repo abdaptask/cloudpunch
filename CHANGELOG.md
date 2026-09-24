@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 2b.4 F1 — device secrets in the OS secure store (2026-09-24)
+
+First slice of 2b.4 (sign-in, device keys, signed events). Not wired
+into the app yet: F2's sign-in supplies the Entra `oid`.
+
+- `apps/desktop/src-tauri/src/keystore.rs` (new): `Secrets` loads or
+  creates, per `oid`, the Ed25519 **device key** and the 32-byte
+  **outbox (SQLCipher) key** from the OS CSPRNG, stored base64url in
+  Windows Credential Manager / macOS Keychain under ADR-0007 §5 names
+  (`CloudPunch/device-key/<oid>`, `CloudPunch/sqlite-key/<oid>`).
+  `forget` deletes both (sign-out). The `oid` must be a UUID, so it
+  can't inject separators into the target name. A corrupt stored value
+  is reported, never silently replaced (that would orphan the outbox).
+- **New dependencies (approved):** `keyring` 3.6.3 (`windows-native`,
+  `apple-native`; 3.x keeps the Rust 1.75 MSRV, 4.x needs 1.88),
+  `getrandom` 0.3 and `base64` 0.22 (both already in the lockfile).
+  Lockfile gains keyring, `windows-sys` 0.60 + target shims, and
+  macOS-only `security-framework` / `core-foundation`.
+- Tests: 8 unit tests on an in-memory store, plus an opt-in round trip
+  against the real Credential Manager (passes; leaves nothing behind).
+
 ### Call type detection (ADR-0012) (2026-09-24)
 
 - **ADR-0012 (new, Accepted):** the agent classifies the app holding

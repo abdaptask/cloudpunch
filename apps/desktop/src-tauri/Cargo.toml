@@ -46,6 +46,15 @@ reqwest = { version = "0.12", default-features = false, features = [
 # ADR-0003. Feature-gated to keep the compile surface small — we add
 # features as later watcher slices need them (session/power/registry/
 # network land in 2b.5.2 – 2b.5.5).
+# OS secure store for the device key, outbox key, and (2b.4 F2) the
+# refresh token: Windows Credential Manager / macOS Keychain
+# (ADR-0007 §5). 3.x keeps our MSRV (4.x needs Rust 1.88).
+keyring = { version = "3.6.3", default-features = false, features = ["windows-native", "apple-native"] }
+# CSPRNG for key generation (already in the tree via uuid).
+getrandom = "0.3"
+# Key encoding in the secure store (ADR-0007 §5: base64url).
+base64 = "0.22"
+
 [target.'cfg(target_os = "windows")'.dependencies]
 windows = { version = "0.58", features = [
     "Win32_Foundation",
