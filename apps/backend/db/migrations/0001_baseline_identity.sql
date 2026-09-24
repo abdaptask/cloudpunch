@@ -144,9 +144,11 @@ CREATE TABLE employee_override (
 COMMENT ON TABLE  employee_override IS 'Time-boxed overrides of greythr-authoritative fields (ADR-0005 §5).';
 COMMENT ON COLUMN employee_override.field_name IS 'Never allowed on employee_number, hire_date, termination_date — must be fixed in greytHR itself.';
 
+-- Not a partial index: Postgres rejects `WHERE effective_until > now()`
+-- (index predicates must be IMMUTABLE). Queries filter on
+-- effective_until at run time; the trailing column serves that range.
 CREATE INDEX employee_override_active_idx
-  ON employee_override (employee_id, field_name)
-  WHERE effective_until > now();
+  ON employee_override (employee_id, field_name, effective_until);
 
 -- ---------------------------------------------------------------------
 -- Devices — Ed25519 enrolled per user (ADR-0004 §5)

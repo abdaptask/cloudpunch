@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fix: migration 0001 could not be applied (2026-09-24)
+
+- `apps/backend/db/migrations/0001_baseline_identity.sql`:
+  `employee_override_active_idx` used `WHERE effective_until > now()`;
+  Postgres rejects non-`IMMUTABLE` index predicates, so 0001 failed on
+  every real database and 0002 could never run. Now a plain index on
+  `(employee_id, field_name, effective_until)`; queries still filter
+  by `effective_until` at run time.
+- One-time exception to the forward-only rule, documented in the
+  migrations README: no database had 0001 recorded.
+- Found on the first apply to the internal dev VM (`cloudpunch-abd`,
+  Postgres 16.15), where 0001 and 0002 now apply cleanly.
+- Follow-up (CI item): run the Postgres integration tests in CI.
+
 ### Desktop UI — Timeline view + ADR-0011 §1 (2026-09-24)
 
 Redesigned home window, chosen by the project owner: status card
