@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Phase 2b.7.2b PR C — event sink + driver (2026-09-24)
+
+Connects the desktop state machine to a pluggable event destination.
+Still not wired into the app (PR D). No new dependencies.
+
+- `apps/desktop/src-tauri/src/machine/sink.rs` (new): `EventSink`
+  trait (`record(event, at) -> Result<(), SinkError>`), plus
+  `LogSink` (debug-build stderr; logs event type, time and
+  state-driving payload only, never the prompt note) and
+  `RecordingSink` (in-memory, shared buffer, optional always-fail
+  mode for tests).
+- `apps/desktop/src-tauri/src/machine/driver.rs` (new): `Driver`
+  wraps `Core` + sink. `handle` records each emitted event in order
+  and returns only UI effects, plus any sink error and the backlog
+  size. A refused event and everything after it stay in an ordered
+  backlog, retried before new events on the next `handle` or
+  `flush` — events are never dropped or reordered.
+- 10 new unit tests (sink ordering, note never logged, backlog replay
+  with original timestamps, rejected input records nothing).
+
+**Open for 2b.4:** the backlog is unbounded and in-memory. The real
+outbox sink should make `record` durable enough that failures are
+rare; what the user sees on a persistent failure is undecided.
+
+Refs: ADR-0003, ADR-0004 §7.
+
 ### Phase 2b.7.2b PR B — desktop state machine core (2026-09-24)
 
 Pure Rust state machine for the desktop agent. Not wired to the
