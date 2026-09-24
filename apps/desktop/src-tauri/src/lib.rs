@@ -29,6 +29,7 @@
 //!     Tauri updater signature verification.
 
 pub mod agent;
+pub mod auth;
 pub mod commands;
 pub mod call_type;
 pub mod event;
@@ -44,6 +45,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use agent::Agent;
+use tauri::Emitter;
 use machine::{CallType, CoreConfig, Input};
 use outbox::Outbox;
 use sync::{ReqwestBackendClient, SyncBootstrap, SyncConfig, SyncLoop};
@@ -223,6 +225,8 @@ pub fn run() {
     // thread), then watchers (which frees the is_online Arc it
     // shares with sync).
     let agent = Agent::new(CoreConfig::default());
+    let auth = Arc::new(commands::Auth::new(auth::EntraConfig::APTASK, keystore::OsStore));
+    let restore_auth = auth.clone();
     let watchers = start_watchers(agent.clone());
     let _sync = start_sync_loop_if_configured(watchers.is_online());
     let _ticker = agent.start_ticker();
@@ -230,8 +234,12 @@ pub fn run() {
     let setup_agent = agent.clone();
     tauri::Builder::default()
         .manage(agent)
+        .manage(auth)
         .invoke_handler(tauri::generate_handler![
             commands::get_state,
+            commands::auth_status,
+            commands::sign_in,
+            commands::sign_out,
             commands::fit_window,
             commands::clock_in,
             commands::clock_out,
@@ -245,6 +253,17 @@ pub fn run() {
             setup_agent.attach(agent::TauriUi::new(app.handle().clone()));
             let snapshot = agent::tray_snapshot(setup_agent.state(), None);
             tray::install(app.handle(), snapshot)?;
+            // Silent sign-in from the stored refresh token, off the
+            // UI thread; the webview hears the result on cp://auth.
+            let handle = app.handle().clone();
+            std::thread::Builder::new()
+                .name("cp-auth-restore".into())
+                .spawn(move || {
+                    if let Err(e) = restore_auth.restore() {
+                        eprintln!("[cloudpunch] silent sign-in failed: {}", e.code());
+                    }
+                    let _ = handle.emit(commands::AUTH_EVENT, restore_auth.status());
+                })?;
             Ok(())
         })
         .on_window_event(|window, event| {

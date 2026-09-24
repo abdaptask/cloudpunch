@@ -35,6 +35,8 @@ src-tauri/            — Rust crate (Tauri backend, OS integration)
     timeline.rs       — today's tracked segments for the home window
     keystore.rs       — device key + outbox key in Credential Manager /
                         Keychain (ADR-0007 §5)
+    auth/             — Entra sign-in: PKCE, loopback redirect, token
+                        refresh, sign-out (ADR-0002 §5)
     commands.rs       — Tauri commands (clock in/out, breaks, prompt)
     machine/          — Pure time-state machine (no I/O); idle +
                         grace timers, media debounce (ADR-0003/8/9)

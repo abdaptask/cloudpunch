@@ -6,7 +6,7 @@
  * These types are the stable internal shape. Field-level mapping to
  * greytHR's actual API payloads lives in
  * `docs/integrations/greythr-mapping-rfc.md` and is confirmed once
- * Greytip Software publishes the current API docs to apTask.
+ * Greytip Software publishes the current API docs to ApTask.
  */
 
 export type EmploymentStatus = 'active' | 'inactive' | 'terminated' | 'on_leave';

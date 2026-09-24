@@ -6,14 +6,14 @@
 - **Confidence:** High on the adapter shape, idempotency model, and
   reconciliation approach. **Low** on specific endpoint paths, payload
   shapes, and auth mode — those are unknown until Greytip Software
-  confirms API entitlement for apTask's greytHR plan.
+  confirms API entitlement for ApTask's greytHR plan.
 - **Related:** ADR-0005 (source-of-truth), ADR-0004 (event/idempotency
   model), and the pending mapping RFC at
   `docs/integrations/greythr-mapping-rfc.md`.
 
 ## Context
 
-greytHR (Greytip Software) is apTask's HR and payroll system of record.
+greytHR (Greytip Software) is ApTask's HR and payroll system of record.
 As of 2026-09-23:
 
 - **API access is not yet confirmed** — the project owner has an open

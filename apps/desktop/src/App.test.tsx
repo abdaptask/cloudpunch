@@ -1,7 +1,7 @@
 import { act, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { StateView } from './api.js';
+import type { AuthStatus, StateView } from './api.js';
 import { App } from './App.js';
 
 const mocks = vi.hoisted(() => ({
@@ -14,7 +14,14 @@ const mocks = vi.hoisted(() => ({
   markAway: vi.fn<(reason: 'meeting') => Promise<StateView>>(),
   respondToPrompt: vi.fn(),
   onState: vi.fn<(cb: (v: StateView) => void) => Promise<() => void>>(),
+  authStatus: vi.fn<() => Promise<AuthStatus>>(),
+  signIn: vi.fn<() => Promise<AuthStatus>>(),
+  signOut: vi.fn<() => Promise<AuthStatus>>(),
+  onAuth: vi.fn<(cb: (s: AuthStatus) => void) => Promise<() => void>>(),
 }));
+
+const SIGNED_IN: AuthStatus = { signedIn: true, name: 'Test User', username: 'test@aptask.com' };
+const SIGNED_OUT: AuthStatus = { signedIn: false, name: null, username: null };
 
 vi.mock('./api.js', () => ({ api: mocks, STATE_EVENT: 'cp://state' }));
 
@@ -35,6 +42,7 @@ function view(over: Partial<StateView> = {}): StateView {
 }
 
 let pushState: (v: StateView) => void = () => undefined;
+let pushAuth: (s: AuthStatus) => void = () => undefined;
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -42,6 +50,72 @@ beforeEach(() => {
   mocks.onState.mockImplementation((cb) => {
     pushState = cb;
     return Promise.resolve(() => undefined);
+  });
+  mocks.authStatus.mockResolvedValue(SIGNED_IN);
+  mocks.onAuth.mockImplementation((cb) => {
+    pushAuth = cb;
+    return Promise.resolve(() => undefined);
+  });
+});
+
+describe('sign-in (2b.4 F2)', () => {
+  it('signed out shows only the sign-in screen', async () => {
+    mocks.authStatus.mockResolvedValue(SIGNED_OUT);
+    render(<App />);
+    expect(
+      await screen.findByRole('button', { name: 'Sign in with Microsoft' }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Clock in' })).not.toBeInTheDocument();
+  });
+
+  it('sign in shows a waiting hint, then the home screen', async () => {
+    mocks.authStatus.mockResolvedValue(SIGNED_OUT);
+    let finish: (s: AuthStatus) => void = () => undefined;
+    mocks.signIn.mockReturnValue(new Promise((r) => (finish = r)));
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole('button', { name: 'Sign in with Microsoft' }));
+    expect(screen.getByRole('button', { name: 'Sign in with Microsoft' })).toBeDisabled();
+    expect(screen.getByRole('status', { name: '' })).toHaveTextContent(
+      'A browser window has opened',
+    );
+    await act(async () => finish(SIGNED_IN));
+    expect(await screen.findByRole('button', { name: 'Clock in' })).toBeInTheDocument();
+    expect(screen.getByText(/Test User/)).toBeInTheDocument();
+  });
+
+  it('a failed sign-in explains why', async () => {
+    mocks.authStatus.mockResolvedValue(SIGNED_OUT);
+    mocks.signIn.mockRejectedValue('timed_out');
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole('button', { name: 'Sign in with Microsoft' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Sign-in timed out');
+  });
+
+  it('the silent start-up sign-in arrives on cp://auth', async () => {
+    mocks.authStatus.mockResolvedValue(SIGNED_OUT);
+    render(<App />);
+    await screen.findByRole('button', { name: 'Sign in with Microsoft' });
+    act(() => pushAuth(SIGNED_IN));
+    expect(await screen.findByRole('button', { name: 'Clock in' })).toBeInTheDocument();
+  });
+
+  it('sign out is offered only while clocked out', async () => {
+    mocks.signOut.mockResolvedValue(SIGNED_OUT);
+    const user = userEvent.setup();
+    const { unmount } = render(<App />);
+    await user.click(await screen.findByRole('button', { name: 'Sign out' }));
+    expect(mocks.signOut).toHaveBeenCalledOnce();
+    expect(
+      await screen.findByRole('button', { name: 'Sign in with Microsoft' }),
+    ).toBeInTheDocument();
+    unmount();
+
+    mocks.getState.mockResolvedValue(view({ status: 'active' }));
+    render(<App />);
+    await screen.findByRole('button', { name: 'Clock out' });
+    expect(screen.queryByRole('button', { name: 'Sign out' })).not.toBeInTheDocument();
   });
 });
 

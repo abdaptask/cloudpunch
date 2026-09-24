@@ -18,6 +18,7 @@ use tauri::tray::TrayIconBuilder;
 use tauri::{AppHandle, Manager, Runtime};
 
 use crate::agent::Agent;
+use crate::commands::Auth;
 use crate::machine::{AwayReason, BreakKind, CallType, Input};
 
 const TRAY_ID: &str = "cp-tray";
@@ -143,6 +144,18 @@ pub fn install<R: Runtime>(app: &AppHandle<R>, state: TrayStateSnapshot) -> taur
             }
             "quit" => {
                 app.exit(0);
+            }
+            // Clocking in needs a signed-in user; send them to the
+            // window's sign-in screen instead (2b.4 F2).
+            "clock_in"
+                if app
+                    .try_state::<Arc<Auth>>()
+                    .is_some_and(|a| a.oid().is_none()) =>
+            {
+                if let Some(w) = app.get_webview_window("main") {
+                    let _ = w.show();
+                    let _ = w.set_focus();
+                }
             }
             id => match (input_for(id), app.try_state::<Arc<Agent>>()) {
                 (Some(input), Some(agent)) => {

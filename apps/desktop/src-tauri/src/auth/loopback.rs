@@ -1,0 +1,188 @@
+//! Loopback redirect listener (ADR-0002 §5 steps 2, 5, 6).
+//!
+//! Binds an ephemeral port on 127.0.0.1 (and the same port on ::1 when
+//! available, since browsers may resolve `localhost` to either), waits
+//! for the browser's `GET /?code=…&state=…`, answers with a short
+//! "you can close this window" page, and returns the code once `state`
+//! matches. Other requests (e.g. `/favicon.ico`) get a 404 and are
+//! ignored.
+
+use std::io::{BufRead, BufReader, Write};
+use std::net::{Ipv4Addr, Ipv6Addr, TcpListener, TcpStream};
+use std::thread;
+use std::time::{Duration, Instant};
+
+use url::Url;
+
+use super::AuthError;
+
+pub struct Loopback {
+    v4: TcpListener,
+    v6: Option<TcpListener>,
+    port: u16,
+}
+
+impl Loopback {
+    pub fn bind() -> Result<Self, AuthError> {
+        let v4 = TcpListener::bind((Ipv4Addr::LOCALHOST, 0))
+            .map_err(|e| AuthError::Loopback(e.to_string()))?;
+        let port = v4
+            .local_addr()
+            .map_err(|e| AuthError::Loopback(e.to_string()))?
+            .port();
+        let v6 = TcpListener::bind((Ipv6Addr::LOCALHOST, port)).ok();
+        v4.set_nonblocking(true)
+            .map_err(|e| AuthError::Loopback(e.to_string()))?;
+        if let Some(l) = &v6 {
+            let _ = l.set_nonblocking(true);
+        }
+        Ok(Self { v4, v6, port })
+    }
+
+    /// `http://localhost:<port>` — Entra accepts any port for the
+    /// registered `http://localhost` public-client redirect.
+    pub fn redirect_uri(&self) -> String {
+        format!("http://localhost:{}", self.port)
+    }
+
+    /// Wait up to `timeout` for the redirect carrying `expected_state`.
+    pub fn wait_for_code(
+        &self,
+        expected_state: &str,
+        timeout: Duration,
+    ) -> Result<String, AuthError> {
+        let deadline = Instant::now() + timeout;
+        while Instant::now() < deadline {
+            let stream = self
+                .v4
+                .accept()
+                .ok()
+                .or_else(|| self.v6.as_ref().and_then(|l| l.accept().ok()));
+            let Some((stream, _)) = stream else {
+                thread::sleep(Duration::from_millis(50));
+                continue;
+            };
+            if let Some(result) = handle(stream, expected_state) {
+                return result;
+            }
+        }
+        Err(AuthError::TimedOut)
+    }
+}
+
+/// `None` for requests that aren't the redirect (keep waiting).
+fn handle(mut stream: TcpStream, expected_state: &str) -> Option<Result<String, AuthError>> {
+    let _ = stream.set_nonblocking(false);
+    let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
+    let mut line = String::new();
+    BufReader::new(&stream).read_line(&mut line).ok()?;
+    let target = line.split_whitespace().nth(1)?;
+    if !target.starts_with("/?") && target != "/" {
+        let _ = respond(&mut stream, "404 Not Found", "");
+        return None;
+    }
+    let result = parse_callback(target, expected_state);
+    let body = match &result {
+        Ok(_) => "Signed in to CloudPunch. You can close this window.",
+        Err(AuthError::Denied(_)) => "Sign-in was cancelled or denied. You can close this window.",
+        Err(_) => "Sign-in failed. Return to CloudPunch and try again.",
+    };
+    let _ = respond(&mut stream, "200 OK", body);
+    Some(result)
+}
+
+fn respond(stream: &mut TcpStream, status: &str, text: &str) -> std::io::Result<()> {
+    let body = format!(
+        "<!doctype html><meta charset=utf-8><title>CloudPunch</title>\
+         <p style=\"font-family:sans-serif;margin:3em\">{text}</p>"
+    );
+    write!(
+        stream,
+        "HTTP/1.1 {status}\r\nContent-Type: text/html; charset=utf-8\r\n\
+         Content-Length: {}\r\nConnection: close\r\nCache-Control: no-store\r\n\r\n{body}",
+        body.len()
+    )
+}
+
+/// Pure: extract the code from the redirect target (`/?code=…&state=…`).
+pub fn parse_callback(target: &str, expected_state: &str) -> Result<String, AuthError> {
+    let url = Url::parse(&format!("http://localhost{target}"))
+        .map_err(|_| AuthError::BadCallback("unparseable redirect".into()))?;
+    let get = |k: &str| {
+        url.query_pairs()
+            .find(|(key, _)| key == k)
+            .map(|(_, v)| v.into_owned())
+    };
+    if let Some(error) = get("error") {
+        return Err(AuthError::Denied(error));
+    }
+    if get("state").as_deref() != Some(expected_state) {
+        return Err(AuthError::BadCallback("state mismatch".into()));
+    }
+    get("code")
+        .filter(|c| !c.is_empty())
+        .ok_or_else(|| AuthError::BadCallback("no code".into()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Read;
+
+    #[test]
+    fn parses_code_when_state_matches() {
+        assert_eq!(parse_callback("/?code=abc&state=s1", "s1").unwrap(), "abc");
+    }
+
+    #[test]
+    fn rejects_state_mismatch_missing_code_and_errors() {
+        assert!(matches!(
+            parse_callback("/?code=abc&state=other", "s1"),
+            Err(AuthError::BadCallback(_))
+        ));
+        assert!(matches!(
+            parse_callback("/?state=s1", "s1"),
+            Err(AuthError::BadCallback(_))
+        ));
+        assert!(matches!(
+            parse_callback("/?error=access_denied&state=s1", "s1"),
+            Err(AuthError::Denied(e)) if e == "access_denied"
+        ));
+    }
+
+    #[test]
+    fn loopback_returns_code_and_answers_the_browser() {
+        let lb = Loopback::bind().unwrap();
+        assert!(lb.redirect_uri().starts_with("http://localhost:"));
+        let port = lb.port;
+        let browser = thread::spawn(move || {
+            // A stray favicon request first, then the real redirect.
+            let mut fav = TcpStream::connect((Ipv4Addr::LOCALHOST, port)).unwrap();
+            fav.write_all(b"GET /favicon.ico HTTP/1.1\r\n\r\n").unwrap();
+            let mut s = String::new();
+            let _ = fav.read_to_string(&mut s);
+            assert!(s.starts_with("HTTP/1.1 404"));
+
+            let mut c = TcpStream::connect((Ipv4Addr::LOCALHOST, port)).unwrap();
+            c.write_all(b"GET /?code=the-code&state=st HTTP/1.1\r\nHost: localhost\r\n\r\n")
+                .unwrap();
+            let mut page = String::new();
+            c.read_to_string(&mut page).unwrap();
+            page
+        });
+        let code = lb.wait_for_code("st", Duration::from_secs(5)).unwrap();
+        assert_eq!(code, "the-code");
+        let page = browser.join().unwrap();
+        assert!(page.starts_with("HTTP/1.1 200 OK"));
+        assert!(page.contains("You can close this window"));
+    }
+
+    #[test]
+    fn loopback_times_out() {
+        let lb = Loopback::bind().unwrap();
+        assert!(matches!(
+            lb.wait_for_code("st", Duration::from_millis(150)),
+            Err(AuthError::TimedOut)
+        ));
+    }
+}

@@ -5,13 +5,28 @@
 //!
 //! Commands are synchronous, and none of them can open a window: the
 //! prompt window is only created from the tick thread (see `agent`).
+//! The exception is `sign_in`, which is async and runs the browser
+//! round trip on a blocking worker, off the UI thread.
 
 use std::sync::Arc;
+use std::time::Duration;
 
-use tauri::{LogicalSize, State, WebviewWindow};
+use tauri::{AppHandle, Emitter, LogicalSize, Manager, State, WebviewWindow};
 
 use crate::agent::{parse_away_tag, parse_break_kind, rejection_code, Agent, StateView};
-use crate::machine::{Input, PromptResponse};
+use crate::auth::{open_system_browser, AuthManager, AuthStatus};
+use crate::keystore::OsStore;
+use crate::machine::{CoreState, Input, PromptResponse};
+
+/// The app's sign-in manager (ADR-0002 §5).
+pub type Auth = AuthManager<OsStore>;
+
+/// Event carrying an [`AuthStatus`] after sign-in, sign-out, or the
+/// silent start-up restore.
+pub const AUTH_EVENT: &str = "cp://auth";
+
+/// How long the browser round trip may take.
+const SIGN_IN_TIMEOUT: Duration = Duration::from_secs(300);
 
 type CommandResult = Result<StateView, String>;
 
@@ -68,9 +83,53 @@ pub fn get_state(agent: State<'_, Arc<Agent>>) -> StateView {
     agent.view()
 }
 
+/// Clocking in needs a signed-in user: every event is attributed to
+/// one (2b.4).
 #[tauri::command]
-pub fn clock_in(agent: State<'_, Arc<Agent>>) -> CommandResult {
+pub fn clock_in(agent: State<'_, Arc<Agent>>, auth: State<'_, Arc<Auth>>) -> CommandResult {
+    if auth.oid().is_none() {
+        return Err("not_signed_in".to_string());
+    }
     run(&agent, Input::ClockIn)
+}
+
+#[tauri::command]
+pub fn auth_status(auth: State<'_, Arc<Auth>>) -> AuthStatus {
+    auth.status()
+}
+
+/// Interactive sign-in through the system browser.
+#[tauri::command]
+pub async fn sign_in(app: AppHandle, auth: State<'_, Arc<Auth>>) -> Result<AuthStatus, String> {
+    let auth = auth.inner().clone();
+    let status = tauri::async_runtime::spawn_blocking(move || {
+        auth.sign_in(&open_system_browser, SIGN_IN_TIMEOUT)
+    })
+    .await
+    .map_err(|_| "internal".to_string())?
+    .map_err(|e| e.code().to_string())?;
+    let _ = app.emit(AUTH_EVENT, &status);
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.show();
+        let _ = w.set_focus();
+    }
+    Ok(status)
+}
+
+/// Sign out: only while clocked out, so no session is left open.
+#[tauri::command]
+pub fn sign_out(
+    app: AppHandle,
+    agent: State<'_, Arc<Agent>>,
+    auth: State<'_, Arc<Auth>>,
+) -> Result<AuthStatus, String> {
+    if agent.state() != CoreState::ClockedOut {
+        return Err("clock_out_first".to_string());
+    }
+    auth.sign_out().map_err(|e| e.code().to_string())?;
+    let status = auth.status();
+    let _ = app.emit(AUTH_EVENT, &status);
+    Ok(status)
 }
 
 #[tauri::command]

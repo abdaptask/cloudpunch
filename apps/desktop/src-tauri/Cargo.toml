@@ -2,7 +2,7 @@
 name = "cloudpunch-desktop"
 version = "0.0.0"
 description = "CloudPunch employee time and attendance desktop agent"
-authors = ["apTask"]
+authors = ["ApTask"]
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
@@ -54,6 +54,11 @@ keyring = { version = "3.6.3", default-features = false, features = ["windows-na
 getrandom = "0.3"
 # Key encoding in the secure store (ADR-0007 §5: base64url).
 base64 = "0.22"
+# Sign-in (ADR-0002 §5, 2b.4 F2): PKCE S256 challenge, login URL /
+# callback parsing, and opening the system browser.
+sha2 = "0.10"
+url = "2"
+open = "5.4"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 windows = { version = "0.58", features = [

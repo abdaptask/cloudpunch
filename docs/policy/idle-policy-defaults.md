@@ -69,7 +69,7 @@ the moment the timeout fired.
 
 **Do not set to `true` without a documented policy reason and
 legal review.** Paying for time an employee did not confirm they
-were working exposes apTask to wage-and-hour risk and defeats the
+were working exposes ApTask to wage-and-hour risk and defeats the
 integrity of the timesheet.
 
 ## 4. Mic / camera in-use detection

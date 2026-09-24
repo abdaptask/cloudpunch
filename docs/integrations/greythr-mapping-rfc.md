@@ -5,16 +5,16 @@
 - **Owner:** Abdulla Sheikh (`abdulla@aptask.com`).
 - **Related:** ADR-0005 (source of truth), ADR-0006 (integration
   strategy).
-- **Distribution:** intended for the apTask project owner, apTask
+- **Distribution:** intended for the ApTask project owner, ApTask
   security review, and greytHR (Greytip Software) customer success /
   API team.
 
 ## 1. Purpose
 
 This RFC proposes the exact field-level mapping between CloudPunch
-(the employee time-and-attendance system apTask is building) and
-greytHR (apTask's HR and payroll system of record). It is written to
-be reviewable by both apTask stakeholders and by greytHR support.
+(the employee time-and-attendance system ApTask is building) and
+greytHR (ApTask's HR and payroll system of record). It is written to
+be reviewable by both ApTask stakeholders and by greytHR support.
 
 CloudPunch will not be built against unofficial or reverse-engineered
 endpoints. This document names the endpoints and fields we require
@@ -23,8 +23,8 @@ and asks greytHR to confirm which are available on our subscription.
 Nothing in this RFC commits either side to any specific integration
 timeline. Implementation follows only after:
 
-1. Greytip Software confirms API access on apTask's greytHR plan.
-2. Official current API documentation is provided to apTask.
+1. Greytip Software confirms API access on ApTask's greytHR plan.
+2. Official current API documentation is provided to ApTask.
 3. This mapping is signed off by the project owner.
 
 ## 2. Information requested from greytHR
@@ -34,7 +34,7 @@ of the following:
 
 **A. Access and authentication**
 1. Product edition (greytHR SaaS / Enterprise / on-prem) and tenant
-   subdomain in use for apTask.
+   subdomain in use for ApTask.
 2. Whether API access is enabled on our current subscription (yes /
    no / add-on required).
 3. Authentication model — OAuth 2.0 client credentials, API key,
@@ -232,7 +232,7 @@ prefers). Filename convention:
   `holidays.csv`, `leave.csv`, `shifts.csv`) with a `manifest.json`
   including `generated_at` and `row_count`.
 
-Bulk-import into greytHR is done by an apTask admin using greytHR's
+Bulk-import into greytHR is done by an ApTask admin using greytHR's
 existing UI. CloudPunch marks the batch as `EXPORTED` in the
 reconciliation dashboard once the admin confirms upload success.
 
@@ -249,10 +249,10 @@ reconciliation dashboard once the admin confirms upload success.
 
 ## 10. Open questions for the project owner
 
-Independent of greytHR's answers, apTask needs to decide:
+Independent of greytHR's answers, ApTask needs to decide:
 
 1. Whether outbound export sends per-day punches or only daily totals
-   (depends on greytHR's supported endpoints, but apTask should have
+   (depends on greytHR's supported endpoints, but ApTask should have
    a preference).
 2. Whether we mirror greytHR's leave records for display in the
    CloudPunch employee view (recommendation: yes; it prevents
@@ -261,15 +261,15 @@ Independent of greytHR's answers, apTask needs to decide:
    (recommendation: yes — MVP does not require it).
 4. Retention of exported files (CSV fallback) — default 3 years,
    matches `time_event`.
-5. Which apTask team member is the day-to-day integration owner post-
+5. Which ApTask team member is the day-to-day integration owner post-
    launch.
 
 ## 11. Sign-off
 
 | Party | Name | Role | Date |
 |---|---|---|---|
-| apTask project owner | Abdulla Sheikh | Approver | _(pending)_ |
-| apTask security | TBD | Reviewer | _(pending)_ |
+| ApTask project owner | Abdulla Sheikh | Approver | _(pending)_ |
+| ApTask security | TBD | Reviewer | _(pending)_ |
 | greytHR customer success | TBD | Provider | _(pending)_ |
 | greytHR API/product | TBD | Reviewer | _(pending)_ |
 

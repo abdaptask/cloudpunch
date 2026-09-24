@@ -27,7 +27,7 @@
   "bundle": {
     "active": false,
     "targets": "all",
-    "publisher": "apTask",
+    "publisher": "ApTask",
     "category": "Productivity",
     "shortDescription": "Employee time and attendance for remote workers.",
     "longDescription": "CloudPunch records clock in/out, breaks, and idle time without capturing keystrokes, screen content, or other private data. See docs/policy/employee-privacy-notice.md."

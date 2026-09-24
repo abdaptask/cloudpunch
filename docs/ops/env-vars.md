@@ -49,7 +49,7 @@ mean per-environment scoping — e.g., `cloudpunch/config/prod/entra/...`.
 
 | Path | Type | Example | Description |
 |---|---|---|---|
-| `cloudpunch/config/<env>/entra/tenant-id` | String | `12345678-…` GUID | apTask Entra tenant ID. |
+| `cloudpunch/config/<env>/entra/tenant-id` | String | `12345678-…` GUID | ApTask Entra tenant ID. |
 | `cloudpunch/config/<env>/entra/tenant-domain` | String | `aptask.com` | Verified domain. |
 | `cloudpunch/config/<env>/entra/api-client-id` | String | GUID | `CloudPunch API` app client ID. |
 | `cloudpunch/config/<env>/entra/api-application-id-uri` | String | `api://<GUID>` | Resource URI. |
@@ -59,6 +59,22 @@ mean per-environment scoping — e.g., `cloudpunch/config/prod/entra/...`.
 | `cloudpunch/config/<env>/entra/jwks-uri` | String | `https://login.microsoftonline.com/<tenantId>/discovery/v2.0/keys` | JWKS endpoint. |
 | `cloudpunch/config/<env>/entra/scope` | String | `api://<GUID>/api.access` | Required delegated scope. |
 
+#### Registered values (`aptask.com` tenant, created 2026-09-24)
+
+Non-secret identifiers (ADR-0002 step F). The desktop agent compiles
+these in (`auth::EntraConfig::APTASK`) until policy / config fetch
+exists.
+
+| Setting | Value |
+|---|---|
+| Tenant ID | `a6300e5c-dae4-413c-a6d2-646fbc2aa587` |
+| `CloudPunch API` client ID | `63bca00e-a546-4f0c-a076-e2450e52406e` |
+| API Application ID URI | `api://63bca00e-a546-4f0c-a076-e2450e52406e` |
+| Required scope | `api://63bca00e-a546-4f0c-a076-e2450e52406e/api.access` |
+| `CloudPunch Desktop` client ID | `13646e0e-abc6-4779-b8fb-fc10bdfdf4b9` |
+| `CloudPunch Web` client ID | not created yet (ADR-0002 step C deferred) |
+| Authority | `https://login.microsoftonline.com/a6300e5c-dae4-413c-a6d2-646fbc2aa587/v2.0` |
+
 ### 2.2 greytHR configuration
 
 | Path | Type | Example | Description |
@@ -66,7 +82,7 @@ mean per-environment scoping — e.g., `cloudpunch/config/prod/entra/...`.
 | `cloudpunch/config/<env>/greythr/enabled` | String | `false` (default) | Global feature flag. |
 | `cloudpunch/config/<env>/greythr/mode` | String | `off` \| `dry_run` \| `active` \| `csv_only` | Operational mode. |
 | `cloudpunch/config/<env>/greythr/base-url` | String | `https://api.greythr.com/…` | To be confirmed. |
-| `cloudpunch/config/<env>/greythr/tenant-code` | String | apTask's tenant identifier at greytHR | |
+| `cloudpunch/config/<env>/greythr/tenant-code` | String | ApTask's tenant identifier at greytHR | |
 | `cloudpunch/config/<env>/greythr/auth-mode` | String | `oauth_cc` \| `api_key` \| `csv` | |
 | `cloudpunch/config/<env>/greythr/rate-limit-rps` | String | `1` | Requests per second per endpoint. |
 | `cloudpunch/config/<env>/greythr/webhook-enabled` | String | `false` | |

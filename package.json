@@ -2,7 +2,7 @@
   "name": "cloudpunch",
   "version": "0.0.0",
   "private": true,
-  "description": "Employee time and attendance platform for apTask remote workers.",
+  "description": "Employee time and attendance platform for ApTask remote workers.",
   "packageManager": "pnpm@9.15.0",
   "engines": {
     "node": ">=20.11.1"

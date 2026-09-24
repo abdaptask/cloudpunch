@@ -7,6 +7,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### 2b.4 F2 — Microsoft sign-in on the desktop (2026-09-24)
+
+- `apps/desktop/src-tauri/src/auth/` (new), per ADR-0002 §5:
+  - `pkce.rs` — S256 verifier/challenge (RFC 7636 vector tested),
+    random `state`, authorize URL (`prompt=select_account`).
+  - `loopback.rs` — ephemeral `127.0.0.1` (+ `::1`) listener for the
+    `http://localhost:<port>` redirect; checks `state`, answers "you can
+    close this window", ignores stray requests, 5-minute timeout.
+  - `token.rs` — code exchange and refresh via the existing `reqwest`;
+    errors surface only the OAuth error code; tokens are never logged
+    (`Debug` redacts). The ID token is decoded to read `oid` / name and
+    checked for tenant and audience; its signature is **not** verified
+    on the device — the backend validates every access token.
+  - `AuthManager` — interactive sign-in through the **system browser**;
+    silent restore at start-up from the stored refresh token (rotated
+    when Entra returns a new one; cleared if rejected); access token in
+    memory only, refreshed within 5 minutes of expiry; sign-out deletes
+    the refresh token, the current-user pointer, and the F1 device and
+    outbox keys (ADR-0007 §5).
+- `keystore.rs`: refresh-token slot `CloudPunch/msal/<tenant>/<client>/<oid>`
+  and a current-user pointer; `Arc<store>` is a store.
+- **Fix found in the owner's first real sign-in:** Windows Credential
+  Manager holds at most 2560 bytes per entry (1280 UTF-16 characters),
+  and Entra refresh tokens are longer, so saving it failed
+  (`keystore`). Long values are now split across `<target>/part<i>`
+  entries behind a `cloudpunch-chunked:v1:<n>` header (`Chunked`);
+  short values are stored as before. A missing part is an error, never a
+  silently truncated token. Verified with a 3000-character value against
+  the real Credential Manager.
+- **Sign-in screen:** official-style "Sign in with Microsoft" button
+  (four-square logo, Segoe UI Semibold 15px, 41px, light / dark per
+  Microsoft's branding guidance) on a "Welcome to CloudPunch" card.
+- **Name:** "apTask" corrected to **ApTask** across the app (publisher,
+  sign-in text), docs, `LICENSE`, and `package.json`.
+- Commands `auth_status`, `sign_in` (async, off the UI thread),
+  `sign_out` (refused while clocked in: `clock_out_first`); `clock_in`
+  refused while signed out (`not_signed_in`); tray "Clock in" opens
+  the window when signed out. `cp://auth` carries status changes.
+- Home window: sign-in screen until signed in; name and **Sign out**
+  (while clocked out) in the header.
+- `docs/ops/env-vars.md`: registered tenant / client IDs (ADR-0002
+  step F).
+- **New dependencies (approved):** `sha2` 0.10 and `url` 2 (both
+  already in the lockfile), `open` 5.4 (+ tiny `is-docker`, `is-wsl`).
+- Tests: 18 Rust auth tests (full sign-in against a fake browser and a
+  mock token endpoint, restore, rotation, revoke, refresh margin,
+  sign-out, denial), keystore slot tests, 5 frontend sign-in tests.
+
 ### 2b.4 F1 — device secrets in the OS secure store (2026-09-24)
 
 First slice of 2b.4 (sign-in, device keys, signed events). Not wired
