@@ -1,6 +1,7 @@
 # ADR-0009 — `ON_CALL` state, media events, and call-dismissed prompts
 
-- **Status:** Accepted (2026-09-24)
+- **Status:** Accepted (2026-09-24); §2 `ON_CALL` transitions extended
+  by ADR-0010 (silent-call cap)
 - **Date:** 2026-09-24
 - **Deciders:** Abdulla Sheikh (project owner), Architecture (Claude)
 - **Extends:** ADR-0003 §2–§3 (`MEDIA_DEVICE_STATE`, `ON_CALL`) and
