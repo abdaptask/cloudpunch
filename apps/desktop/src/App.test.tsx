@@ -26,6 +26,8 @@ function view(over: Partial<StateView> = {}): StateView {
     promptOptions: [],
     noteRequiredFor: [],
     autoClockedOutAt: null,
+    sessionStartedAt: null,
+    timeline: [],
     ...over,
   };
 }
@@ -81,10 +83,11 @@ describe('App home UI', () => {
     expect(actionButtons()).toEqual(['End break', 'Clock out']);
   });
 
-  it('on a call reads as clocked in (ADR-0003 §1)', async () => {
+  it('on a call shows as On a call to the employee (ADR-0011)', async () => {
     mocks.getState.mockResolvedValue(view({ status: 'on_call' }));
     render(<App />);
-    expect(await screen.findByText('Clocked in')).toBeInTheDocument();
+    expect(await screen.findByText('On a call')).toBeInTheDocument();
+    expect(actionButtons()).toEqual(['Clock out', 'Bio break', 'Meal break']);
   });
 
   it('away offers I’m back', async () => {
@@ -115,6 +118,76 @@ describe('App home UI', () => {
     mocks.getState.mockResolvedValue(view({ autoClockedOutAt: Date.UTC(2026, 8, 24, 10, 0) }));
     render(<App />);
     expect(await screen.findByRole('status')).toHaveTextContent(/idle prompt wasn't answered/);
+  });
+
+  it('shows a live session timer while clocked in', async () => {
+    mocks.getState.mockResolvedValue(
+      view({ status: 'active', sessionStartedAt: Date.now() - 3_723_000 }),
+    );
+    render(<App />);
+    expect(await screen.findByLabelText('session-timer')).toHaveTextContent(/^01:02:0[34]$/);
+  });
+
+  it('renders today’s timeline and tracked totals', async () => {
+    const now = Date.now();
+    mocks.getState.mockResolvedValue(
+      view({
+        status: 'on_break',
+        breakKind: 'bio',
+        sessionStartedAt: now - 60 * 60_000,
+        timeline: [
+          { kind: 'working', startedAt: now - 60 * 60_000, endedAt: now - 10 * 60_000, session: 1 },
+          { kind: 'bio_break', startedAt: now - 10 * 60_000, endedAt: null, session: 1 },
+        ],
+      }),
+    );
+    render(<App />);
+    const list = await screen.findByRole('list', { name: 'session 1' });
+    const items = within(list)
+      .getAllByRole('listitem')
+      .map((li) => li.textContent);
+    expect(items[0]).toMatch(/Working.*50m 00s/);
+    expect(items[1]).toMatch(/Bio break.*10m 0\ds · now/);
+    const totalsBox = screen.getByRole('contentinfo', { name: 'totals' });
+    const pairs = within(totalsBox)
+      .getAllByRole('term')
+      .map((dt) => `${dt.textContent} = ${dt.nextElementSibling?.textContent}`);
+    expect(pairs[0]).toBe('Working = 50m 00s');
+    expect(pairs[1]).toMatch(/^Bio break = 10m 0\ds$/);
+    expect(pairs[2]).toMatch(/^On the clock = 1h 00m 0\ds$/);
+  });
+
+  it('groups sessions; only the latest starts expanded', async () => {
+    const now = Date.now();
+    mocks.getState.mockResolvedValue(
+      view({
+        status: 'active',
+        sessionStartedAt: now - 10 * 60_000,
+        timeline: [
+          { kind: 'working', startedAt: now - 90 * 60_000, endedAt: now - 60 * 60_000, session: 1 },
+          { kind: 'working', startedAt: now - 10 * 60_000, endedAt: null, session: 2 },
+        ],
+      }),
+    );
+    const user = userEvent.setup();
+    render(<App />);
+    const first = await screen.findByRole('button', { name: /Session 1/ });
+    const second = screen.getByRole('button', { name: /Session 2/ });
+    expect(first).toHaveAttribute('aria-expanded', 'false');
+    expect(second).toHaveAttribute('aria-expanded', 'true');
+    expect(first).toHaveTextContent(/30m 00s$/);
+    expect(second).toHaveTextContent(/– now/);
+    expect(screen.queryByRole('list', { name: 'session 1' })).not.toBeInTheDocument();
+
+    await user.click(first);
+    expect(first).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByRole('list', { name: 'session 1' })).toBeInTheDocument();
+  });
+
+  it('shows an empty-day hint before anything is tracked', async () => {
+    render(<App />);
+    expect(await screen.findByText(/Nothing tracked yet today/)).toBeInTheDocument();
+    expect(screen.queryByRole('contentinfo', { name: 'totals' })).not.toBeInTheDocument();
   });
 
   it('shows a rejection instead of changing state', async () => {

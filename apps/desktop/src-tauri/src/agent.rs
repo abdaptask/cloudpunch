@@ -28,6 +28,7 @@ use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 use crate::machine::driver::Driver;
 use crate::machine::sink::LogSink;
 use crate::machine::{AwayReason, BreakKind, Core, CoreConfig, CoreState, Effect, Input, Rejected};
+use crate::timeline::{epoch_ms, SegmentView, Timeline};
 use crate::tray::{self, TrayStateSnapshot};
 
 /// Label of the idle prompt window. The frontend routes on it.
@@ -48,6 +49,19 @@ pub struct StateView {
     pub note_required_for: Vec<&'static str>,
     /// Set after a grace-timeout clock-out until the next clock-in.
     pub auto_clocked_out_at: Option<u64>,
+    /// Clock-in time of the open session; `None` when clocked out.
+    pub session_started_at: Option<u64>,
+    /// Segments tracked on this device since the app started
+    /// (`timeline` module). Display only, not payable hours.
+    pub timeline: Vec<SegmentView>,
+}
+
+impl StateView {
+    pub fn with_timeline(mut self, timeline: &Timeline) -> Self {
+        self.session_started_at = timeline.session_started_at().map(epoch_ms);
+        self.timeline = timeline.views();
+        self
+    }
 }
 
 /// Pure: build the webview view of `state`.
@@ -82,6 +96,8 @@ pub fn view_of(
         prompt_options: cfg.prompt_options.iter().map(|r| r.as_str()).collect(),
         note_required_for: cfg.note_required_for.iter().map(|r| r.as_str()).collect(),
         auto_clocked_out_at: auto_clocked_out_at.map(epoch_ms),
+        session_started_at: None,
+        timeline: Vec::new(),
     }
 }
 
@@ -114,12 +130,6 @@ pub fn parse_break_kind(s: &str) -> Option<BreakKind> {
         "other" => Some(BreakKind::Other),
         _ => None,
     }
-}
-
-fn epoch_ms(t: SystemTime) -> u64 {
-    t.duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0)
 }
 
 /// Window/tray work decided under the lock, applied after it.
@@ -182,6 +192,18 @@ impl Ui for TauriUi {
 struct Inner {
     driver: Driver<LogSink>,
     auto_clocked_out_at: Option<SystemTime>,
+    timeline: Timeline,
+}
+
+impl Inner {
+    fn view(&self) -> StateView {
+        view_of(
+            self.driver.state(),
+            self.driver.core().config(),
+            self.auto_clocked_out_at,
+        )
+        .with_timeline(&self.timeline)
+    }
 }
 
 pub struct Agent<U: Ui = TauriUi> {
@@ -196,6 +218,7 @@ impl<U: Ui> Agent<U> {
             inner: Mutex::new(Inner {
                 driver: Driver::new(core, LogSink),
                 auto_clocked_out_at: None,
+                timeline: Timeline::new(),
             }),
             ui: OnceLock::new(),
         })
@@ -213,12 +236,7 @@ impl<U: Ui> Agent<U> {
     }
 
     pub fn view(&self) -> StateView {
-        let inner = self.lock();
-        view_of(
-            inner.driver.state(),
-            inner.driver.core().config(),
-            inner.auto_clocked_out_at,
-        )
+        self.lock().view()
     }
 
     pub fn handle(&self, input: Input) -> Result<StateView, Rejected> {
@@ -234,6 +252,9 @@ impl<U: Ui> Agent<U> {
             let before = inner.driver.state();
             let outcome = inner.driver.handle(input, now)?;
             let after = inner.driver.state();
+            if after != before {
+                inner.timeline.on_state(after, now);
+            }
 
             if let Some(err) = &outcome.sink_error {
                 eprintln!("[cloudpunch] {err}; {} event(s) waiting", outcome.backlog);
@@ -261,12 +282,7 @@ impl<U: Ui> Agent<U> {
             if is_clock_in {
                 inner.auto_clocked_out_at = None;
             }
-            let view = view_of(
-                after,
-                inner.driver.core().config(),
-                inner.auto_clocked_out_at,
-            );
-            (view, plan, tray_snapshot(after))
+            (inner.view(), plan, tray_snapshot(after))
         };
 
         self.apply(&view, &plan, snapshot);
@@ -608,6 +624,34 @@ mod tests {
             Err(Rejected::InvalidTransition)
         );
         assert_eq!(agent.handle(Input::ClockOut).unwrap().status, "clocked_out");
+    }
+
+    #[test]
+    fn view_carries_session_start_and_timeline() {
+        let (agent, _ui) = agent_with_ui();
+        let base = SystemTime::now();
+        agent.handle_at(Input::ClockIn, base).unwrap();
+        agent
+            .handle_at(
+                Input::StartBreak(BreakKind::Meal),
+                base + Duration::from_secs(60),
+            )
+            .unwrap();
+        let v = agent.view();
+        assert_eq!(v.session_started_at, Some(epoch_ms(base)));
+        let kinds: Vec<_> = v.timeline.iter().map(|s| s.kind).collect();
+        assert_eq!(kinds, ["working", "meal_break"]);
+        assert_eq!(
+            v.timeline[0].ended_at,
+            Some(epoch_ms(base + Duration::from_secs(60)))
+        );
+
+        agent
+            .handle_at(Input::ClockOut, base + Duration::from_secs(120))
+            .unwrap();
+        let v = agent.view();
+        assert_eq!(v.session_started_at, None);
+        assert_eq!(v.timeline.len(), 2, "clocking out keeps today's segments");
     }
 
     #[test]

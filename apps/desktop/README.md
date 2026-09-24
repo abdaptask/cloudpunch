@@ -17,6 +17,9 @@ src/                  — React UI (renders inside the Tauri webview)
                         idle-prompt → PromptWindow
   api.ts              — typed wrappers for the agent's commands and
                         the cp://state event
+  ui/                 — theme tokens (light/dark) and Button
+  TimelineView.tsx    — today's day strip + segment list
+  timelineModel.ts    — pure timeline helpers (clip, totals, format)
 src-tauri/            — Rust crate (Tauri backend, OS integration)
   Cargo.toml
   build.rs
@@ -29,6 +32,7 @@ src-tauri/            — Rust crate (Tauri backend, OS integration)
     lib.rs            — Tauri app builder, watchers, ticker wiring
     agent.rs          — runs the state machine: shared lock, 1 Hz
                         tick, prompt window, tray, cp://state
+    timeline.rs       — today's tracked segments for the home window
     commands.rs       — Tauri commands (clock in/out, breaks, prompt)
     machine/          — Pure time-state machine (no I/O); idle +
                         grace timers, media debounce (ADR-0003/8/9)

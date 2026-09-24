@@ -1,0 +1,266 @@
+//! Today's timeline for the home window: consecutive segments of
+//! working / on a call / break / away / prompt, built from state
+//! changes. Calls get their own segment here, on the employee's own
+//! screen only; reports and manager views still count them as active
+//! (ADR-0011, ADR-0003 §1).
+//!
+//! Display only. These are *tracked* periods on this device, not
+//! payable hours — payroll rules (bio-break cap, unpaid meal, prompt
+//! classification) are applied server-side from the event ledger.
+//!
+//! In memory until the outbox lands (2b.4 F3): an app restart starts
+//! an empty timeline.
+
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use serde::Serialize;
+
+use crate::machine::{AwayReason, BreakKind, CoreState};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SegmentKind {
+    /// Active, no call.
+    Working,
+    /// Mic or camera in use (ADR-0011: shown to the employee only).
+    OnCall,
+    Break(BreakKind),
+    Away(AwayReason),
+    /// Idle prompt showing.
+    Prompt,
+}
+
+impl SegmentKind {
+    fn of(state: CoreState) -> Option<Self> {
+        Some(match state {
+            CoreState::ClockedOut => return None,
+            CoreState::Active => SegmentKind::Working,
+            CoreState::OnCall => SegmentKind::OnCall,
+            CoreState::IdlePending { .. } => SegmentKind::Prompt,
+            CoreState::OnBreak { kind } => SegmentKind::Break(kind),
+            CoreState::Away { reason } => SegmentKind::Away(reason),
+        })
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            SegmentKind::Working => "working",
+            SegmentKind::OnCall => "on_call",
+            SegmentKind::Break(BreakKind::Bio) => "bio_break",
+            SegmentKind::Break(BreakKind::Meal) => "meal_break",
+            SegmentKind::Break(BreakKind::Other) => "other_break",
+            SegmentKind::Away(AwayReason::PhoneCall) => "away_phone",
+            SegmentKind::Away(AwayReason::WorkingAway) => "away_working",
+            SegmentKind::Prompt => "prompt",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Segment {
+    pub kind: SegmentKind,
+    pub started_at: SystemTime,
+    pub ended_at: Option<SystemTime>,
+    /// 1-based clock-in number since the app started; segments of one
+    /// clock-in → clock-out share it.
+    pub session: u32,
+}
+
+/// Serialised form. Timestamps are epoch ms.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SegmentView {
+    pub kind: &'static str,
+    pub started_at: u64,
+    pub ended_at: Option<u64>,
+    pub session: u32,
+}
+
+#[derive(Debug, Default)]
+pub struct Timeline {
+    segments: Vec<Segment>,
+    session_started_at: Option<SystemTime>,
+    sessions: u32,
+}
+
+impl Timeline {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Record that the core is now in `state` as of `at`. Consecutive
+    /// states of the same kind merge (active → on call stays one
+    /// working segment).
+    pub fn on_state(&mut self, state: CoreState, at: SystemTime) {
+        let kind = SegmentKind::of(state);
+        if let Some(open) = self.segments.last() {
+            if open.ended_at.is_none() && Some(open.kind) == kind {
+                return;
+            }
+        }
+        self.close_open(at);
+        match kind {
+            None => self.session_started_at = None,
+            Some(kind) => {
+                if self.session_started_at.is_none() {
+                    self.session_started_at = Some(at);
+                    self.sessions += 1;
+                }
+                self.segments.push(Segment {
+                    kind,
+                    started_at: at,
+                    ended_at: None,
+                    session: self.sessions,
+                });
+            }
+        }
+    }
+
+    fn close_open(&mut self, at: SystemTime) {
+        if let Some(open) = self.segments.last_mut() {
+            if open.ended_at.is_none() {
+                open.ended_at = Some(at);
+            }
+        }
+    }
+
+    pub fn session_started_at(&self) -> Option<SystemTime> {
+        self.session_started_at
+    }
+
+    pub fn segments(&self) -> &[Segment] {
+        &self.segments
+    }
+
+    pub fn views(&self) -> Vec<SegmentView> {
+        self.segments
+            .iter()
+            .map(|s| SegmentView {
+                kind: s.kind.as_str(),
+                started_at: epoch_ms(s.started_at),
+                ended_at: s.ended_at.map(epoch_ms),
+                session: s.session,
+            })
+            .collect()
+    }
+}
+
+pub fn epoch_ms(t: SystemTime) -> u64 {
+    t.duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use super::*;
+
+    fn t(secs: u64) -> SystemTime {
+        UNIX_EPOCH + Duration::from_secs(secs)
+    }
+
+    fn kinds(tl: &Timeline) -> Vec<&'static str> {
+        tl.segments().iter().map(|s| s.kind.as_str()).collect()
+    }
+
+    #[test]
+    fn clock_in_opens_working_and_session() {
+        let mut tl = Timeline::new();
+        tl.on_state(CoreState::Active, t(100));
+        assert_eq!(kinds(&tl), ["working"]);
+        assert_eq!(tl.session_started_at(), Some(t(100)));
+        assert_eq!(tl.segments()[0].ended_at, None);
+    }
+
+    #[test]
+    fn calls_get_their_own_segment() {
+        let mut tl = Timeline::new();
+        tl.on_state(CoreState::Active, t(0));
+        tl.on_state(CoreState::OnCall, t(60));
+        tl.on_state(CoreState::Active, t(120));
+        assert_eq!(kinds(&tl), ["working", "on_call", "working"]);
+        assert_eq!(tl.segments()[1].ended_at, Some(t(120)));
+    }
+
+    #[test]
+    fn clock_in_during_a_call_starts_with_on_call() {
+        let mut tl = Timeline::new();
+        tl.on_state(CoreState::OnCall, t(0));
+        assert_eq!(kinds(&tl), ["on_call"]);
+        assert_eq!(tl.session_started_at(), Some(t(0)));
+    }
+
+    #[test]
+    fn day_with_prompt_break_and_away() {
+        let mut tl = Timeline::new();
+        tl.on_state(CoreState::Active, t(0));
+        tl.on_state(
+            CoreState::IdlePending {
+                shown_at: t(300),
+                deadline: t(330),
+            },
+            t(300),
+        );
+        tl.on_state(
+            CoreState::OnBreak {
+                kind: BreakKind::Bio,
+            },
+            t(310),
+        );
+        tl.on_state(CoreState::Active, t(900));
+        tl.on_state(
+            CoreState::Away {
+                reason: AwayReason::WorkingAway,
+            },
+            t(1_000),
+        );
+        tl.on_state(CoreState::ClockedOut, t(2_000));
+
+        assert_eq!(
+            kinds(&tl),
+            ["working", "prompt", "bio_break", "working", "away_working"]
+        );
+        let s = tl.segments();
+        assert_eq!((s[1].started_at, s[1].ended_at), (t(300), Some(t(310))));
+        assert!(s.iter().all(|seg| seg.ended_at.is_some()));
+        assert_eq!(tl.session_started_at(), None);
+    }
+
+    #[test]
+    fn second_session_keeps_first_and_restarts_session_clock() {
+        let mut tl = Timeline::new();
+        tl.on_state(CoreState::Active, t(0));
+        tl.on_state(CoreState::ClockedOut, t(100));
+        tl.on_state(CoreState::Active, t(500));
+        assert_eq!(kinds(&tl), ["working", "working"]);
+        assert_eq!(tl.session_started_at(), Some(t(500)));
+        assert_eq!(tl.segments()[0].ended_at, Some(t(100)));
+        let sessions: Vec<_> = tl.segments().iter().map(|s| s.session).collect();
+        assert_eq!(sessions, [1, 2]);
+    }
+
+    #[test]
+    fn repeated_clocked_out_is_harmless() {
+        let mut tl = Timeline::new();
+        tl.on_state(CoreState::ClockedOut, t(0));
+        assert!(tl.segments().is_empty());
+        assert_eq!(tl.session_started_at(), None);
+    }
+
+    #[test]
+    fn views_serialise_camel_case_ms() {
+        let mut tl = Timeline::new();
+        tl.on_state(
+            CoreState::OnBreak {
+                kind: BreakKind::Meal,
+            },
+            t(2),
+        );
+        let json = serde_json::to_value(tl.views()).unwrap();
+        assert_eq!(json[0]["kind"], "meal_break");
+        assert_eq!(json[0]["startedAt"], 2_000);
+        assert!(json[0]["endedAt"].is_null());
+        assert_eq!(json[0]["session"], 1);
+    }
+}

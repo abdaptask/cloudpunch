@@ -34,6 +34,7 @@ pub mod event;
 pub mod machine;
 pub mod outbox;
 pub mod sync;
+pub mod timeline;
 pub mod tray;
 pub mod watchers;
 
@@ -228,6 +229,7 @@ pub fn run() {
         .manage(agent)
         .invoke_handler(tauri::generate_handler![
             commands::get_state,
+            commands::fit_window,
             commands::clock_in,
             commands::clock_out,
             commands::start_break,
