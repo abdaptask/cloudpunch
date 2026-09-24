@@ -9,4 +9,6 @@
 //! uses.
 
 pub mod canonicalize;
+pub mod encode;
 pub mod signature;
+pub mod ulid;

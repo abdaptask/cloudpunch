@@ -1,0 +1,192 @@
+{
+  "$comment": "Signed events from the desktop encoder (event/encode.rs), checked by the backend's ingest (signed-events.fixture.test.ts). Test key only: Ed25519 seed = 32 bytes of 0x07. Regenerate with CLOUDPUNCH_UPDATE_GOLDEN=1 cargo test golden, then prettier. See ADR-0004 §5–§6, ADR-0014.",
+  "envelope": {
+    "correlation_id": "c0ffee00-1111-4222-8333-444455556666",
+    "device_id": "7a1c5f2e-0d3b-4c6a-9e8f-1b2c3d4e5f60",
+    "employee_id": "0f8e1c2a-3b4d-4e5f-8a9b-0c1d2e3f4a5b",
+    "session_id": "5b6c7d8e-9f0a-4b1c-8d2e-3f4a5b6c7d8e"
+  },
+  "events": [
+    {
+      "app_version": "0.0.0",
+      "client_ts": "2026-09-21T19:43:20.123+05:30",
+      "event_type": "USER_CLOCK_IN",
+      "event_ulid": "01M3250V3V0000000000000001",
+      "integrity_signature": "G+uNfb3DrAjzs03pH/kqFV9ElUtP1cXlRbVeeQxrsziSXUZ1QhBP8oiC8gyfmseDl3bweyd7xQ1IDgv+FUu9Ag==",
+      "monotonic_ns": 0,
+      "offline_captured": false,
+      "origin": "user",
+      "parent_event_ulid": null,
+      "payload": {},
+      "sequence_number": 1,
+      "tz_iana": "Asia/Kolkata",
+      "utc_offset_minutes": 330
+    },
+    {
+      "app_version": "0.0.0",
+      "client_ts": "2026-09-21T19:44:20.123+05:30",
+      "event_type": "MEDIA_DEVICE_STATE",
+      "event_ulid": "01M3252NPV0000000000000002",
+      "integrity_signature": "47JuTFbYpRwz7x7yoC3/HDKjop3qMGAhltsuAGrDTkIeLzwGlx+lmLZ+peoMbyifStvRKgrTt3VFodsP57B7Aw==",
+      "monotonic_ns": 60000000000,
+      "offline_captured": false,
+      "origin": "system_watcher",
+      "parent_event_ulid": null,
+      "payload": {
+        "call_type": "teams",
+        "in_use": true
+      },
+      "sequence_number": 2,
+      "tz_iana": "Asia/Kolkata",
+      "utc_offset_minutes": 330
+    },
+    {
+      "app_version": "0.0.0",
+      "client_ts": "2026-09-21T19:45:20.123+05:30",
+      "event_type": "MEDIA_DEVICE_STATE",
+      "event_ulid": "01M3254G9V0000000000000003",
+      "integrity_signature": "7D3tXSCkeCJ2rREftliiGLTC8PYxUz3ESfQZz18iw0wCDra2/nRd5tvQnRGI9g5R3q7HpjKauU9VlqExECEqDQ==",
+      "monotonic_ns": 120000000000,
+      "offline_captured": false,
+      "origin": "system_watcher",
+      "parent_event_ulid": null,
+      "payload": {
+        "in_use": false
+      },
+      "sequence_number": 3,
+      "tz_iana": "Asia/Kolkata",
+      "utc_offset_minutes": 330
+    },
+    {
+      "app_version": "0.0.0",
+      "client_ts": "2026-09-21T19:46:20.123+05:30",
+      "event_type": "INPUT_IDLE_5M",
+      "event_ulid": "01M3256AWV0000000000000004",
+      "integrity_signature": "6XyMhl4guJqQ5ZFgpV3wo3q5aTPLYrFCRm8VVmVujFA/+OAPH+iXfUOCud/sucA6ys+uXO+nV8P8jxVLVyexAA==",
+      "monotonic_ns": 180000000000,
+      "offline_captured": false,
+      "origin": "system_watcher",
+      "parent_event_ulid": null,
+      "payload": {
+        "trigger": "input_idle"
+      },
+      "sequence_number": 4,
+      "tz_iana": "Asia/Kolkata",
+      "utc_offset_minutes": 330
+    },
+    {
+      "app_version": "0.0.0",
+      "client_ts": "2026-09-21T19:47:20.123+05:30",
+      "event_type": "USER_PROMPT_RESPONSE",
+      "event_ulid": "01M32585FV0000000000000005",
+      "integrity_signature": "NtjUkdTMaZeiYhkH6NOcVRqa82I9R2d5ZEc63Ec8BIKULvxMckial6/r2lVeIlTXyoae56gsx6fPVnF3gofzBA==",
+      "monotonic_ns": 240000000000,
+      "offline_captured": false,
+      "origin": "user",
+      "parent_event_ulid": null,
+      "payload": {
+        "note": "Site visit — back by 3",
+        "prompt_shown_at": "2026-09-21T19:46:20.123+05:30",
+        "response": "working_away"
+      },
+      "sequence_number": 5,
+      "tz_iana": "Asia/Kolkata",
+      "utc_offset_minutes": 330
+    },
+    {
+      "app_version": "0.0.0",
+      "client_ts": "2026-09-21T19:48:20.123+05:30",
+      "event_type": "USER_MARK_BACK",
+      "event_ulid": "01M325A02V0000000000000006",
+      "integrity_signature": "WGH/Nc4nTFHUj+hrksRdlaZSC1RO2iM2l1i4vfCBtqj5GxCpSXxuPC5lIanHYhTr2nz+Bl7es/KVxypQ4t1MDQ==",
+      "monotonic_ns": 300000000000,
+      "offline_captured": false,
+      "origin": "user",
+      "parent_event_ulid": null,
+      "payload": {},
+      "sequence_number": 6,
+      "tz_iana": "Asia/Kolkata",
+      "utc_offset_minutes": 330
+    },
+    {
+      "app_version": "0.0.0",
+      "client_ts": "2026-09-21T19:49:20.123+05:30",
+      "event_type": "USER_START_BREAK",
+      "event_ulid": "01M325BTNV0000000000000007",
+      "integrity_signature": "A/vQoQvwM65UVqMk6eAujIF49BIgpMiu3/bLXS8/RracUo3i3GWtX+XDwiFe3wezAP2FsCfiTRLtVIlAwweFCQ==",
+      "monotonic_ns": 360000000000,
+      "offline_captured": false,
+      "origin": "user",
+      "parent_event_ulid": null,
+      "payload": {
+        "break_kind": "meal"
+      },
+      "sequence_number": 7,
+      "tz_iana": "Asia/Kolkata",
+      "utc_offset_minutes": 330
+    },
+    {
+      "app_version": "0.0.0",
+      "client_ts": "2026-09-21T19:50:20.123+05:30",
+      "event_type": "USER_END_BREAK",
+      "event_ulid": "01M325DN8V0000000000000008",
+      "integrity_signature": "Qmec7yPovl3uFsRg09mh7ldXCE5fZKuPsmuRzhmGSG9kGE8wLreEnrRL6qdrLco2ukVAg1CbHUBLpKTvGA6lDg==",
+      "monotonic_ns": 420000000000,
+      "offline_captured": false,
+      "origin": "user",
+      "parent_event_ulid": null,
+      "payload": {},
+      "sequence_number": 8,
+      "tz_iana": "Asia/Kolkata",
+      "utc_offset_minutes": 330
+    },
+    {
+      "app_version": "0.0.0",
+      "client_ts": "2026-09-21T19:51:20.123+05:30",
+      "event_type": "USER_MARK_AWAY",
+      "event_ulid": "01M325FFVV0000000000000009",
+      "integrity_signature": "ggE0g3gOVfLmsHKn0/HWwRy5D4/lIFF0ojiKi/BLmiM55EzcmwYLd0LOPoUpLKhtMCYP0EC8sgSqPZg0kUCfAg==",
+      "monotonic_ns": 480000000000,
+      "offline_captured": false,
+      "origin": "user",
+      "parent_event_ulid": null,
+      "payload": {
+        "away_reason": "meeting"
+      },
+      "sequence_number": 9,
+      "tz_iana": "Asia/Kolkata",
+      "utc_offset_minutes": 330
+    },
+    {
+      "app_version": "0.0.0",
+      "client_ts": "2026-09-21T19:52:20.123+05:30",
+      "event_type": "USER_MARK_BACK",
+      "event_ulid": "01M325HAEV000000000000000A",
+      "integrity_signature": "OMfRtv+XsxqQAjSBXFIjhN1zEEsuiQJ9Lpljb3rEudqFtzQRryPG0EvrytGq0OF+yMK10NG0jO32D4PmDt2uCQ==",
+      "monotonic_ns": 540000000000,
+      "offline_captured": false,
+      "origin": "user",
+      "parent_event_ulid": null,
+      "payload": {},
+      "sequence_number": 10,
+      "tz_iana": "Asia/Kolkata",
+      "utc_offset_minutes": 330
+    },
+    {
+      "app_version": "0.0.0",
+      "client_ts": "2026-09-21T19:53:20.123+05:30",
+      "event_type": "USER_CLOCK_OUT",
+      "event_ulid": "01M325K51V000000000000000B",
+      "integrity_signature": "BORcqFI2f/BlAbmQFPErn3oUuPyig+PE5c3zalC+XErHSc8pGmvct9ZCxqnJ0lyJIhvtA5Nnsvb3S2UUnEN8Dw==",
+      "monotonic_ns": 600000000000,
+      "offline_captured": false,
+      "origin": "user",
+      "parent_event_ulid": null,
+      "payload": {},
+      "sequence_number": 11,
+      "tz_iana": "Asia/Kolkata",
+      "utc_offset_minutes": 330
+    }
+  ],
+  "public_key_base64": "6kpsY+KcUgq+9VB7Ey7F+ZVHdq6+vnuSQh7qaRRG0iw="
+}

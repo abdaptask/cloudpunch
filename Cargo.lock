@@ -629,10 +629,12 @@ name = "cloudpunch-desktop"
 version = "0.0.0"
 dependencies = [
  "base64 0.22.1",
+ "chrono",
  "ed25519-dalek",
  "getrandom 0.3.4",
  "hex",
  "httpmock",
+ "iana-time-zone",
  "keyring",
  "open",
  "rand 0.8.8",
