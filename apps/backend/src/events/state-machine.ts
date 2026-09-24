@@ -2,11 +2,15 @@
  * CloudPunch session state machine — MVP subset (ADR-0003 §3).
  *
  * The full ADR-0003 machine has 12 states including several ambient
- * ones (LOCKED / SLEEPING / OFFLINE_PENDING_SYNC / ON_CALL). At the
- * ingest layer, only "payroll states" — the ones that govern which
- * events are legal — need to be enforced. Ambient events are still
- * recorded but they do not change the payroll state, so their
- * validation is a no-op.
+ * ones (LOCKED / SLEEPING / OFFLINE_PENDING_SYNC). At the ingest
+ * layer, only "payroll states" — the ones that govern which events
+ * are legal — need to be enforced. Ambient events are still recorded
+ * but they do not change the payroll state, so their validation is a
+ * no-op.
+ *
+ * ON_CALL is a payroll state (ADR-0009): MEDIA_DEVICE_STATE moves
+ * ACTIVE / IDLE_PENDING into it and back out to ACTIVE, and it gates
+ * which user events are legal.
  *
  * Deferred to a later slice (see docs/architecture/state-machine.md):
  *   - Prior-state resume on SYSTEM_UNLOCK / SYSTEM_WAKE / NETWORK_ONLINE
@@ -14,7 +18,7 @@
  *   - Clock-drift ERROR_FROZEN state
  */
 
-export type PayrollState = 'ACTIVE' | 'ON_BREAK' | 'AWAY' | 'IDLE_PENDING' | 'CLOSED';
+export type PayrollState = 'ACTIVE' | 'ON_CALL' | 'ON_BREAK' | 'AWAY' | 'IDLE_PENDING' | 'CLOSED';
 
 /**
  * State a session enters immediately after USER_CLOCK_IN is accepted.
@@ -27,7 +31,6 @@ export const INITIAL_STATE: PayrollState = 'ACTIVE';
  * Ambient event types — recorded but do not change payroll state.
  */
 const AMBIENT_EVENTS: ReadonlySet<string> = new Set([
-  'MEDIA_DEVICE_STATE',
   'SYSTEM_LOCK',
   'SYSTEM_UNLOCK',
   'SYSTEM_SLEEP',
@@ -56,9 +59,9 @@ const PROMPT_RESPONSES: ReadonlySet<string> = new Set([
  * ingest layer converts that into a `state_transition_invalid`
  * per-event rejection.
  *
- * Ambient events (MEDIA_DEVICE_STATE, SYSTEM_LOCK/UNLOCK/SLEEP/WAKE,
- * NETWORK_OFFLINE/ONLINE, etc.) always return the current state.
- * They are recorded but do not gate other events.
+ * Ambient events (SYSTEM_LOCK/UNLOCK/SLEEP/WAKE, NETWORK_OFFLINE/
+ * ONLINE, etc.) always return the current state. They are recorded
+ * but do not gate other events.
  *
  * USER_CLOCK_IN can only be the first event of a session. The ingest
  * layer's session-lookup path creates the session on the first
@@ -80,6 +83,16 @@ export function nextState(
       // the client resets its grace countdown instead (ADR-0008).
       return current;
 
+    case 'MEDIA_DEVICE_STATE': {
+      // ADR-0009: payload is exactly { in_use: boolean }.
+      const inUse = payload?.['in_use'];
+      if (typeof inUse !== 'boolean') return null;
+      if (inUse && (current === 'ACTIVE' || current === 'IDLE_PENDING')) return 'ON_CALL';
+      if (!inUse && current === 'ON_CALL') return 'ACTIVE';
+      // Every other combination is recorded without changing state.
+      return current;
+    }
+
     case 'USER_CLOCK_IN':
       // The session was already created — a second USER_CLOCK_IN is
       // always invalid at this layer.
@@ -90,7 +103,7 @@ export function nextState(
       return 'CLOSED';
 
     case 'USER_START_BREAK':
-      if (current !== 'ACTIVE') return null;
+      if (current !== 'ACTIVE' && current !== 'ON_CALL') return null;
       return 'ON_BREAK';
 
     case 'USER_END_BREAK':

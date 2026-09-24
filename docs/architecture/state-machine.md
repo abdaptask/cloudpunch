@@ -16,7 +16,7 @@ this file is out of date.
 | `CLOCKING_IN` | Awaiting server ack (transitional, ≤ 15 s) | Pending | yes |
 | `ACTIVE` | Working, input recent, no call | Yes | **yes** |
 | `ON_CALL` | Mic/camera in use, or user chose "on a call" | Yes | **yes** (reports as `ACTIVE`) |
-| `IDLE_PENDING` | 5 min of silence, prompt shown, 30-s grace ticking (input resets the countdown but does not dismiss — ADR-0008) | Yes | classified by the prompt response; not payable on timeout |
+| `IDLE_PENDING` | 5 min of silence, prompt shown, 30-s grace ticking (input resets the countdown but does not dismiss — ADR-0008; a call starting dismisses it — ADR-0009) | Yes | classified by the prompt response; payable as `ON_CALL` if a call dismisses it; not payable on timeout |
 | `ON_BREAK` (`bio` \| `meal` \| `other`) | On a break with attributed kind | Yes | policy-dependent (bio yes, meal no by default) |
 | `AWAY` (`working_away` \| `phone_call` \| `meeting` \| `other`) | Away from computer with a reason | Yes | yes for attested reasons |
 | `LOCKED` | System screen locked | Yes | no |
@@ -109,8 +109,16 @@ this file is out of date.
 
 ## Transition rules — canonical table
 
-The complete transition table lives in ADR-0003 §3. Skim it there;
-this file expands on the intent rather than restating rows.
+The complete transition table lives in ADR-0003 §3, with
+`IDLE_PENDING` amended by ADR-0008 and the `MEDIA_DEVICE_STATE` /
+`ON_CALL` rows made exact by ADR-0009. Skim them there; this file
+expands on the intent rather than restating rows.
+
+`MEDIA_DEVICE_STATE` carries one boolean, `in_use` (mic OR camera).
+It moves `ACTIVE` or `IDLE_PENDING` to `ON_CALL` and `ON_CALL`
+back to `ACTIVE`; everywhere else it is recorded without changing
+state. From `ON_CALL` the user can start a break or clock out, but
+not mark away (ADR-0009 §2).
 
 ## Payable-time worked example: "Alice's Wednesday"
 

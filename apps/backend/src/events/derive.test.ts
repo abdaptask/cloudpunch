@@ -110,6 +110,28 @@ describe('derivePeriods — idles', () => {
     expect(r.idles[0]?.sourceEndEventUlid).toBe(resp.eventUlid);
   });
 
+  it('call starting during the prompt closes the idle as media_dismiss (ADR-0009)', () => {
+    ulidSeq = 0;
+    const idle = evt('INPUT_IDLE_5M', 30);
+    const callStart = evt('MEDIA_DEVICE_STATE', 30.25, { in_use: true });
+    const r = derivePeriods([idle, callStart], null);
+    expect(r.idles).toHaveLength(1);
+    expect(r.idles[0]?.resolution).toBe('media_dismiss');
+    expect(r.idles[0]?.response).toBeNull();
+    expect(r.idles[0]?.endedAt).toEqual(callStart.clientTs);
+    expect(r.idles[0]?.sourceEndEventUlid).toBe(callStart.eventUlid);
+  });
+
+  it('media in_use=false does not close an open idle', () => {
+    ulidSeq = 0;
+    const idle = evt('INPUT_IDLE_5M', 30);
+    const mediaOff = evt('MEDIA_DEVICE_STATE', 30, { in_use: false });
+    const resp = evt('USER_PROMPT_RESPONSE', 30.5, { response: 'still_working' });
+    const r = derivePeriods([idle, mediaOff, resp], null);
+    expect(r.idles).toHaveLength(1);
+    expect(r.idles[0]?.resolution).toBe('user_response');
+  });
+
   it('open idle at session close emits session_close resolution', () => {
     ulidSeq = 0;
     const idle = evt('INPUT_IDLE_5M', 30);
