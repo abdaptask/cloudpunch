@@ -1,10 +1,14 @@
 import { Capability } from '@cloudpunch/shared';
 import type { FastifyPluginAsync } from 'fastify';
 import fp from 'fastify-plugin';
-import type { DbRepositories } from '../db/index.js';
+import type { DbRepositories, DeviceWithOwner } from '../db/index.js';
 import { requireCapability } from '../auth/require.js';
 import { enrollDeviceService } from './enroll.js';
-import { enrollDeviceBodySchema, type EnrollDeviceResponse } from './schemas.js';
+import {
+  enrollDeviceBodySchema,
+  type AdminDeviceListResponse,
+  type EnrollDeviceResponse,
+} from './schemas.js';
 
 export interface DeviceRoutesOptions {
   db: DbRepositories;
@@ -78,7 +82,55 @@ const devicesRoutesImpl: FastifyPluginAsync<DeviceRoutesOptions> = async (app, o
       return reply.code(200).send(body);
     },
   );
+
+  // Who signs in from where: every enrolled device and a per-user
+  // count. Administrators manage devices; Auditors read everything.
+  app.get(
+    '/v1/admin/devices',
+    { preHandler: [requireCapability([Capability.AdminDeviceRead])] },
+    async (_req, reply) => {
+      const devices = await opts.db.devices.listWithOwners();
+      return reply.code(200).send(toDeviceList(devices));
+    },
+  );
 };
+
+/** Pure: shape the device list and per-user summary. */
+export function toDeviceList(devices: readonly DeviceWithOwner[]): AdminDeviceListResponse {
+  const iso = (d: Date | null): string | null => (d ? d.toISOString() : null);
+  const users = new Map<string, AdminDeviceListResponse['users'][number]>();
+  for (const d of devices) {
+    const u = users.get(d.userId) ?? {
+      user_id: d.userId,
+      work_email: d.ownerWorkEmail,
+      display_name: d.ownerDisplayName,
+      active_devices: 0,
+      total_devices: 0,
+      last_seen_at: null,
+    };
+    u.total_devices += 1;
+    if (d.revokedAt === null) u.active_devices += 1;
+    const seen = iso(d.lastSeenAt);
+    if (seen && (!u.last_seen_at || seen > u.last_seen_at)) u.last_seen_at = seen;
+    users.set(d.userId, u);
+  }
+  return {
+    devices: devices.map((d) => ({
+      device_id: d.id,
+      user_id: d.userId,
+      work_email: d.ownerWorkEmail,
+      display_name: d.ownerDisplayName,
+      os: d.os,
+      hostname_hash: d.hostnameHash,
+      app_version: d.appVersion,
+      enrolled_at: d.enrolledAt.toISOString(),
+      last_seen_at: iso(d.lastSeenAt),
+      revoked_at: iso(d.revokedAt),
+      revoked_reason: d.revokedReason,
+    })),
+    users: [...users.values()].sort((a, b) => a.work_email.localeCompare(b.work_email)),
+  };
+}
 
 function decodeBase64OrUrlSafe(input: string): Uint8Array | null {
   const normal = input.replace(/-/g, '+').replace(/_/g, '/');

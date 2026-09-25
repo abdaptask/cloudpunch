@@ -71,6 +71,17 @@ export class InMemoryDb implements DbRepositories {
         const d = this.deviceById.get(id);
         if (d) this.deviceById.set(id, { ...d, lastSeenAt: at });
       },
+      listWithOwners: async () =>
+        Array.from(this.deviceById.values())
+          .map((d) => {
+            const owner = this.userById.get(d.userId);
+            return {
+              ...d,
+              ownerWorkEmail: owner?.workEmail ?? '',
+              ownerDisplayName: owner?.displayName ?? '',
+            };
+          })
+          .sort(byLastSeenDesc),
     };
 
     this.timeSessions = {
@@ -297,4 +308,10 @@ export class SessionOpenConflictError extends Error {
     super(`employee ${employeeId} already has an open session ${openSessionId}`);
     this.name = 'SessionOpenConflictError';
   }
+}
+
+/** Most recently seen first; never-seen devices last, newest enrolment first. */
+function byLastSeenDesc(a: Device, b: Device): number {
+  const seen = (b.lastSeenAt?.getTime() ?? -1) - (a.lastSeenAt?.getTime() ?? -1);
+  return seen !== 0 ? seen : b.enrolledAt.getTime() - a.enrolledAt.getTime();
 }

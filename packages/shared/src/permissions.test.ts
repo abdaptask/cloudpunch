@@ -82,6 +82,14 @@ describe('ROLE_CAPABILITIES', () => {
     }
   });
 
+  it('only Administrator and Auditor can list devices', () => {
+    expect(hasCapability([AppRole.Administrator], Capability.AdminDeviceRead)).toBe(true);
+    expect(hasCapability([AppRole.Auditor], Capability.AdminDeviceRead)).toBe(true);
+    for (const role of [AppRole.Employee, AppRole.Manager, AppRole.HR, AppRole.Payroll]) {
+      expect(hasCapability([role], Capability.AdminDeviceRead)).toBe(false);
+    }
+  });
+
   it('Employee cannot approve team timesheets', () => {
     expect(hasCapability([AppRole.Employee], Capability.TeamTimesheetApprove)).toBe(false);
   });

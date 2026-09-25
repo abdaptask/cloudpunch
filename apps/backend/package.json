@@ -15,7 +15,8 @@
     "start": "node --enable-source-maps dist/server.js",
     "build": "tsc -p tsconfig.build.json",
     "migrate": "tsx scripts/migrate.ts",
-    "seed:dev": "tsx --env-file=.env.local scripts/seed-dev-user.ts"
+    "seed:dev": "tsx --env-file=.env.local scripts/seed-dev-user.ts",
+    "report:devices": "tsx --env-file=.env.local scripts/report-devices.ts"
   },
   "dependencies": {
     "@cloudpunch/event-schema": "workspace:*",
