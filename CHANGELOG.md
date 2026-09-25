@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Desktop: green Clock in, red Clock out (2026-09-25)
+
+- **Requested by the project owner.**
+  - **Clock in** is a solid green button.
+  - **Clock out** is solid red where it's the main action, and a red
+    outline where another action leads (on a break or away). The same
+    goes for the long-shift banner and "Clock out & quit" in the close
+    dialog.
+- New theme colours (`go` and `stop`, light and dark) and Button
+  variants (`go`, `stop`, `stopOutline`).
+- A test pins the colours.
+
 ### CI: Rust is built, linted and tested (2026-09-25)
 
 - **New `rust` CI job on `windows-latest`** (the desktop agent is
