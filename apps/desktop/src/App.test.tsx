@@ -460,6 +460,8 @@ describe('App home UI', () => {
       }),
     );
     render(<App />);
+    // Sessions and totals live under Details (the dial is the summary).
+    await userEvent.setup().click(await screen.findByRole('button', { name: /Details/ }));
     const list = await screen.findByRole('list', { name: 'session 1' });
     const items = within(list)
       .getAllByRole('listitem')
@@ -489,6 +491,7 @@ describe('App home UI', () => {
     );
     const user = userEvent.setup();
     render(<App />);
+    await user.click(await screen.findByRole('button', { name: /Details/ }));
     const first = await screen.findByRole('button', { name: /Session 1/ });
     const second = screen.getByRole('button', { name: /Session 2/ });
     expect(first).toHaveAttribute('aria-expanded', 'false');
@@ -519,6 +522,7 @@ describe('App home UI', () => {
       }),
     );
     render(<App />);
+    await userEvent.setup().click(await screen.findByRole('button', { name: /Details/ }));
     const totalsBox = await screen.findByRole('contentinfo', { name: 'totals' });
     const pairs = within(totalsBox)
       .getAllByRole('term')
@@ -535,8 +539,12 @@ describe('App home UI', () => {
 
   it('shows an empty-day hint before anything is tracked', async () => {
     render(<App />);
-    expect(await screen.findByText(/Nothing tracked yet today/)).toBeInTheDocument();
-    expect(screen.queryByRole('contentinfo', { name: 'totals' })).not.toBeInTheDocument();
+    expect(
+      await screen.findByRole('img', { name: 'Today on a clock: nothing tracked yet' }),
+    ).toBeInTheDocument();
+    // Nothing to detail yet: no stats strip, no Details.
+    expect(screen.queryByRole('region', { name: 'day-stats' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Details/ })).not.toBeInTheDocument();
   });
 
   it('shows a rejection instead of changing state', async () => {
@@ -626,5 +634,32 @@ describe('clocked-out text knows about the day (owner request)', () => {
       screen.getByText(/2h 30m worked today · clocked out at .+\. Clock in again to continue\./),
     ).toBeInTheDocument();
     expect(screen.queryByText(/start tracking your day/)).not.toBeInTheDocument();
+  });
+});
+
+describe('day dial (owner request: your day on a clock)', () => {
+  it('draws the day, shows the timer inside, and a stats strip', async () => {
+    const now = Date.now();
+    const MIN = 60_000;
+    mocks.getState.mockResolvedValue(
+      view({
+        status: 'active',
+        sessionStartedAt: now - 60 * MIN,
+        timeline: [
+          { kind: 'working', startedAt: now - 60 * MIN, endedAt: now - 20 * MIN, session: 1 },
+          { kind: 'call_teams', startedAt: now - 20 * MIN, endedAt: now - 10 * MIN, session: 1 },
+          { kind: 'working', startedAt: now - 10 * MIN, endedAt: null, session: 1 },
+        ],
+      }),
+    );
+    render(<App />);
+    const dial = await screen.findByRole('img', { name: /Today on a clock: Working, Teams call/ });
+    expect(dial.querySelectorAll('path')).toHaveLength(3);
+    const status = screen.getByRole('region', { name: 'current-status' });
+    expect(within(status).getByLabelText('session-timer')).toBeInTheDocument();
+    const stats = screen.getByRole('region', { name: 'day-stats' });
+    expect(stats).toHaveTextContent('1h 00mWorked');
+    expect(stats).toHaveTextContent('10mCalls');
+    expect(stats).toHaveTextContent('0mBreaks');
   });
 });
