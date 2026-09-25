@@ -225,7 +225,7 @@ mod tests {
     #[test]
     fn rejects_fractional_and_out_of_range() {
         assert!(matches!(
-            canonicalize(&json!(3.14)),
+            canonicalize(&json!(2.5)),
             Err(CanonicalizeError::Fractional)
         ));
         // 2^53 exceeds the safe integer range.

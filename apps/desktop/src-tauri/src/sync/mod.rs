@@ -17,13 +17,12 @@
 //! Poison policy (2b.6.1):
 //!   - Per-event `Rejected`  → poison that ULID.
 //!   - `ValidationFailed`    → poison every event in the sent batch.
-//!   - `DeviceInvalid`,      → poison (won't recover without operator
-//!     `SessionInvalid`         action; keep for audit).
-//!   - `AuthDenied`          → schedule retry `auth_retry` seconds out
-//!                             (may resolve after admin action).
+//!   - `DeviceInvalid`, `SessionInvalid` → poison (won't recover
+//!     without operator action; keep for audit).
+//!   - `AuthDenied` → schedule retry `auth_retry` seconds out (may
+//!     resolve after admin action).
 //!   - `MultiDeviceConflict` → schedule retry `multi_device_retry`
-//!                             seconds out; UI prompt in 2b.7 handles
-//!                             `take_over`.
+//!     seconds out; the UI prompt in 2b.7 handles `take_over`.
 //!   - `Transient`           → schedule retry `backoff.delay(retry_count)`.
 //!
 //! Threading:

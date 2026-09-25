@@ -159,7 +159,10 @@ fn check_root(root: HKEY, device: &str) -> bool {
 }
 
 /// Pure reducer: given an iterable of `LastUsedTimeStop` values,
-/// return true iff any is present and equals zero.
+/// return true iff any is present and equals zero. The registry walk
+/// above applies the same rule inline (with early exit); this keeps the
+/// rule itself under test.
+#[cfg(test)]
 fn reduce_in_use<I: IntoIterator<Item = u64>>(stops: I) -> bool {
     stops.into_iter().any(|s| s == 0)
 }
