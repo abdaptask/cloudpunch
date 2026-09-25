@@ -45,6 +45,38 @@ jobs:
       - name: Format check
         run: pnpm format:check
 
+      # The backend's production compile (tsc -p tsconfig.build.json).
+      - name: Backend build
+        run: pnpm -F @cloudpunch/backend build
+
+  # Real Postgres via Testcontainers (Docker is on ubuntu runners). These
+  # exercise the SQL the unit tests' in-memory DB can't: triggers,
+  # constraints, jsonb round trips.
+  postgres-integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+          run_install: false
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Backend integration tests (Postgres 16)
+        run: pnpm -F @cloudpunch/backend test:integration
+
   # The desktop agent targets Windows (Win32 watchers, Credential
   # Manager), so its Rust is built, linted and tested on Windows.
   rust:

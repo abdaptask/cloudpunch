@@ -23,6 +23,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a test-only function.
 - **One-time `cargo fmt` of the crate** (whitespace only, its own
   commit). Formatting is enforced from now on.
+### CI: backend build and real-Postgres integration tests (2026-09-25)
+
+- **The backend production compile works again.** It
+  (`pnpm -F @cloudpunch/backend build`) had been failing on
+  `declarationMap` without `declaration`. The compile now runs in CI.
+- **New `postgres-integration` CI job** (ubuntu, Testcontainers
+  Postgres 16). It runs the backend's `*.integration.test.ts`, which had
+  never run anywhere: there is no Docker on the dev machine.
+- **First run: all 16 `PostgresDb` tests failed.** Their setup deleted
+  from `audit_log`, which the append-only trigger rejects, as it should.
+  Setup now uses `TRUNCATE`. All pass, including the jsonb payload
+  round trip from #27.
+- **Known gap.** The compiled server (`node dist/server.js`) doesn't
+  start yet, because the workspace packages ship TypeScript source
+  (`main: ./src/index.ts`). Running the compiled backend needs a
+  bundling step, which is for the deployment (AWS) phase. Dev runs use
+  `tsx`.
+### CI invariants: no content capture, append-only ledger (2026-09-25)
+
+- **New package `tests/invariants`,** run by `pnpm test` and therefore
+  in CI. It implements CLAUDE.md invariants 1 and 2 and ADR-0004 §10
+  checks 1 and 2.
+- **No content capture.** The build fails if:
+  - any event or signed field name matches ADR-0004's banned pattern
+    (keystroke, screenshot, clipboard, window_title, app_name, url, …;
+    `app_version` and `hostname_hash` are allowed). Names are taken
+    from the event schemas, fixtures, canonical field set, backend
+    ingest schema, and the keys the desktop's Rust writes;
+  - the desktop calls a content-capturing Windows API. These are matched
+    as prefixes, so `GetWindowTextW`, `SetWindowsHookExW` and
+    `WH_KEYBOARD_LL` are caught;
+  - the desktop depends on a capture crate;
+  - the webview uses clipboard, screen or media APIs.
+- **Append-only.** No migration or production backend code may
+  `UPDATE`, `DELETE` or `TRUNCATE` `time_event` or `audit_log`. The
+  database triggers already enforce this at run time.
+- Every scanner is unit-tested against planted violations. While
+  writing them, a gap was found and fixed: whole-word matching would
+  have missed the real Win32 names.
+- **Docs.** CLAUDE.md now points to the real checks. ADR-0004 §10 gets
+  an implementation note.
+- **Follow-ups:** the payability property test (needs the server-side
+  pay computation) and a dedicated sequence-integrity property test.
 
 ### CloudPunch logo everywhere (2026-09-25)
 

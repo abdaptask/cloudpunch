@@ -1,0 +1,16 @@
+{
+  "name": "@cloudpunch/tests-invariants",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "CI invariants from CLAUDE.md and ADR-0004 §10: no content capture, append-only time_event/audit_log.",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.15",
+    "typescript": "^5.5.4",
+    "vitest": "^2.1.4"
+  }
+}

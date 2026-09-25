@@ -49,9 +49,9 @@ afterAll(async () => {
 beforeEach(async () => {
   // Clean data between tests but keep the schema. Order matters — FK
   // dependencies: event → session → device/employee → user.
-  await sql`DELETE FROM audit_log`;
-  // time_event trigger blocks DELETE; use TRUNCATE which is DDL.
-  await sql`TRUNCATE time_event, time_session, device, employee_override RESTART IDENTITY CASCADE`;
+  // time_event and audit_log are append-only (row triggers reject
+  // DELETE); TRUNCATE is DDL and resets them between tests.
+  await sql`TRUNCATE audit_log, policy_override, time_event, time_session, device, employee_override RESTART IDENTITY CASCADE`;
   await sql`DELETE FROM admin_review_case`;
   await sql`UPDATE app_user SET employee_id = NULL`;
   await sql`DELETE FROM employee`;
