@@ -240,7 +240,8 @@ impl<S: SecretStore> AuthManager<S> {
                 self.adopt(oid, name, username, tokens)?;
                 Ok(true)
             }
-            Err(AuthError::Rejected(_)) => {
+            Err(AuthError::Rejected(e)) => {
+                eprintln!("[cloudpunch] saved sign-in rejected by Microsoft ({e}); sign in again");
                 self.store.delete(&slot)?;
                 Ok(false)
             }

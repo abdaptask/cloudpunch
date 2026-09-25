@@ -173,6 +173,18 @@ pub fn run() {
     // sync loop is started per user after sign-in (sync::live) and
     // shares the watchers' is_online flag through the recorder.
     let recorder = recorder::Recorder::new();
+    // Crash-recovery heartbeat for the session in progress (ADR-0003
+    // §10): a crashed session closes at the last beat.
+    let beat = recorder.clone();
+    let heartbeat = std::thread::Builder::new()
+        .name("cp-heartbeat".into())
+        .spawn(move || loop {
+            std::thread::sleep(std::time::Duration::from_secs(60));
+            beat.heartbeat(std::time::SystemTime::now());
+        });
+    if let Err(e) = heartbeat {
+        eprintln!("[cloudpunch] heartbeat thread failed to start: {e}");
+    }
     let agent = Agent::with_recorder(CoreConfig::default(), &recorder);
     let auth = Arc::new(commands::Auth::new(
         auth::EntraConfig::APTASK,

@@ -20,6 +20,14 @@
 //!
 //! One outbox file per user, `outbox-<oid>.db` in the app data folder,
 //! encrypted with that user's outbox key (ADR-0007 §5).
+//!
+//! Crash recovery (ADR-0003 §10): the session in progress is also kept
+//! in the outbox (`open_session`), tagged with this app run's id and a
+//! heartbeat refreshed every minute. When the recorder is armed and
+//! finds a session left by an *earlier* run, the app crashed or the
+//! computer shut down while clocked in: it signs a `SESSION_RECOVERED`
+//! event into that session, and the server closes it at the last
+//! heartbeat, flagged `reconstructed` for manager review.
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -30,13 +38,13 @@ use ed25519_dalek::SigningKey;
 use thiserror::Error;
 
 use crate::enroll::{Identity, APP_VERSION};
-use crate::event::encode::{encode, EventMeta, SessionContext, Zone};
+use crate::event::encode::{encode, encode_parts, EventMeta, SessionContext, Zone};
 use crate::event::ulid::UlidGenerator;
 use crate::keystore::{KeystoreError, SecretStore, Secrets};
 use crate::machine::sink::{describe, EventSink, SinkError};
 use crate::machine::transitions::{next_payroll_state, PayrollState};
 use crate::machine::CoreEvent;
-use crate::outbox::{CachedIdentity, EnqueueInput, Outbox, OutboxError};
+use crate::outbox::{CachedIdentity, EnqueueInput, OpenSession, Outbox, OutboxError};
 
 #[derive(Debug, Error)]
 pub enum RecorderError {
@@ -46,6 +54,8 @@ pub enum RecorderError {
     Outbox(#[from] OutboxError),
     #[error("app data folder: {0}")]
     Io(#[from] std::io::Error),
+    #[error("signing: {0}")]
+    Signing(String),
 }
 
 /// Where an armed recorder writes: one user's outbox, identity, and
@@ -140,6 +150,18 @@ struct Shared {
     mode: Mode,
     /// The network watcher's reachability flag, once watchers run.
     online: Option<Arc<AtomicBool>>,
+    /// This app run. An `open_session` row from another run is stale.
+    run_id: String,
+}
+
+impl Shared {
+    /// No watcher yet counts as online (as the sync loop assumes).
+    fn online(&self) -> bool {
+        match &self.online {
+            Some(flag) => flag.load(Ordering::Acquire),
+            None => true,
+        }
+    }
 }
 
 /// Shared arm/disarm handle; clones share state.
@@ -160,6 +182,7 @@ impl Recorder {
             shared: Arc::new(Mutex::new(Shared {
                 mode: Mode::Unarmed,
                 online: None,
+                run_id: uuid::Uuid::new_v4().to_string(),
             })),
         }
     }
@@ -172,8 +195,33 @@ impl Recorder {
         r
     }
 
+    /// Start recording into `target`. A session an earlier run left
+    /// open is recovered first (see the module docs).
     pub fn arm(&self, target: Target) {
-        self.lock().mode = Mode::Armed(Box::new(target));
+        self.arm_at(target, SystemTime::now(), &Zone::local(SystemTime::now()));
+    }
+
+    fn arm_at(&self, target: Target, now: SystemTime, zone: &Zone) {
+        let mut shared = self.lock();
+        match recover_stale_session(&target, &shared.run_id, shared.online(), now, zone) {
+            Ok(true) => eprintln!("[cloudpunch] recovered a session left open by an earlier run"),
+            Ok(false) => {}
+            Err(e) => eprintln!("[cloudpunch] session recovery failed: {e}"),
+        }
+        shared.mode = Mode::Armed(Box::new(target));
+    }
+
+    /// Heartbeat for the session in progress (called every minute).
+    pub fn heartbeat(&self, now: SystemTime) {
+        let shared = self.lock();
+        if let Mode::Armed(t) = &shared.mode {
+            if let Err(e) = t
+                .outbox
+                .touch_open_session(&t.identity.oid, &shared.run_id, now)
+            {
+                eprintln!("[cloudpunch] heartbeat failed: {e}");
+            }
+        }
     }
 
     /// Close the outbox (sign-out).
@@ -264,11 +312,7 @@ impl EventSink for OutboxSink {
 
         let recorder = self.recorder.clone();
         let shared = recorder.lock();
-        // No watcher yet counts as online (as the sync loop assumes).
-        let online = match &shared.online {
-            Some(flag) => flag.load(Ordering::Acquire),
-            None => true,
-        };
+        let online = shared.online();
         let target = match &shared.mode {
             Mode::LogOnly => return Ok(()),
             Mode::Unarmed => return Err(SinkError("recorder not ready".into())),
@@ -332,11 +376,94 @@ impl EventSink for OutboxSink {
         if let Some(next) = next_payroll_state(session.state, event.event_type(), Some(&payload)) {
             session.state = next;
         }
+        // Keep the crash-recovery record in step. The event itself is
+        // already safe in the outbox, so a failure here is only logged.
+        let kept = if session.state == PayrollState::Closed {
+            target.outbox.clear_open_session(&target.identity.oid)
+        } else {
+            target.outbox.save_open_session(&OpenSession {
+                oid: target.identity.oid.clone(),
+                run_id: shared.run_id.clone(),
+                session_id: session.ctx.session_id.clone(),
+                correlation_id: session.ctx.correlation_id.clone(),
+                device_id: session.ctx.device_id.clone(),
+                employee_id: session.ctx.employee_id.clone(),
+                next_seq: session.next_seq,
+                payroll_state: session.state.as_str().to_string(),
+                last_alive_at: at,
+            })
+        };
+        if let Err(e) = kept {
+            eprintln!("[cloudpunch] open-session record not updated: {e}");
+        }
         if session.state == PayrollState::Closed {
             self.session = None;
         }
         Ok(())
     }
+}
+
+/// If `target`'s outbox holds a session left open by another run, sign
+/// `SESSION_RECOVERED` into it and forget it. Returns whether it did.
+fn recover_stale_session(
+    target: &Target,
+    run_id: &str,
+    online: bool,
+    now: SystemTime,
+    zone: &Zone,
+) -> Result<bool, RecorderError> {
+    let oid = &target.identity.oid;
+    let Some(stale) = target.outbox.load_open_session(oid)? else {
+        return Ok(false);
+    };
+    if stale.run_id == run_id {
+        return Ok(false);
+    }
+    let ctx = SessionContext {
+        device_id: stale.device_id.clone(),
+        employee_id: stale.employee_id.clone(),
+        session_id: stale.session_id.clone(),
+        correlation_id: stale.correlation_id.clone(),
+        app_version: APP_VERSION.to_string(),
+    };
+    let ulid = UlidGenerator::new()
+        .next(now)
+        .map_err(|e| RecorderError::Signing(format!("ulid: {e}")))?;
+    let payload = serde_json::json!({
+        "reconstruction_reason": "session_recovered",
+        "last_heartbeat_at": zone.rfc3339(stale.last_alive_at),
+        "recovered_at": zone.rfc3339(now),
+    });
+    let meta = EventMeta {
+        event_ulid: &ulid,
+        sequence_number: stale.next_seq,
+        at: now,
+        monotonic_ns: 0,
+        offline_captured: !online,
+    };
+    let encoded = encode_parts(
+        &ctx,
+        meta,
+        "SESSION_RECOVERED",
+        "reconstructed",
+        &payload,
+        zone,
+        &target.key,
+    )
+    .map_err(|e| RecorderError::Signing(e.to_string()))?;
+    target.outbox.enqueue(&EnqueueInput {
+        event_ulid: encoded.event_ulid,
+        session_id: ctx.session_id,
+        event_type: encoded.event_type.to_string(),
+        sequence_number: encoded.sequence_number,
+        event_body: encoded.body,
+        integrity_signature: encoded.signature.to_vec(),
+        correlation_id: ctx.correlation_id,
+        device_id: ctx.device_id,
+        employee_id: ctx.employee_id,
+    })?;
+    target.outbox.clear_open_session(oid)?;
+    Ok(true)
 }
 
 #[cfg(test)]
@@ -566,5 +693,104 @@ mod tests {
             cached.key.to_bytes(),
             secrets.device_key(OID).unwrap().to_bytes()
         );
+    }
+
+    fn open_row(r: &Recorder) -> Option<OpenSession> {
+        match &r.lock().mode {
+            Mode::Armed(t) => t.outbox.load_open_session(OID).unwrap(),
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn the_session_in_progress_is_kept_for_recovery_and_cleared_at_clock_out() {
+        let (r, mut sink) = armed();
+        sink.record(&CoreEvent::UserClockIn, t(0)).unwrap();
+        let open = open_row(&r).expect("recorded at clock-in");
+        assert_eq!(open.next_seq, 2);
+        assert_eq!(open.payroll_state, "ACTIVE");
+        assert_eq!(open.last_alive_at, t(0));
+
+        sink.record(
+            &CoreEvent::UserStartBreak {
+                kind: BreakKind::Bio,
+            },
+            t(60),
+        )
+        .unwrap();
+        let open = open_row(&r).unwrap();
+        assert_eq!(
+            (open.next_seq, open.payroll_state.as_str()),
+            (3, "ON_BREAK")
+        );
+
+        r.heartbeat(t(120));
+        assert_eq!(open_row(&r).unwrap().last_alive_at, t(120));
+
+        sink.record(&CoreEvent::UserEndBreak, t(180)).unwrap();
+        sink.record(&CoreEvent::UserClockOut, t(240)).unwrap();
+        assert_eq!(open_row(&r), None);
+    }
+
+    #[test]
+    fn a_session_left_by_an_earlier_run_is_recovered_on_arming() {
+        // Run 1: clock in, heartbeat, then "crash" (never clock out).
+        let run1 = Recorder::new();
+        let target = Target::in_memory(identity(), key());
+        run1.arm(target);
+        let mut sink = run1.sink().with_zone(Zone::fixed("Asia/Kolkata", 330));
+        sink.record(&CoreEvent::UserClockIn, t(0)).unwrap();
+        run1.heartbeat(t(1800));
+        let Mode::Armed(target) = std::mem::replace(&mut run1.lock().mode, Mode::Unarmed) else {
+            unreachable!()
+        };
+
+        // Run 2 arms with the same outbox.
+        let run2 = Recorder::new();
+        run2.arm_at(*target, t(90_000), &Zone::fixed("Asia/Kolkata", 330));
+        let rows = rows(&run2);
+        assert_eq!(rows.len(), 2);
+        let recovered = rows
+            .iter()
+            .find(|e| e.event_type == "SESSION_RECOVERED")
+            .expect("recovery event");
+        let clock_in = rows
+            .iter()
+            .find(|e| e.event_type == "USER_CLOCK_IN")
+            .unwrap();
+        assert_eq!(recovered.session_id, clock_in.session_id);
+        assert_eq!(recovered.correlation_id, clock_in.correlation_id);
+        assert_eq!(recovered.sequence_number, 2);
+
+        let body: Value = serde_json::from_slice(&recovered.event_body).unwrap();
+        assert_eq!(body["origin"], "reconstructed");
+        assert_eq!(
+            body["payload"]["reconstruction_reason"],
+            "session_recovered"
+        );
+        let heartbeat = Zone::fixed("Asia/Kolkata", 330).rfc3339(t(1800));
+        assert_eq!(body["payload"]["last_heartbeat_at"], heartbeat.as_str());
+        let ctx = SessionContext {
+            device_id: recovered.device_id.clone(),
+            employee_id: recovered.employee_id.clone(),
+            session_id: recovered.session_id.clone(),
+            correlation_id: recovered.correlation_id.clone(),
+            app_version: APP_VERSION.into(),
+        };
+        assert!(verify_body(&ctx, &body, &key()));
+        assert_eq!(open_row(&run2), None, "forgotten once recovered");
+    }
+
+    #[test]
+    fn re_arming_in_the_same_run_does_not_recover_the_live_session() {
+        let (r, mut sink) = armed();
+        sink.record(&CoreEvent::UserClockIn, t(0)).unwrap();
+        let Mode::Armed(target) = std::mem::replace(&mut r.lock().mode, Mode::Unarmed) else {
+            unreachable!()
+        };
+        r.arm(*target);
+        let types: Vec<_> = rows(&r).into_iter().map(|e| e.event_type).collect();
+        assert_eq!(types, ["USER_CLOCK_IN"]);
+        assert!(open_row(&r).is_some());
     }
 }

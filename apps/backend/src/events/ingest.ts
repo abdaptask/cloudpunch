@@ -132,7 +132,27 @@ export async function ingestBatch(input: IngestBatchInput): Promise<IngestBatchO
     // device). Reject unless the client explicitly opted in to take
     // over. See ADR-0003 §8.
     const existingOpen = await input.db.timeSessions.findOpenByEmployeeId(employee.id);
-    if (existingOpen && existingOpen.id !== input.sessionId) {
+    if (
+      existingOpen &&
+      existingOpen.id !== input.sessionId &&
+      existingOpen.deviceId === device.id
+    ) {
+      // Same computer: the agent lost that session (crash, or its
+      // SESSION_RECOVERED never arrived). One device can't be in two
+      // sessions, so close the old one at its last known event,
+      // flagged for manager review (ADR-0003 §10 implementation note).
+      const prior = await input.db.timeEvents.findBySessionOrderedBySequence(existingOpen.id);
+      const lastSeen = prior.reduce<Date>(
+        (latest, e) => (e.clientTs > latest ? e.clientTs : latest),
+        existingOpen.openedAt,
+      );
+      await input.db.timeSessions.close(
+        existingOpen.id,
+        lastSeen,
+        'system_shutdown_reconstructed',
+        true,
+      );
+    } else if (existingOpen && existingOpen.id !== input.sessionId) {
       if (!input.takeOver) {
         return {
           status: 'multi_device_conflict',
@@ -160,6 +180,9 @@ export async function ingestBatch(input: IngestBatchInput): Promise<IngestBatchO
   const maxKnownSeq = await input.db.timeEvents.findMaxSequenceForSession(session.id);
   let watermark = maxKnownSeq ?? 0;
   let sessionClosedWith: SessionCloseReason | null = null;
+  /** When the close happened, if not now (crash recovery). */
+  let sessionClosedAt: Date | null = null;
+  let sessionReconstructed = false;
 
   // Derive the session's current payroll state from the events already
   // in the DB. If the session was just opened in this batch (session
@@ -295,6 +318,13 @@ export async function ingestBatch(input: IngestBatchInput): Promise<IngestBatchO
         sessionClosedWith = 'user_clock_out';
       } else if (evt.event_type === 'PROMPT_TIMEOUT_30S') {
         sessionClosedWith = 'idle_auto_clock_out';
+      } else if (evt.event_type === 'SESSION_RECOVERED') {
+        // ADR-0003 §10: the agent found this session still open after
+        // a crash or shutdown. Close it at the last heartbeat it saw,
+        // kept within [opened_at, now], and flag it for review.
+        sessionClosedWith = 'system_shutdown_reconstructed';
+        sessionClosedAt = recoveredCloseTime(evt.payload, session.openedAt, new Date());
+        sessionReconstructed = true;
       } else if (
         evt.event_type === 'CLOCK_DRIFT_DETECTED' ||
         evt.event_type === 'INTEGRITY_VIOLATION'
@@ -322,7 +352,12 @@ export async function ingestBatch(input: IngestBatchInput): Promise<IngestBatchO
   }
 
   if (sessionClosedWith !== null) {
-    await input.db.timeSessions.close(session.id, new Date(), sessionClosedWith);
+    await input.db.timeSessions.close(
+      session.id,
+      sessionClosedAt ?? new Date(),
+      sessionClosedWith,
+      sessionReconstructed,
+    );
   }
 
   await input.db.devices.touchLastSeen(device.id, new Date());
@@ -373,4 +408,22 @@ function base64Decode(input: string): Uint8Array {
   const normal = input.replace(/-/g, '+').replace(/_/g, '/');
   const padded = normal.length % 4 === 0 ? normal : normal + '='.repeat(4 - (normal.length % 4));
   return new Uint8Array(Buffer.from(padded, 'base64'));
+}
+
+/**
+ * Close time for a recovered session: `payload.last_heartbeat_at`,
+ * clamped to [openedAt, now]. Falls back to `now` if it is missing or
+ * unparseable — the session still closes and is flagged for review.
+ */
+export function recoveredCloseTime(
+  payload: Record<string, unknown>,
+  openedAt: Date,
+  now: Date,
+): Date {
+  const raw = payload['last_heartbeat_at'];
+  const t = typeof raw === 'string' ? new Date(raw) : null;
+  if (!t || Number.isNaN(t.getTime())) return now;
+  if (t < openedAt) return openedAt;
+  if (t > now) return now;
+  return t;
 }

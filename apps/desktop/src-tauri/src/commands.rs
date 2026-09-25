@@ -356,6 +356,7 @@ pub fn sign_out(
     }
     enrollment.reset();
     let _ = app.emit(ENROLLMENT_EVENT, enrollment.status());
+    eprintln!("[cloudpunch] signed out");
     let status = auth.status();
     let _ = app.emit(AUTH_EVENT, &status);
     Ok(status)

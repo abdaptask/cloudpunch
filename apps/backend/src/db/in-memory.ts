@@ -86,7 +86,8 @@ export class InMemoryDb implements DbRepositories {
 
     this.timeSessions = {
       open: async (input) => this.openSession(input),
-      close: async (id, closedAt, closedReason) => this.closeSession(id, closedAt, closedReason),
+      close: async (id, closedAt, closedReason, reconstructed) =>
+        this.closeSession(id, closedAt, closedReason, reconstructed ?? false),
       findOpenByEmployeeId: async (employeeId) =>
         Array.from(this.sessionById.values()).find(
           (s) => s.employeeId === employeeId && s.closedAt === null,
@@ -230,11 +231,17 @@ export class InMemoryDb implements DbRepositories {
     id: string,
     closedAt: Date,
     closedReason: SessionCloseReason,
+    reconstructed: boolean,
   ): Promise<TimeSession> {
     const s = this.sessionById.get(id);
     if (!s) throw new Error(`session ${id} not found`);
     if (s.closedAt !== null) return s; // idempotent
-    const closed: TimeSession = { ...s, closedAt, closedReason };
+    const closed: TimeSession = {
+      ...s,
+      closedAt,
+      closedReason,
+      reconstructed: s.reconstructed || reconstructed,
+    };
     this.sessionById.set(id, closed);
     return closed;
   }

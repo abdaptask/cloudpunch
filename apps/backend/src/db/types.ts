@@ -187,7 +187,17 @@ export interface DeviceRepo {
 
 export interface TimeSessionRepo {
   open(input: OpenSessionInput): Promise<TimeSession>;
-  close(id: string, closedAt: Date, closedReason: SessionCloseReason): Promise<TimeSession>;
+  /**
+   * Close a session. Idempotent: an already-closed session is returned
+   * unchanged. `reconstructed` marks a close the agent did not observe
+   * (crash recovery, ADR-0003 §10) for manager review.
+   */
+  close(
+    id: string,
+    closedAt: Date,
+    closedReason: SessionCloseReason,
+    reconstructed?: boolean,
+  ): Promise<TimeSession>;
   findOpenByEmployeeId(employeeId: string): Promise<TimeSession | null>;
   findById(id: string): Promise<TimeSession | null>;
 }
