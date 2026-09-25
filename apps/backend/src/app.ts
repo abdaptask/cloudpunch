@@ -4,6 +4,7 @@ import { authPlugin } from './auth/plugin.js';
 import { createEntraJwks } from './auth/jwks.js';
 import type { Env } from './config/env.js';
 import type { DbRepositories } from './db/index.js';
+import { dayRoutes } from './days/routes.js';
 import { devicesRoutes } from './devices/routes.js';
 import { eventsRoutes } from './events/routes.js';
 import { healthPlugin, type HealthProbe } from './health/routes.js';
@@ -70,6 +71,7 @@ export async function buildApp(opts: BuildAppOptions) {
     await app.register(meRoutes, { db: opts.db });
     await app.register(devicesRoutes, { db: opts.db });
     await app.register(eventsRoutes, { db: opts.db });
+    await app.register(dayRoutes, { db: opts.db });
     await app.register(policyRoutes, { db: opts.db });
     await app.register(policyAdminRoutes, { db: opts.db });
   } else {

@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Backend: day history API (ADR-0016) (2026-09-25)
+
+The backend half of past-days history. The desktop screen comes in a
+follow-up PR.
+
+- **`GET /v1/me/days/{date}`**: one working day, with each session's
+  clock-in and clock-out and the segments the desktop draws (working,
+  calls by type, breaks by kind, away, idle prompt), plus totals.
+- **`GET /v1/me/days?from=&to=`**: totals for each working day, at most
+  31 days per request.
+- **Working day rule.** A run of sessions, each starting within 6 hours
+  of the previous one ending, dated by its first clock-in on that
+  computer's own clock. It never splits at midnight: an IST shift from
+  6:30 pm to 3:30 am is one day. Times come back with the offset they
+  were recorded with, so an EST machine and an IST machine each show
+  their own local times.
+- The caller's own data only (`self.timeline.read`), for today and the
+  previous 30 days.
+- New repo method `timeSessions.findByEmployeeOpenedBetween`, with a
+  Postgres integration test.
+- Segments are rebuilt from `time_event` using the shared state machine.
+  Nothing is stored and there are no migrations.
+
 ### Desktop: clock-out check, smarter clocked-out text, clock-in nudge (2026-09-25)
 
 Three requests from the project owner (ADR-0013 §7).

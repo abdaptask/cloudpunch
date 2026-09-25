@@ -404,6 +404,15 @@ export class PostgresDb implements DbRepositories {
         if (!row) throw new Error(`session ${id} not found`);
         return map(row);
       },
+      findByEmployeeOpenedBetween: async (employeeId, from, to) => {
+        const rows = await this.sql<TimeSessionRow[]>`
+          SELECT id, employee_id, device_id, opened_at, closed_at, closed_reason, reconstructed
+          FROM time_session
+          WHERE employee_id = ${employeeId} AND opened_at >= ${from} AND opened_at < ${to}
+          ORDER BY opened_at
+        `;
+        return rows.map(map);
+      },
       findOpenByEmployeeId: async (employeeId) => {
         const rows = await this.sql<TimeSessionRow[]>`
           SELECT id, employee_id, device_id, opened_at, closed_at, closed_reason, reconstructed

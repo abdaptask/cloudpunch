@@ -305,6 +305,38 @@ describe('PostgresDb — sessions', () => {
     expect(reread?.closedReason).toBe('user_clock_out');
     expect(reread?.closedAt?.getTime()).toBe(closedAt.getTime());
   });
+
+  it('findByEmployeeOpenedBetween returns only that employee in [from, to), oldest first', async () => {
+    const empId = await seedEmployee();
+    const otherId = await seedEmployee();
+    const { userId } = await seedUser({ employeeId: empId });
+    const device = await db.devices.enroll({
+      id: randomUUID(),
+      userId,
+      os: 'windows',
+      hostnameHash: 'sha256-' + '0'.repeat(64),
+      publicKeyEd25519: new Uint8Array(32),
+      appVersion: '0.1.0',
+    });
+    const at = (iso: string) => new Date(iso);
+    const openClosed = async (employeeId: string, openedAt: Date) => {
+      const s = await db.timeSessions.open({ employeeId, deviceId: device.id, openedAt });
+      await db.timeSessions.close(s.id, new Date(openedAt.getTime() + 3_600_000), 'user_clock_out');
+      return s.id;
+    };
+    const late = await openClosed(empId, at('2026-09-25T18:30:00Z'));
+    const early = await openClosed(empId, at('2026-09-25T09:00:00Z'));
+    await openClosed(empId, at('2026-09-26T00:00:00Z')); // at `to`: excluded
+    await openClosed(empId, at('2026-09-24T23:59:59Z')); // before `from`
+    await openClosed(otherId, at('2026-09-25T10:00:00Z'));
+    const found = await db.timeSessions.findByEmployeeOpenedBetween(
+      empId,
+      at('2026-09-25T00:00:00Z'),
+      at('2026-09-26T00:00:00Z'),
+    );
+    expect(found.map((s) => s.id)).toEqual([early, late]);
+    expect(found[0]?.closedReason).toBe('user_clock_out');
+  });
 });
 
 // ---------------------------------------------------------------------
