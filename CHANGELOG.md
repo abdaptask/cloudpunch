@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fix: event payloads read back camelCased from Postgres (2026-09-25)
+
+- **The bug.** The Postgres client used `transform: postgres.camel`,
+  which also camelCases keys inside json/jsonb values on read. Stored
+  payloads (`break_kind`, `in_use`, ...) came back as `breakKind`,
+  `inUse`.
+- **The effect.** Ingest rebuilds a session's state from its stored
+  events, so it stopped recognising them. For example, a
+  `USER_END_BREAK` arriving in a later batch than its
+  `USER_START_BREAK` was rejected as `state_transition_invalid` and
+  poisoned on the desktop. Calls, away tags and idle prompts that
+  spanned batches were affected the same way. The in-memory test DB
+  doesn't transform, so unit tests missed it; it was found while
+  building the policy repo.
+- **The fix.** `POSTGRES_TRANSFORM` maps column names only; JSON values
+  round-trip unchanged. Verified against the dev DB.
+- **Tests.** A new unit test for the transform, and a Postgres
+  integration test that a payload round-trips. The integration test
+  needs Docker and was not run locally.
+
 ### ADR-0015: policy storage, resolution and desktop fetch (2026-09-25)
 
 - Accepted by the project owner. Policy lives in a new

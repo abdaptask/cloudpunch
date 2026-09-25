@@ -358,6 +358,31 @@ describe('PostgresDb — events', () => {
     expect(r.status).toBe('accepted');
   });
 
+  it('returns payload keys exactly as stored (no camelCasing inside jsonb)', async () => {
+    const { empId, deviceId, sessionId } = await makeSession();
+    await db.timeEvents.insertOne({
+      eventUlid: '01J8Q00000000000000000000P',
+      eventType: 'USER_START_BREAK',
+      sessionId,
+      employeeId: empId,
+      sequenceNumber: 1,
+      clientTs: new Date(),
+      monotonicNs: 0,
+      tzIana: 'Asia/Kolkata',
+      utcOffsetMinutes: 330,
+      deviceId,
+      appVersion: '0.1.0',
+      origin: 'user',
+      offlineCaptured: false,
+      payload: { break_kind: 'meal', note: null },
+      integritySignature: sig,
+      correlationId: randomUUID(),
+      parentEventUlid: null,
+    });
+    const [evt] = await db.timeEvents.findBySessionOrderedBySequence(sessionId);
+    expect(evt?.payload).toEqual({ break_kind: 'meal', note: null });
+  });
+
   it('is idempotent on duplicate ULID with same signature', async () => {
     const { empId, deviceId, sessionId } = await makeSession();
     const evt = {
