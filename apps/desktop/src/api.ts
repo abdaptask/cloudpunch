@@ -48,6 +48,16 @@ export interface AuthStatus {
 /** Emitted after sign-in, sign-out, and the silent start-up restore. */
 export const AUTH_EVENT = 'cp://auth';
 
+/** Mirrors `enroll::EnrollmentStatus` (2b.4 F3b). */
+export interface EnrollmentStatus {
+  state: 'pending' | 'enrolled' | 'retrying' | 'not_configured' | 'blocked';
+  /** Why, for `retrying` and `blocked`. */
+  code: string | null;
+}
+
+/** Emitted whenever the enrollment state changes. */
+export const ENROLLMENT_EVENT = 'cp://enrollment';
+
 export const api = {
   getState: (): Promise<StateView> => invoke<StateView>('get_state'),
   clockIn: (): Promise<StateView> => invoke<StateView>('clock_in'),
@@ -70,6 +80,9 @@ export const api = {
   signOut: (): Promise<AuthStatus> => invoke<AuthStatus>('sign_out'),
   onAuth: (cb: (status: AuthStatus) => void): Promise<UnlistenFn> =>
     listen<AuthStatus>(AUTH_EVENT, (e) => cb(e.payload)),
+  enrollmentStatus: (): Promise<EnrollmentStatus> => invoke<EnrollmentStatus>('enrollment_status'),
+  onEnrollment: (cb: (status: EnrollmentStatus) => void): Promise<UnlistenFn> =>
+    listen<EnrollmentStatus>(ENROLLMENT_EVENT, (e) => cb(e.payload)),
   onState: (cb: (view: StateView) => void): Promise<UnlistenFn> =>
     listen<StateView>(STATE_EVENT, (e) => cb(e.payload)),
   /** Close dialog answers (ADR-0013 §1). */

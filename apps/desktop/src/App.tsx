@@ -18,6 +18,7 @@ import { useTheme, type Theme } from './ui/theme.js';
 import { SignIn } from './SignIn.js';
 import { useAgentState } from './useAgentState.js';
 import { useAuth } from './useAuth.js';
+import { useEnrollment } from './useEnrollment.js';
 import { useFitWindow } from './useFitWindow.js';
 import { useNow } from './useNow.js';
 
@@ -90,8 +91,25 @@ const CALL_KIND: Record<CallTypeName, SegmentKind> = {
   other: 'call_other',
 };
 
+/** Why enrollment blocks clocking in (2b.4 F3b); `clock_in` returns the same codes. */
+const ENROLL_TEXT: Record<string, string> = {
+  no_user: "Your account isn't set up in CloudPunch yet. Contact HR.",
+  no_employee: "Your account isn't linked to an employee record. Contact HR.",
+  clock_not_allowed: "Clocking in isn't enabled for your account. Contact HR.",
+  device_revoked: 'This computer has been removed from CloudPunch. Contact IT.',
+  device_conflict: 'This computer is registered to someone else. Contact IT.',
+};
+
+function enrollText(code: string | null): string {
+  return (
+    (code && ENROLL_TEXT[code]) ??
+    `CloudPunch couldn't register this computer (${code}). Contact IT.`
+  );
+}
+
 const ERROR_TEXT: Record<string, string> = {
   invalid_transition: "That action isn't available right now.",
+  ...ENROLL_TEXT,
 };
 
 export function App(): JSX.Element {
@@ -102,6 +120,8 @@ export function App(): JSX.Element {
   useFitWindow(mainRef);
   const { auth, busy, error: authError, signIn, cancelSignIn, signOut } = useAuth();
   const signedIn = auth?.signedIn === true;
+  const enrollment = useEnrollment();
+  const enrollBlocked = signedIn && enrollment?.state === 'blocked';
   const [closeAsked, setCloseAsked] = useState(false);
 
   // The close button asks first, unless "keep running" was remembered
@@ -180,6 +200,15 @@ export function App(): JSX.Element {
       {signedIn && authError === 'clock_out_first' && (
         <p role="alert" style={{ margin: 0, fontSize: 13, color: t.danger }}>
           Clock out before signing out.
+        </p>
+      )}
+      {enrollBlocked && (
+        <p
+          role="alert"
+          aria-label="enrollment"
+          style={{ margin: 0, fontSize: 13, color: t.danger }}
+        >
+          {enrollText(enrollment.code)}
         </p>
       )}
       {signedIn && (
@@ -261,7 +290,7 @@ export function App(): JSX.Element {
             </section>
           )}
 
-          {error && (
+          {error && !(enrollBlocked && error === enrollment.code) && (
             <p role="alert" style={{ margin: 0, fontSize: 13, color: t.danger }}>
               {ERROR_TEXT[error] ?? `Something went wrong (${error}).`}
             </p>

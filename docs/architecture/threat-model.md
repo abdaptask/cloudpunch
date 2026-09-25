@@ -192,6 +192,14 @@ Ordered by (likelihood × impact). Numbers are qualitative.
   role, they could infer call activity. Mitigation: only Auditors
   see raw events; Manager view is derived and does not surface
   ON_CALL.
+- **`device.hostname_hash` is guessable** (2b.4 F3b). It is an
+  unsalted SHA-256 of the lower-cased hostname, so anyone with DB
+  read access can confirm a guessed name (ApTask laptop names follow
+  a pattern). Accepted by the project owner 2026-09-25: it lets the
+  server recognise the same machine across enrollments, and the
+  hostname is not sensitive beyond that. The raw hostname never
+  leaves the device. Revisit if hostnames start to carry personal
+  names.
 
 ## Review cadence
 

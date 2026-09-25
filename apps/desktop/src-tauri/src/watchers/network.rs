@@ -172,8 +172,8 @@ mod tests {
 
     #[test]
     fn reduce_true_when_both_bits_set() {
-        let mask = (NLM_CONNECTIVITY_IPV4_INTERNET.0 as u32)
-            | (NLM_CONNECTIVITY_IPV6_INTERNET.0 as u32);
+        let mask =
+            (NLM_CONNECTIVITY_IPV4_INTERNET.0 as u32) | (NLM_CONNECTIVITY_IPV6_INTERNET.0 as u32);
         assert!(reduce_reachable(mask));
     }
 
@@ -221,7 +221,10 @@ mod tests {
             .expect("initial emit");
         assert!(matches!(
             sig,
-            OsSignal::NetworkReachabilityChanged { reachable: true, .. }
+            OsSignal::NetworkReachabilityChanged {
+                reachable: true,
+                ..
+            }
         ));
 
         // Flip to offline.
@@ -231,7 +234,10 @@ mod tests {
             .expect("offline emit");
         assert!(matches!(
             sig,
-            OsSignal::NetworkReachabilityChanged { reachable: false, .. }
+            OsSignal::NetworkReachabilityChanged {
+                reachable: false,
+                ..
+            }
         ));
 
         // Stay offline — no additional emits.
@@ -248,7 +254,10 @@ mod tests {
             .expect("online emit");
         assert!(matches!(
             sig,
-            OsSignal::NetworkReachabilityChanged { reachable: true, .. }
+            OsSignal::NetworkReachabilityChanged {
+                reachable: true,
+                ..
+            }
         ));
 
         handle.shutdown();

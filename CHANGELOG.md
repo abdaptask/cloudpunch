@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Desktop device enrollment (2b.4 F3b) (2026-09-25)
+
+- New `enroll.rs`. After sign-in and after the silent start-up
+  restore, the agent calls `GET /v1/me` for the employee id, then
+  `POST /v1/devices/enroll` with the device id, OS, hostname hash,
+  public key and app version. It enrols on every launch. The backend
+  treats a repeat as a key refresh, so a key lost at sign-out heals
+  itself.
+- **Device id:** a UUID v4 per user, stored in the keystore at
+  `CloudPunch/device-id/<oid>` (`com.cloudpunch.device-id` on macOS).
+  It is kept across sign-out. ADR-0007 §5 is amended to add it.
+- **`hostname_hash`:** `sha256-<hex>` of the lower-cased hostname,
+  unsalted. The owner accepted that it is guessable, and this is
+  recorded under residual risks in the threat model. The hostname
+  comes from `GetComputerNameExW` on Windows and `gethostname` on
+  macOS.
+- **Offline-first:** only a definite answer from the server blocks
+  clock-in: no user, no employee, clocking not allowed, a revoked
+  device, or a device owned by someone else. `clock_in` returns the
+  same code, and the main window shows the reason.
+- Network errors, 5xx, 401 and 429 are retried in the background
+  (30 s, doubling, capped at 15 min). A newer sign-in or a sign-out
+  stops a stale attempt.
+- New command `enrollment_status` and new event `cp://enrollment`.
+- The backend URL comes from `CLOUDPUNCH_BACKEND_URL`. When it is
+  unset, enrollment reports `not_configured` and clock-in still works.
+- New dependency: `libc` 0.2, macOS only. It was already in the
+  lockfile.
+- Not wired in yet: the sync loop still reads its identity from env
+  vars. F3c switches it to the enrolled identity.
+
 ### Desktop signed-event encoder (2b.4 F3a) (2026-09-24)
 
 - New `event/encode.rs` turns a state-machine event into the signed wire

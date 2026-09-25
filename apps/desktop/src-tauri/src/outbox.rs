@@ -214,8 +214,10 @@ impl Outbox {
     /// Remove an event that the server accepted or acknowledged as a
     /// duplicate no-op. Missing rows are a no-op.
     pub fn mark_sent(&self, event_ulid: &str) -> Result<(), OutboxError> {
-        self.conn
-            .execute("DELETE FROM outbox WHERE event_ulid = ?1", params![event_ulid])?;
+        self.conn.execute(
+            "DELETE FROM outbox WHERE event_ulid = ?1",
+            params![event_ulid],
+        )?;
         Ok(())
     }
 
@@ -359,7 +361,9 @@ mod tests {
     fn enqueue_then_drain_returns_the_event() {
         let key = make_key();
         let outbox = Outbox::open_in_memory(&key).unwrap();
-        outbox.enqueue(&mk_input("01J8Q00000000000000000000A", 1)).unwrap();
+        outbox
+            .enqueue(&mk_input("01J8Q00000000000000000000A", 1))
+            .unwrap();
         let batch = outbox.drain(10).unwrap();
         assert_eq!(batch.len(), 1);
         assert_eq!(batch[0].event_ulid, "01J8Q00000000000000000000A");
@@ -382,9 +386,15 @@ mod tests {
     fn drain_orders_by_sequence_then_next_retry() {
         let key = make_key();
         let outbox = Outbox::open_in_memory(&key).unwrap();
-        outbox.enqueue(&mk_input("01J8Q00000000000000000000B", 2)).unwrap();
-        outbox.enqueue(&mk_input("01J8Q00000000000000000000A", 1)).unwrap();
-        outbox.enqueue(&mk_input("01J8Q00000000000000000000C", 3)).unwrap();
+        outbox
+            .enqueue(&mk_input("01J8Q00000000000000000000B", 2))
+            .unwrap();
+        outbox
+            .enqueue(&mk_input("01J8Q00000000000000000000A", 1))
+            .unwrap();
+        outbox
+            .enqueue(&mk_input("01J8Q00000000000000000000C", 3))
+            .unwrap();
         let batch = outbox.drain(10).unwrap();
         let seqs: Vec<i64> = batch.iter().map(|e| e.sequence_number).collect();
         assert_eq!(seqs, vec![1, 2, 3]);
@@ -405,7 +415,9 @@ mod tests {
     fn mark_sent_removes_the_row() {
         let key = make_key();
         let outbox = Outbox::open_in_memory(&key).unwrap();
-        outbox.enqueue(&mk_input("01J8Q00000000000000000000A", 1)).unwrap();
+        outbox
+            .enqueue(&mk_input("01J8Q00000000000000000000A", 1))
+            .unwrap();
         outbox.mark_sent("01J8Q00000000000000000000A").unwrap();
         assert_eq!(outbox.pending_count().unwrap(), 0);
         assert!(outbox.get("01J8Q00000000000000000000A").unwrap().is_none());
@@ -423,7 +435,9 @@ mod tests {
     fn mark_failed_bumps_counter_and_pushes_next_retry() {
         let key = make_key();
         let outbox = Outbox::open_in_memory(&key).unwrap();
-        outbox.enqueue(&mk_input("01J8Q00000000000000000000A", 1)).unwrap();
+        outbox
+            .enqueue(&mk_input("01J8Q00000000000000000000A", 1))
+            .unwrap();
 
         let future = SystemTime::now() + Duration::from_secs(120);
         outbox
@@ -451,8 +465,12 @@ mod tests {
 
         {
             let outbox = Outbox::open(&path, &key).unwrap();
-            outbox.enqueue(&mk_input("01J8Q00000000000000000000A", 1)).unwrap();
-            outbox.enqueue(&mk_input("01J8Q00000000000000000000B", 2)).unwrap();
+            outbox
+                .enqueue(&mk_input("01J8Q00000000000000000000A", 1))
+                .unwrap();
+            outbox
+                .enqueue(&mk_input("01J8Q00000000000000000000B", 2))
+                .unwrap();
         }
 
         let reopened = Outbox::open(&path, &key).unwrap();
@@ -536,7 +554,9 @@ mod tests {
 
         {
             let outbox = Outbox::open(&path, &key).unwrap();
-            outbox.enqueue(&mk_input("01J8Q00000000000000000000A", 1)).unwrap();
+            outbox
+                .enqueue(&mk_input("01J8Q00000000000000000000A", 1))
+                .unwrap();
         }
 
         let mut wrong = key;

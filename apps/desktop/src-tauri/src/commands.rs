@@ -9,12 +9,13 @@
 //! round trip on a blocking worker, off the UI thread.
 
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use tauri::{AppHandle, Emitter, LogicalSize, Manager, State, WebviewWindow};
 
 use crate::agent::{parse_away_tag, parse_break_kind, rejection_code, Agent, StateView};
-use crate::auth::{open_system_browser, AuthManager, AuthStatus};
+use crate::auth::{open_system_browser, AuthError, AuthManager, AuthStatus};
+use crate::enroll::{self, EnrollError, Enroller, Enrollment, EnrollmentStatus};
 use crate::keystore::OsStore;
 use crate::machine::{CoreState, Input, PromptResponse};
 
@@ -24,6 +25,9 @@ pub type Auth = AuthManager<OsStore>;
 /// Event carrying an [`AuthStatus`] after sign-in, sign-out, or the
 /// silent start-up restore.
 pub const AUTH_EVENT: &str = "cp://auth";
+
+/// Event carrying an [`EnrollmentStatus`] whenever it changes.
+pub const ENROLLMENT_EVENT: &str = "cp://enrollment";
 
 /// How long the browser round trip may take.
 const SIGN_IN_TIMEOUT: Duration = Duration::from_secs(300);
@@ -84,13 +88,91 @@ pub fn get_state(agent: State<'_, Arc<Agent>>) -> StateView {
 }
 
 /// Clocking in needs a signed-in user: every event is attributed to
-/// one (2b.4).
+/// one (2b.4). A definite "no" from enrollment (no employee, revoked
+/// device, ...) blocks it too; being offline or not yet enrolled
+/// doesn't — events wait in the outbox (F3b).
 #[tauri::command]
-pub fn clock_in(agent: State<'_, Arc<Agent>>, auth: State<'_, Arc<Auth>>) -> CommandResult {
+pub fn clock_in(
+    agent: State<'_, Arc<Agent>>,
+    auth: State<'_, Arc<Auth>>,
+    enrollment: State<'_, Arc<Enrollment>>,
+) -> CommandResult {
     if auth.oid().is_none() {
         return Err("not_signed_in".to_string());
     }
+    if let Some(code) = enrollment.blocked() {
+        return Err(code.to_string());
+    }
     run(&agent, Input::ClockIn)
+}
+
+#[tauri::command]
+pub fn enrollment_status(enrollment: State<'_, Arc<Enrollment>>) -> EnrollmentStatus {
+    enrollment.status()
+}
+
+/// Enrol this device for the signed-in user on a background thread,
+/// retrying with backoff while the backend is unreachable. A newer
+/// sign-in or a sign-out makes this attempt stop (generation check).
+pub fn start_enrollment(app: &AppHandle, auth: Arc<Auth>, enrollment: Arc<Enrollment>) {
+    let generation = enrollment.reset();
+    let emit = {
+        let app = app.clone();
+        let enrollment = enrollment.clone();
+        move || {
+            let _ = app.emit(ENROLLMENT_EVENT, enrollment.status());
+        }
+    };
+    let Ok(base_url) = std::env::var(enroll::BACKEND_URL_ENV) else {
+        eprintln!(
+            "[cloudpunch] enrollment skipped: {} unset",
+            enroll::BACKEND_URL_ENV
+        );
+        enrollment.set_not_configured(generation);
+        emit();
+        return;
+    };
+    emit();
+    let spawned = std::thread::Builder::new()
+        .name("cp-enroll".into())
+        .spawn(move || {
+            let Some(hostname) = enroll::hostname() else {
+                enrollment.record(generation, &Err(EnrollError::Hostname));
+                emit();
+                return;
+            };
+            let enroller = Enroller::new(OsStore, &base_url, hostname);
+            for attempt in 0u32.. {
+                let Some(oid) = auth.oid() else { return };
+                let outcome = match auth.access_token(SystemTime::now()) {
+                    Ok(token) => enroller.enroll(&oid, &token),
+                    Err(AuthError::NotSignedIn) => return,
+                    Err(e) => Err(EnrollError::Unavailable(format!("token: {}", e.code()))),
+                };
+                if !enrollment.record(generation, &outcome) {
+                    return;
+                }
+                emit();
+                match &outcome {
+                    Ok(_) => {
+                        eprintln!("[cloudpunch] device enrolled");
+                        return;
+                    }
+                    Err(e) if !e.is_transient() => {
+                        eprintln!("[cloudpunch] enrollment blocked: {}", e.code());
+                        return;
+                    }
+                    Err(e) => eprintln!("[cloudpunch] enrollment will retry: {e}"),
+                }
+                std::thread::sleep(enroll::retry_delay(attempt));
+                if !enrollment.is_current(generation) {
+                    return;
+                }
+            }
+        });
+    if let Err(e) = spawned {
+        eprintln!("[cloudpunch] enrollment thread failed to start: {e}");
+    }
 }
 
 #[tauri::command]
@@ -100,15 +182,21 @@ pub fn auth_status(auth: State<'_, Arc<Auth>>) -> AuthStatus {
 
 /// Interactive sign-in through the system browser.
 #[tauri::command]
-pub async fn sign_in(app: AppHandle, auth: State<'_, Arc<Auth>>) -> Result<AuthStatus, String> {
+pub async fn sign_in(
+    app: AppHandle,
+    auth: State<'_, Arc<Auth>>,
+    enrollment: State<'_, Arc<Enrollment>>,
+) -> Result<AuthStatus, String> {
     let auth = auth.inner().clone();
+    let signing_in = auth.clone();
     let status = tauri::async_runtime::spawn_blocking(move || {
-        auth.sign_in(&open_system_browser, SIGN_IN_TIMEOUT)
+        signing_in.sign_in(&open_system_browser, SIGN_IN_TIMEOUT)
     })
     .await
     .map_err(|_| "internal".to_string())?
     .map_err(|e| e.code().to_string())?;
     let _ = app.emit(AUTH_EVENT, &status);
+    start_enrollment(&app, auth, enrollment.inner().clone());
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.show();
         let _ = w.set_focus();
@@ -128,11 +216,14 @@ pub fn sign_out(
     app: AppHandle,
     agent: State<'_, Arc<Agent>>,
     auth: State<'_, Arc<Auth>>,
+    enrollment: State<'_, Arc<Enrollment>>,
 ) -> Result<AuthStatus, String> {
     if agent.state() != CoreState::ClockedOut {
         return Err("clock_out_first".to_string());
     }
     auth.sign_out().map_err(|e| e.code().to_string())?;
+    enrollment.reset();
+    let _ = app.emit(ENROLLMENT_EVENT, enrollment.status());
     let status = auth.status();
     let _ = app.emit(AUTH_EVENT, &status);
     Ok(status)

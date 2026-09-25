@@ -162,9 +162,7 @@ fn parse_accepted_body(body: &[u8]) -> Result<SendBatchResponse, String> {
             outcome,
         });
     }
-    Ok(SendBatchResponse::Accepted {
-        results: per_event,
-    })
+    Ok(SendBatchResponse::Accepted { results: per_event })
 }
 
 fn map_conflict_body(body: &[u8]) -> SendBatchResponse {
@@ -386,7 +384,8 @@ mod tests {
         let server = MockServer::start();
         let _mock = server.mock(|when, then| {
             when.method(POST).path("/v1/events");
-            then.status(409).body(r#"{"code":"session_closed","message":"..."}"#);
+            then.status(409)
+                .body(r#"{"code":"session_closed","message":"..."}"#);
         });
 
         let client = ReqwestBackendClient::new(server.base_url(), "t");

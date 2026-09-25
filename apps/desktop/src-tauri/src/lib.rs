@@ -30,8 +30,9 @@
 
 pub mod agent;
 pub mod auth;
-pub mod commands;
 pub mod call_type;
+pub mod commands;
+pub mod enroll;
 pub mod event;
 pub mod keystore;
 pub mod machine;
@@ -46,10 +47,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use agent::Agent;
-use tauri::Emitter;
 use machine::{CallType, CoreConfig, Input};
 use outbox::Outbox;
 use sync::{ReqwestBackendClient, SyncBootstrap, SyncConfig, SyncLoop};
+use tauri::Emitter;
 use watchers::supervisor::Supervisor;
 
 /// RAII guard around a running [`Supervisor`] and its drain thread.
@@ -108,7 +109,12 @@ pub fn start_watchers(agent: Arc<Agent>) -> WatchersGuard {
                     OsSignal::NetworkReachabilityChanged { reachable, .. } => {
                         is_online_drain.store(*reachable, Ordering::Release);
                     }
-                    OsSignal::MediaInUseChanged { mic, cam, call_type, .. } => {
+                    OsSignal::MediaInUseChanged {
+                        mic,
+                        cam,
+                        call_type,
+                        ..
+                    } => {
                         // Mic OR camera, with the kind of call (ADR-0012).
                         let raw = (*mic || *cam).then_some(call_type.unwrap_or(CallType::Other));
                         let _ = agent.handle(Input::MediaInUse(raw));
@@ -127,11 +133,9 @@ pub fn start_watchers(agent: Arc<Agent>) -> WatchersGuard {
         .start(sup.sender());
     let session_h = session::SessionWatcher::new().start(sup.sender());
     let power_h = power::PowerWatcher::new().start(sup.sender());
-    let miccam_h = mic_cam::MicCamWatcher::new(
-        mic_cam::MicCamConfig::default(),
-        mic_cam::WindowsMediaState,
-    )
-    .start(sup.sender());
+    let miccam_h =
+        mic_cam::MicCamWatcher::new(mic_cam::MicCamConfig::default(), mic_cam::WindowsMediaState)
+            .start(sup.sender());
     let network_h = network::NetworkWatcher::new(
         network::NetworkConfig::default(),
         network::WindowsConnectivityProbe,
@@ -226,8 +230,13 @@ pub fn run() {
     // thread), then watchers (which frees the is_online Arc it
     // shares with sync).
     let agent = Agent::new(CoreConfig::default());
-    let auth = Arc::new(commands::Auth::new(auth::EntraConfig::APTASK, keystore::OsStore));
+    let auth = Arc::new(commands::Auth::new(
+        auth::EntraConfig::APTASK,
+        keystore::OsStore,
+    ));
     let restore_auth = auth.clone();
+    let enrollment = Arc::new(enroll::Enrollment::new());
+    let restore_enrollment = enrollment.clone();
     let watchers = start_watchers(agent.clone());
     let _sync = start_sync_loop_if_configured(watchers.is_online());
     let _ticker = agent.start_ticker();
@@ -237,6 +246,7 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .manage(agent)
         .manage(auth)
+        .manage(enrollment)
         .invoke_handler(tauri::generate_handler![
             commands::get_state,
             commands::hide_to_tray,
@@ -247,6 +257,7 @@ pub fn run() {
             commands::sign_in,
             commands::cancel_sign_in,
             commands::sign_out,
+            commands::enrollment_status,
             commands::fit_window,
             commands::clock_in,
             commands::clock_out,
@@ -266,8 +277,14 @@ pub fn run() {
             std::thread::Builder::new()
                 .name("cp-auth-restore".into())
                 .spawn(move || {
-                    if let Err(e) = restore_auth.restore() {
-                        eprintln!("[cloudpunch] silent sign-in failed: {}", e.code());
+                    match restore_auth.restore() {
+                        Ok(true) => commands::start_enrollment(
+                            &handle,
+                            restore_auth.clone(),
+                            restore_enrollment,
+                        ),
+                        Ok(false) => {}
+                        Err(e) => eprintln!("[cloudpunch] silent sign-in failed: {}", e.code()),
                     }
                     let _ = handle.emit(commands::AUTH_EVENT, restore_auth.status());
                 })?;

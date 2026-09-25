@@ -128,6 +128,9 @@ this data is safe to log at debug level.
     base64url-encoded)
   - `CloudPunch/sqlite-key/<oid>` — SQLCipher key (raw 32 bytes,
     base64url-encoded)
+  - `CloudPunch/device-id/<oid>` — the device's enrollment id (UUID;
+    not secret, kept beside the key it names; added 2026-09-25, 2b.4
+    F3b)
 - Roaming: none (DPAPI is per-machine per-user; roaming profiles work
   because DPAPI keys travel with the profile, but a domain-joined
   machine that migrates the profile silently retains access).
@@ -139,6 +142,7 @@ this data is safe to log at debug level.
   - `com.cloudpunch.msal` — MSAL cache
   - `com.cloudpunch.device-key` — Ed25519 private key
   - `com.cloudpunch.sqlite-key` — SQLCipher key
+  - `com.cloudpunch.device-id` — device enrollment id (not secret)
 - Account name: the user's Entra `oid`.
 - Access control: `kSecAttrAccessibleWhenUnlockedThisDeviceOnly`,
   `kSecAttrSynchronizable=false`. Prevents iCloud sync and requires
@@ -158,7 +162,9 @@ this data is safe to log at debug level.
 - SQLCipher receives its 32-byte key via `PRAGMA key = "x'<hex>'"`.
   The key material is zeroed after the PRAGMA call.
 - Logout: the app deletes all three vault entries and force-closes the
-  encrypted DB. A new sign-in generates new material.
+  encrypted DB. A new sign-in generates new material. The device-id
+  entry is kept, so the next sign-in re-enrols the same device with
+  the new public key rather than registering another one.
 
 ### 6. Tauri auto-updater signing
 
