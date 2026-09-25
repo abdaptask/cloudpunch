@@ -6,9 +6,12 @@ on:
   pull_request:
     branches: [main]
 
+# A newer push to a PR cancels that PR's older run. Runs on main are
+# never cancelled: each must finish (and save the Rust build cache that
+# every PR restores), or every Rust run starts cold (~18 min, not ~4).
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   build:

@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### CI: stop cancelling runs on main (2026-09-25)
+
+- **Found by the project owner.** Since the Rust job arrived (#34),
+  runs on `main` kept showing "Canceling since a higher priority
+  waiting request exists". Each new merge cancelled the previous run,
+  so the slow Windows Rust job never finished on `main`.
+- **Effect.** An unfinished run never saves the Rust build cache. Every
+  run (PRs included) started cold: about 18 minutes instead of about 4.
+- **Fix.** Only pull-request runs are cancelled by a newer push; runs on
+  `main` always finish and refresh the cache.
+
 ### Desktop: clock-out check, smarter clocked-out text, clock-in nudge (2026-09-25)
 
 Three requests from the project owner (ADR-0013 §7).
