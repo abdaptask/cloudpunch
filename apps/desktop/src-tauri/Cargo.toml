@@ -90,6 +90,11 @@ windows = { version = "0.58", features = [
 # functional difference.
 winreg = "0.52"
 
+[target.'cfg(target_os = "macos")'.dependencies]
+# gethostname(3) for the enrollment hostname hash (2b.4 F3b). Already
+# in the tree; Windows uses GetComputerNameExW from `windows`.
+libc = "0.2"
+
 [dev-dependencies]
 # CSPRNG for keypair generation in unit + conformance tests.
 rand = "0.8"

@@ -1,7 +1,7 @@
 import { act, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { AuthStatus, StateView } from './api.js';
+import type { AuthStatus, EnrollmentStatus, StateView } from './api.js';
 import { App } from './App.js';
 
 const mocks = vi.hoisted(() => ({
@@ -24,6 +24,8 @@ const mocks = vi.hoisted(() => ({
   clockOutAndQuit: vi.fn<() => Promise<void>>(),
   onCloseRequested: vi.fn<(cb: () => void) => Promise<() => void>>(),
   ackLongShift: vi.fn<() => Promise<StateView>>(),
+  enrollmentStatus: vi.fn<() => Promise<EnrollmentStatus>>(),
+  onEnrollment: vi.fn<(cb: (s: EnrollmentStatus) => void) => Promise<() => void>>(),
 }));
 
 const SIGNED_IN: AuthStatus = { signedIn: true, name: 'Test User', username: 'test@aptask.com' };
@@ -51,6 +53,7 @@ function view(over: Partial<StateView> = {}): StateView {
 let pushState: (v: StateView) => void = () => undefined;
 let pushAuth: (s: AuthStatus) => void = () => undefined;
 let pressClose: () => void = () => undefined;
+let pushEnrollment: (s: EnrollmentStatus) => void = () => undefined;
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -66,6 +69,11 @@ beforeEach(() => {
   });
   mocks.onCloseRequested.mockImplementation((cb) => {
     pressClose = cb;
+    return Promise.resolve(() => undefined);
+  });
+  mocks.enrollmentStatus.mockResolvedValue({ state: 'enrolled', code: null });
+  mocks.onEnrollment.mockImplementation((cb) => {
+    pushEnrollment = cb;
     return Promise.resolve(() => undefined);
   });
   mocks.hideToTray.mockResolvedValue(undefined);
@@ -258,6 +266,41 @@ describe('sign-in (2b.4 F2)', () => {
     render(<App />);
     await screen.findByRole('button', { name: 'Clock out' });
     expect(screen.queryByRole('button', { name: 'Sign out' })).not.toBeInTheDocument();
+  });
+});
+
+describe('device enrollment (2b.4 F3b)', () => {
+  it('a blocking answer shows why, and clock in says the same once', async () => {
+    mocks.clockIn.mockRejectedValue('no_employee');
+    const user = userEvent.setup();
+    render(<App />);
+    await screen.findByRole('button', { name: 'Clock in' });
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    act(() => pushEnrollment({ state: 'blocked', code: 'no_employee' }));
+    expect(await screen.findByRole('alert', { name: 'enrollment' })).toHaveTextContent(
+      "isn't linked to an employee record",
+    );
+    await user.click(screen.getByRole('button', { name: 'Clock in' }));
+    expect(mocks.clockIn).toHaveBeenCalledOnce();
+    expect(screen.getAllByRole('alert')).toHaveLength(1);
+  });
+
+  it('an unknown code still explains, and offline shows nothing', async () => {
+    mocks.enrollmentStatus.mockResolvedValue({ state: 'blocked', code: 'keystore' });
+    render(<App />);
+    expect(await screen.findByRole('alert', { name: 'enrollment' })).toHaveTextContent(
+      "couldn't register this computer (keystore)",
+    );
+    act(() => pushEnrollment({ state: 'retrying', code: 'unavailable' }));
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('is not shown while signed out', async () => {
+    mocks.authStatus.mockResolvedValue(SIGNED_OUT);
+    mocks.enrollmentStatus.mockResolvedValue({ state: 'blocked', code: 'no_user' });
+    render(<App />);
+    await screen.findByRole('button', { name: 'Sign in with Microsoft' });
+    expect(screen.queryByRole('alert', { name: 'enrollment' })).not.toBeInTheDocument();
   });
 });
 

@@ -636,6 +636,7 @@ dependencies = [
  "httpmock",
  "iana-time-zone",
  "keyring",
+ "libc",
  "open",
  "rand 0.8.8",
  "reqwest 0.12.28",

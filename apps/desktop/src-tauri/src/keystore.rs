@@ -16,10 +16,14 @@
 //! |---|---|---|
 //! | device key | `CloudPunch/device-key/<oid>` | `com.cloudpunch.device-key` |
 //! | outbox key | `CloudPunch/sqlite-key/<oid>` | `com.cloudpunch.sqlite-key` |
+//! | device id | `CloudPunch/device-id/<oid>` | `com.cloudpunch.device-id` |
 //!
 //! The macOS account name is the `oid`.
 //!
-//! Not wired into the app yet: sign-in (2b.4 F2) supplies the `oid`.
+//! The **device id** (2b.4 F3b) is not secret: a UUID naming this
+//! user's enrollment of this machine. It lives beside the key it
+//! belongs to and survives sign-out, so signing in again re-enrols the
+//! same device (with the new key) instead of creating another one.
 
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -87,6 +91,10 @@ impl Slot {
 
     pub fn outbox_key(oid: &str) -> Result<Self, KeystoreError> {
         Self::new("sqlite-key", "com.cloudpunch.sqlite-key", oid)
+    }
+
+    pub fn device_id(oid: &str) -> Result<Self, KeystoreError> {
+        Self::new("device-id", "com.cloudpunch.device-id", oid)
     }
 
     /// Entra refresh token (ADR-0007 §5: the "MSAL cache" entry).
@@ -307,7 +315,21 @@ impl<S: SecretStore> Secrets<S> {
         self.load_or_create(&Slot::outbox_key(oid)?, "outbox key")
     }
 
-    /// Delete both secrets for `oid` (sign-out).
+    /// This user's device id (UUID v4), created on first use. Kept
+    /// across sign-out (see the module docs).
+    pub fn device_id(&self, oid: &str) -> Result<String, KeystoreError> {
+        let slot = Slot::device_id(oid)?;
+        if let Some(stored) = self.store.get(&slot)? {
+            return uuid::Uuid::parse_str(stored.trim())
+                .map(|u| u.hyphenated().to_string())
+                .map_err(|_| KeystoreError::Corrupt("device id"));
+        }
+        let id = uuid::Uuid::new_v4().hyphenated().to_string();
+        self.store.set(&slot, &id)?;
+        Ok(id)
+    }
+
+    /// Delete both secrets for `oid` (sign-out). The device id stays.
     pub fn forget(&self, oid: &str) -> Result<(), KeystoreError> {
         self.store.delete(&Slot::device_key(oid)?)?;
         self.store.delete(&Slot::outbox_key(oid)?)
@@ -365,6 +387,33 @@ mod tests {
         let o = Slot::outbox_key(OID).unwrap();
         assert_eq!(o.target, format!("CloudPunch/sqlite-key/{OID}"));
         assert_eq!(o.service, "com.cloudpunch.sqlite-key");
+        let i = Slot::device_id(OID).unwrap();
+        assert_eq!(i.target, format!("CloudPunch/device-id/{OID}"));
+        assert_eq!(i.service, "com.cloudpunch.device-id");
+    }
+
+    #[test]
+    fn device_id_is_a_per_user_uuid_that_survives_forget() {
+        let s = secrets();
+        let id = s.device_id(OID).unwrap();
+        assert!(uuid::Uuid::parse_str(&id).is_ok());
+        assert_eq!(s.device_id(OID).unwrap(), id);
+        assert_ne!(
+            s.device_id("1f8e1c2a-3b4d-4e5f-8a9b-0c1d2e3f4a5b").unwrap(),
+            id
+        );
+        s.forget(OID).unwrap();
+        assert_eq!(s.device_id(OID).unwrap(), id, "kept across sign-out");
+    }
+
+    #[test]
+    fn corrupt_device_id_is_reported_not_replaced() {
+        let s = secrets();
+        s.store.set(&Slot::device_id(OID).unwrap(), "nope").unwrap();
+        assert!(matches!(
+            s.device_id(OID),
+            Err(KeystoreError::Corrupt("device id"))
+        ));
     }
 
     #[test]
