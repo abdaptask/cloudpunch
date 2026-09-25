@@ -176,6 +176,18 @@ importers:
         specifier: ^2.1.4
         version: 2.1.9(@types/node@20.19.43)(jsdom@25.0.1)
 
+  tests/invariants:
+    devDependencies:
+      '@types/node':
+        specifier: ^20.14.15
+        version: 20.19.43
+      typescript:
+        specifier: ^5.5.4
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.4
+        version: 2.1.9(@types/node@20.19.43)(jsdom@25.0.1)
+
 packages:
 
   '@adobe/css-tools@4.5.0':
