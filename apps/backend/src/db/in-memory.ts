@@ -132,6 +132,10 @@ export class InMemoryDb implements DbRepositories {
           (s) => s.employeeId === employeeId && s.closedAt === null,
         ) ?? null,
       findById: async (id) => this.sessionById.get(id) ?? null,
+      findByEmployeeOpenedBetween: async (employeeId, from, to) =>
+        Array.from(this.sessionById.values())
+          .filter((s) => s.employeeId === employeeId && s.openedAt >= from && s.openedAt < to)
+          .sort((a, b) => a.openedAt.getTime() - b.openedAt.getTime()),
     };
 
     this.timeEvents = {

@@ -201,6 +201,12 @@ export interface TimeSessionRepo {
     reconstructed?: boolean,
   ): Promise<TimeSession>;
   findOpenByEmployeeId(employeeId: string): Promise<TimeSession | null>;
+  /** Sessions clocked in within [from, to), oldest first (day history, ADR-0016). */
+  findByEmployeeOpenedBetween(
+    employeeId: string,
+    from: Date,
+    to: Date,
+  ): Promise<readonly TimeSession[]>;
   findById(id: string): Promise<TimeSession | null>;
 }
 
