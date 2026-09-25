@@ -341,7 +341,7 @@ function Actions({
   switch (view.status) {
     case 'clocked_out':
       return (
-        <Button variant="primary" onClick={() => run(api.clockIn)}>
+        <Button variant="go" onClick={() => run(api.clockIn)}>
           Clock in
         </Button>
       );
@@ -349,7 +349,7 @@ function Actions({
     case 'on_call':
       return (
         <>
-          <Button variant="primary" onClick={() => run(api.clockOut)}>
+          <Button variant="stop" onClick={() => run(api.clockOut)}>
             Clock out
           </Button>
           {chips(
@@ -373,7 +373,7 @@ function Actions({
       );
     case 'idle_pending':
       return (
-        <Button variant="primary" onClick={() => run(api.clockOut)}>
+        <Button variant="stop" onClick={() => run(api.clockOut)}>
           Clock out
         </Button>
       );
@@ -383,7 +383,7 @@ function Actions({
           <Button variant="primary" onClick={() => run(api.endBreak)}>
             End break
           </Button>
-          <Button variant="secondary" onClick={() => run(api.clockOut)}>
+          <Button variant="stopOutline" onClick={() => run(api.clockOut)}>
             Clock out
           </Button>
         </>
@@ -394,7 +394,7 @@ function Actions({
           <Button variant="primary" onClick={() => run(api.markBack)}>
             I&apos;m back
           </Button>
-          <Button variant="secondary" onClick={() => run(api.clockOut)}>
+          <Button variant="stopOutline" onClick={() => run(api.clockOut)}>
             Clock out
           </Button>
         </>

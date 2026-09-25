@@ -20,6 +20,11 @@ export interface Theme {
   /** One distinct colour per timeline segment kind. */
   kind: Record<SegmentKind, string>;
   danger: string;
+  /** Clock in (green) and clock out (red) buttons. */
+  go: string;
+  goHover: string;
+  stop: string;
+  stopHover: string;
   warnBg: string;
   warnText: string;
   font: string;
@@ -52,6 +57,10 @@ export const light: Theme = {
     prompt: '#9ca3af', // grey
   },
   danger: '#c0262d',
+  go: '#15803d',
+  goHover: '#166534',
+  stop: '#c62828',
+  stopHover: '#a61b1b',
   warnBg: '#fff4e0',
   warnText: '#7a4a00',
   font,
@@ -82,6 +91,10 @@ export const dark: Theme = {
     prompt: '#6b7280',
   },
   danger: '#ff6b6b',
+  go: '#16a34a',
+  goHover: '#15803d',
+  stop: '#dc2626',
+  stopHover: '#b91c1c',
   warnBg: '#3a2a10',
   warnText: '#ffd28a',
   font,

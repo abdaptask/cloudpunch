@@ -1,7 +1,11 @@
 import { useState, type ButtonHTMLAttributes, type CSSProperties } from 'react';
 import { useTheme, type Theme } from './theme.js';
 
-export type ButtonVariant = 'primary' | 'secondary' | 'chip';
+/**
+ * `go` / `stop`: clock in (green) and clock out (red). `stopOutline` is
+ * clock out when another action (End break, I'm back) is the main one.
+ */
+export type ButtonVariant = 'primary' | 'secondary' | 'chip' | 'go' | 'stop' | 'stopOutline';
 
 function variantStyle(t: Theme, variant: ButtonVariant, hover: boolean): CSSProperties {
   const base: CSSProperties = {
@@ -32,6 +36,29 @@ function variantStyle(t: Theme, variant: ButtonVariant, hover: boolean): CSSProp
         border: `1px solid ${hover ? t.muted : t.border}`,
         background: t.surface,
         color: t.text,
+      };
+    case 'go':
+    case 'stop':
+      return {
+        ...base,
+        width: '100%',
+        padding: '13px 16px',
+        fontSize: 15,
+        fontWeight: 600,
+        border: 'none',
+        background: variant === 'go' ? (hover ? t.goHover : t.go) : hover ? t.stopHover : t.stop,
+        color: '#ffffff',
+      };
+    case 'stopOutline':
+      return {
+        ...base,
+        width: '100%',
+        padding: '11px 16px',
+        fontSize: 14,
+        fontWeight: 600,
+        border: `1px solid ${t.stop}`,
+        background: hover ? t.surfaceAlt : t.surface,
+        color: t.stop,
       };
     case 'chip':
       return {

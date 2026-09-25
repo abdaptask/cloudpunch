@@ -71,7 +71,7 @@ export function CloseDialog({
       >
         Keep running in tray
       </Button>
-      <Button variant="secondary" onClick={onQuit}>
+      <Button variant={clockedIn ? 'stopOutline' : 'secondary'} onClick={onQuit}>
         {clockedIn ? 'Clock out & quit' : 'Quit'}
       </Button>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -137,7 +137,7 @@ export function LongShiftBanner({
         <Button variant="primary" onClick={onStillWorking}>
           Still working
         </Button>
-        <Button variant="secondary" onClick={onClockOut}>
+        <Button variant="stopOutline" onClick={onClockOut}>
           Clock out
         </Button>
       </div>

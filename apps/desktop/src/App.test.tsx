@@ -545,3 +545,26 @@ describe('App home UI', () => {
     expect(statusText()).toBe('Not clocked in');
   });
 });
+
+describe('clock button colours (owner request)', () => {
+  it('Clock in is green and Clock out is red', async () => {
+    const { unmount } = render(<App />);
+    expect(await screen.findByRole('button', { name: 'Clock in' })).toHaveStyle({
+      background: '#15803d',
+    });
+    unmount();
+
+    mocks.getState.mockResolvedValue(view({ status: 'active' }));
+    const active = render(<App />);
+    expect(await screen.findByRole('button', { name: 'Clock out' })).toHaveStyle({
+      background: '#c62828',
+    });
+    active.unmount();
+
+    // On a break, End break leads; Clock out is a red outline.
+    mocks.getState.mockResolvedValue(view({ status: 'on_break', breakKind: 'bio' }));
+    render(<App />);
+    const out = await screen.findByRole('button', { name: 'Clock out' });
+    expect(out).toHaveStyle({ color: '#c62828', border: '1px solid #c62828' });
+  });
+});
