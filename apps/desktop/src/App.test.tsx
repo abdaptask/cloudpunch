@@ -166,6 +166,9 @@ describe('long-shift check (ADR-0013)', () => {
     render(<App />);
     const banner = await screen.findByRole('alertdialog', { name: 'long-shift' });
     await user.click(within(banner).getByRole('button', { name: 'Clock out' }));
+    // Clock out always asks first.
+    expect(mocks.clockOut).not.toHaveBeenCalled();
+    await user.click(await screen.findByRole('button', { name: 'Yes, clock out' }));
     expect(mocks.clockOut).toHaveBeenCalledOnce();
   });
 });
@@ -566,5 +569,62 @@ describe('clock button colours (owner request)', () => {
     render(<App />);
     const out = await screen.findByRole('button', { name: 'Clock out' });
     expect(out).toHaveStyle({ color: '#c62828', border: '1px solid #c62828' });
+  });
+});
+
+describe('clock out asks first (owner request)', () => {
+  it('while working it offers a break instead; cancel keeps working', async () => {
+    mocks.getState.mockResolvedValue(view({ status: 'active' }));
+    mocks.startBreak.mockResolvedValue(view({ status: 'on_break', breakKind: 'bio' }));
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole('button', { name: 'Clock out' }));
+    const dialog = screen.getByRole('dialog', { name: 'clock-out-dialog' });
+    expect(dialog).toHaveTextContent('Clock out now?');
+
+    await user.click(within(dialog).getByRole('button', { name: 'Cancel, keep working' }));
+    expect(screen.queryByRole('dialog', { name: 'clock-out-dialog' })).not.toBeInTheDocument();
+    expect(mocks.clockOut).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole('button', { name: 'Clock out' }));
+    await user.click(screen.getByRole('button', { name: 'Take a bio break' }));
+    expect(mocks.startBreak).toHaveBeenCalledWith('bio');
+    expect(mocks.clockOut).not.toHaveBeenCalled();
+  });
+
+  it('on a break it just confirms', async () => {
+    mocks.getState.mockResolvedValue(view({ status: 'on_break', breakKind: 'meal' }));
+    mocks.clockOut.mockResolvedValue(view());
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole('button', { name: 'Clock out' }));
+    expect(screen.queryByRole('button', { name: 'Take a bio break' })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Yes, clock out' }));
+    expect(mocks.clockOut).toHaveBeenCalledOnce();
+  });
+});
+
+describe('clocked-out text knows about the day (owner request)', () => {
+  it('before any work today it invites you to start', async () => {
+    render(<App />);
+    expect(await screen.findByText('Not clocked in')).toBeInTheDocument();
+    expect(screen.getByText('Ready to start? Clock in when you begin work.')).toBeInTheDocument();
+  });
+
+  it('after working today it shows the time worked and when you clocked out', async () => {
+    const now = Date.now();
+    const start = now - 3 * 3_600_000;
+    const end = now - 30 * 60_000;
+    mocks.getState.mockResolvedValue(
+      view({
+        timeline: [{ kind: 'working', startedAt: start, endedAt: end, session: 1 }],
+      }),
+    );
+    render(<App />);
+    expect(await screen.findByText('Clocked out')).toBeInTheDocument();
+    expect(
+      screen.getByText(/2h 30m worked today · clocked out at .+\. Clock in again to continue\./),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/start tracking your day/)).not.toBeInTheDocument();
   });
 });

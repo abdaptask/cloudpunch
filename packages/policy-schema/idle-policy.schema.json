@@ -202,7 +202,14 @@
       "properties": {
         "on_clock_minutes": { "type": "integer", "minimum": 10, "maximum": 240, "default": 30 },
         "long_shift_hours": { "type": "integer", "minimum": 4, "maximum": 16, "default": 9 },
-        "long_shift_repeat_hours": { "type": "integer", "minimum": 1, "maximum": 8, "default": 2 }
+        "long_shift_repeat_hours": { "type": "integer", "minimum": 1, "maximum": 8, "default": 2 },
+        "clock_in_nudge_minutes": {
+          "type": ["integer", "null"],
+          "minimum": 10,
+          "maximum": 240,
+          "default": 30,
+          "description": "Signed in but not clocked in yet today, and using the computer: remind every this many minutes. null disables. ADR-0013 §7."
+        }
       },
       "additionalProperties": false
     },

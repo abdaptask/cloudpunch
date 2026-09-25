@@ -25,6 +25,8 @@ pub struct ReminderConfig {
     /// midnight. Start > end means the window wraps midnight.
     pub quiet_start: u16,
     pub quiet_end: u16,
+    /// "Ready to clock in?" cadence; None disables (ADR-0013 §7).
+    pub clock_in_nudge: Option<Duration>,
 }
 
 impl Default for ReminderConfig {
@@ -37,6 +39,7 @@ impl Default for ReminderConfig {
             long_shift_repeat: Duration::from_secs(2 * 3600),
             quiet_start: 22 * 60,
             quiet_end: 7 * 60,
+            clock_in_nudge: Some(Duration::from_secs(30 * 60)),
         }
     }
 }
@@ -59,6 +62,8 @@ pub enum Reminder {
     BreakOverCap { kind: BreakKind, elapsed: Duration },
     /// "You've been clocked in for 9 hours — still working?"
     LongShift { elapsed: Duration },
+    /// Signed in, using the computer, but not clocked in yet today.
+    NotClockedIn,
 }
 
 /// What the scheduler needs to know right now.
@@ -146,6 +151,61 @@ pub fn due(cfg: &ReminderConfig, inp: Inputs, st: &mut ReminderState) -> Vec<Rem
         _ => {}
     }
     out
+}
+
+/// What the clock-in nudge needs to know (ADR-0013 §7).
+#[derive(Debug, Clone, Copy)]
+pub struct NudgeInputs {
+    pub now: SystemTime,
+    /// Signed in and enrolled: a clock-in would be recorded.
+    pub ready: bool,
+    pub clocked_out: bool,
+    /// Any time tracked today already. Once someone has clocked in and
+    /// out today, a nudge would nag about a finished day.
+    pub worked_today: bool,
+    pub last_input_at: SystemTime,
+    pub window_visible: bool,
+    pub minute_of_day: u16,
+}
+
+/// Using the computer means input within this long.
+const ACTIVE_WITHIN: Duration = Duration::from_secs(5 * 60);
+/// Let start-up (silent sign-in, enrollment) settle before the first nudge.
+const FIRST_NUDGE_AFTER: Duration = Duration::from_secs(60);
+
+#[derive(Debug, Clone, Default)]
+pub struct NudgeState {
+    /// When the nudge conditions first held (this stretch).
+    since: Option<SystemTime>,
+    last: Option<SystemTime>,
+}
+
+/// "Ready to clock in?" if it's due now; updates `st`.
+pub fn clock_in_nudge(
+    cfg: &ReminderConfig,
+    inp: NudgeInputs,
+    st: &mut NudgeState,
+) -> Option<Reminder> {
+    let every = cfg.clock_in_nudge?;
+    if !inp.ready || !inp.clocked_out || inp.worked_today {
+        *st = NudgeState::default();
+        return None;
+    }
+    let active = since(inp.last_input_at, inp.now) <= ACTIVE_WITHIN;
+    if !active || cfg.is_quiet(inp.minute_of_day) {
+        return None;
+    }
+    let first = *st.since.get_or_insert(inp.now);
+    let due_at = match st.last {
+        Some(last) => last + every,
+        None => first + FIRST_NUDGE_AFTER,
+    };
+    // With the window open, its Clock in button already asks.
+    if inp.now < due_at || inp.window_visible {
+        return None;
+    }
+    st.last = Some(inp.now);
+    Some(Reminder::NotClockedIn)
 }
 
 /// Local minutes after midnight, from the OS clock and time zone.
@@ -327,5 +387,89 @@ mod tests {
     fn short_durations() {
         assert_eq!(short_duration(Duration::from_secs(45 * 60)), "45m");
         assert_eq!(short_duration(Duration::from_secs(150 * 60)), "2h 30m");
+    }
+
+    fn nudge_inputs(now: SystemTime) -> NudgeInputs {
+        NudgeInputs {
+            now,
+            ready: true,
+            clocked_out: true,
+            worked_today: false,
+            last_input_at: now,
+            window_visible: false,
+            minute_of_day: 10 * 60,
+        }
+    }
+
+    fn at(secs: u64) -> SystemTime {
+        SystemTime::UNIX_EPOCH + Duration::from_secs(1_790_000_000 + secs)
+    }
+
+    #[test]
+    fn clock_in_nudge_after_a_minute_then_every_thirty() {
+        let cfg = ReminderConfig::default();
+        let mut st = NudgeState::default();
+        assert_eq!(clock_in_nudge(&cfg, nudge_inputs(at(0)), &mut st), None);
+        assert_eq!(clock_in_nudge(&cfg, nudge_inputs(at(59)), &mut st), None);
+        assert_eq!(
+            clock_in_nudge(&cfg, nudge_inputs(at(60)), &mut st),
+            Some(Reminder::NotClockedIn)
+        );
+        assert_eq!(clock_in_nudge(&cfg, nudge_inputs(at(600)), &mut st), None);
+        assert_eq!(
+            clock_in_nudge(&cfg, nudge_inputs(at(60 + 1800)), &mut st),
+            Some(Reminder::NotClockedIn)
+        );
+    }
+
+    #[test]
+    fn clock_in_nudge_stays_quiet_when_it_should() {
+        let cfg = ReminderConfig::default();
+        let quiet = |f: &dyn Fn(&mut NudgeInputs)| {
+            let mut st = NudgeState::default();
+            let mut first = nudge_inputs(at(0));
+            f(&mut first);
+            clock_in_nudge(&cfg, first, &mut st);
+            let mut later = nudge_inputs(at(120));
+            f(&mut later);
+            clock_in_nudge(&cfg, later, &mut st)
+        };
+        assert_eq!(
+            quiet(&|i| i.ready = false),
+            None,
+            "not signed in / enrolled"
+        );
+        assert_eq!(
+            quiet(&|i| i.clocked_out = false),
+            None,
+            "already clocked in"
+        );
+        assert_eq!(
+            quiet(&|i| i.worked_today = true),
+            None,
+            "day already worked"
+        );
+        assert_eq!(
+            quiet(&|i| i.window_visible = true),
+            None,
+            "window already asks"
+        );
+        assert_eq!(quiet(&|i| i.minute_of_day = 23 * 60), None, "quiet hours");
+        assert_eq!(
+            quiet(&|i| i.last_input_at = i.now - Duration::from_secs(600)),
+            None,
+            "not at the computer"
+        );
+        let off = ReminderConfig {
+            clock_in_nudge: None,
+            ..ReminderConfig::default()
+        };
+        let mut st = NudgeState::default();
+        clock_in_nudge(&off, nudge_inputs(at(0)), &mut st);
+        assert_eq!(
+            clock_in_nudge(&off, nudge_inputs(at(120)), &mut st),
+            None,
+            "disabled"
+        );
     }
 }

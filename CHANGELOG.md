@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Desktop: clock-out check, smarter clocked-out text, clock-in nudge (2026-09-25)
+
+Three requests from the project owner (ADR-0013 §7).
+
+- **Clock out asks first.** "Clock out now?"
+  - While working, it offers **Take a bio break** and **Take a meal
+    break** as well as **Yes, clock out** and **Cancel, keep working**.
+  - On a break or away, it simply confirms.
+  - It covers the main Clock out buttons and the long-shift banner.
+- **The clocked-out text knows about the day.**
+  - Before any work: "Not clocked in · Ready to start? Clock in when you
+    begin work."
+  - After working: "Clocked out · 6h 12m worked today · clocked out at
+    5:40 pm. Clock in again to continue." It no longer says "start
+    tracking your day" once the day has started.
+- **"Ready to clock in?" nudge.** A notification when you're signed in,
+  using the computer, and haven't clocked in yet today. The first comes
+  about a minute in, then every 30 minutes. It never fires once
+  anything is tracked today, in quiet hours, or while the window is
+  showing.
+  - New policy setting `reminders.clock_in_nudge_minutes` (default 30;
+    `null` disables).
+  - The rule is a pure function in `reminders.rs` with tests.
+- 7 new tests (Rust 301, desktop 67).
+
 ### Desktop: green Clock in, red Clock out (2026-09-25)
 
 - **Requested by the project owner.**

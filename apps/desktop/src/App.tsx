@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { api, type StateView } from './api.js';
+import { ClockOutDialog } from './ClockOutDialog.js';
 import { CloseDialog, LongShiftBanner, rememberedKeepRunning } from './CloseDialog.js';
 import { TimelineView } from './TimelineView.js';
 import {
@@ -9,6 +10,8 @@ import {
   groupOf,
   KIND_LABEL,
   KIND_ORDER,
+  today,
+  totals,
   totalsByKind,
   WORKING_PART_LABEL,
   type SegmentKind,
@@ -32,10 +35,36 @@ import { useNow } from './useNow.js';
  * reports and manager views still count them as active (ADR-0011).
  */
 
-function statusLabel(v: StateView): string {
+/** Tracked time today and when the last session ended (clocked out). */
+function dayOf(v: StateView, now: number): { worked: number; lastOut: number | null } {
+  const rows = today(v.timeline, now);
+  if (rows.length === 0) return { worked: 0, lastOut: null };
+  return {
+    worked: totals(v.timeline, now).working,
+    lastOut: Math.max(...rows.map((r) => r.endedAt)),
+  };
+}
+
+/** Clocked out: a hint that knows whether the day has started. */
+function clockedOutHint(v: StateView, now: number): string {
+  const { worked, lastOut } = dayOf(v, now);
+  if (lastOut === null) return 'Ready to start? Clock in when you begin work.';
+  return `${formatWorked(worked)} worked today · clocked out at ${formatClock(lastOut)}. Clock in again to continue.`;
+}
+
+/** "6h 12m" / "25m" / "under a minute". */
+function formatWorked(ms: number): string {
+  const mins = Math.floor(ms / 60_000);
+  if (mins < 1) return 'Under a minute';
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return h > 0 ? `${h}h ${String(m).padStart(2, '0')}m` : `${m}m`;
+}
+
+function statusLabel(v: StateView, now: number): string {
   switch (v.status) {
     case 'clocked_out':
-      return 'Not clocked in';
+      return dayOf(v, now).lastOut === null ? 'Not clocked in' : 'Clocked out';
     case 'active':
       return 'Clocked in';
     case 'on_call':
@@ -126,6 +155,9 @@ export function App(): JSX.Element {
   const enrollment = useEnrollment();
   const enrollBlocked = signedIn && enrollment?.state === 'blocked';
   const [closeAsked, setCloseAsked] = useState(false);
+  // Clock out asks first and offers a break instead (owner request).
+  const [clockOutAsked, setClockOutAsked] = useState(false);
+  const askClockOut = (): void => setClockOutAsked(true);
 
   // The close button asks first, unless "keep running" was remembered
   // (ADR-0013 §1). The tray's Quit while clocked in lands here too.
@@ -198,11 +230,25 @@ export function App(): JSX.Element {
           onCancel={() => setCloseAsked(false)}
         />
       )}
+      {clockOutAsked && view && (
+        <ClockOutDialog
+          offerBreaks={view.status === 'active' || view.status === 'on_call'}
+          onClockOut={() => {
+            setClockOutAsked(false);
+            run(api.clockOut);
+          }}
+          onBreak={(kind) => {
+            setClockOutAsked(false);
+            run(() => api.startBreak(kind));
+          }}
+          onCancel={() => setClockOutAsked(false)}
+        />
+      )}
       {signedIn && view?.longShift && view.sessionStartedAt !== null && (
         <LongShiftBanner
           hours={formatHours(now - view.sessionStartedAt)}
           onStillWorking={() => run(api.ackLongShift)}
-          onClockOut={() => run(api.clockOut)}
+          onClockOut={askClockOut}
         />
       )}
       {!auth && <p style={{ margin: 0, fontSize: 13, color: t.muted }}>Loading…</p>}
@@ -251,7 +297,7 @@ export function App(): JSX.Element {
                 }}
               />
               <span style={{ fontSize: 13, fontWeight: 600 }}>
-                {view ? statusLabel(view) : 'Loading…'}
+                {view ? statusLabel(view, now) : 'Loading…'}
               </span>
             </div>
             {view?.sessionStartedAt != null ? (
@@ -275,7 +321,7 @@ export function App(): JSX.Element {
             ) : (
               view && (
                 <div style={{ fontSize: 13, color: t.muted, marginTop: 2 }}>
-                  Clock in to start tracking your day.
+                  {clockedOutHint(view, now)}
                 </div>
               )
             )}
@@ -304,7 +350,7 @@ export function App(): JSX.Element {
               aria-label="actions"
               style={{ display: 'flex', flexDirection: 'column', gap: 10 }}
             >
-              <Actions view={view} run={run} />
+              <Actions view={view} run={run} onClockOut={askClockOut} />
             </section>
           )}
 
@@ -331,9 +377,12 @@ export function App(): JSX.Element {
 function Actions({
   view,
   run,
+  onClockOut,
 }: {
   view: StateView;
   run: (command: () => Promise<StateView>) => void;
+  /** Opens the "Clock out now?" dialog. */
+  onClockOut: () => void;
 }): JSX.Element {
   const chips = (children: ReactNode): JSX.Element => (
     <div style={{ display: 'flex', gap: 8 }}>{children}</div>
@@ -349,7 +398,7 @@ function Actions({
     case 'on_call':
       return (
         <>
-          <Button variant="stop" onClick={() => run(api.clockOut)}>
+          <Button variant="stop" onClick={onClockOut}>
             Clock out
           </Button>
           {chips(
@@ -373,7 +422,7 @@ function Actions({
       );
     case 'idle_pending':
       return (
-        <Button variant="stop" onClick={() => run(api.clockOut)}>
+        <Button variant="stop" onClick={onClockOut}>
           Clock out
         </Button>
       );
@@ -383,7 +432,7 @@ function Actions({
           <Button variant="primary" onClick={() => run(api.endBreak)}>
             End break
           </Button>
-          <Button variant="stopOutline" onClick={() => run(api.clockOut)}>
+          <Button variant="stopOutline" onClick={onClockOut}>
             Clock out
           </Button>
         </>
@@ -394,7 +443,7 @@ function Actions({
           <Button variant="primary" onClick={() => run(api.markBack)}>
             I&apos;m back
           </Button>
-          <Button variant="stopOutline" onClick={() => run(api.clockOut)}>
+          <Button variant="stopOutline" onClick={onClockOut}>
             Clock out
           </Button>
         </>
