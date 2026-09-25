@@ -49,8 +49,6 @@ use std::sync::Arc;
 
 use agent::Agent;
 use machine::{CallType, CoreConfig, Input};
-use outbox::Outbox;
-use sync::{ReqwestBackendClient, SyncBootstrap, SyncConfig, SyncLoop};
 use tauri::Emitter;
 use watchers::supervisor::Supervisor;
 
@@ -166,70 +164,14 @@ pub fn start_watchers(_agent: Arc<Agent>) -> WatchersGuard {
     }
 }
 
-/// RAII guard around a running [`SyncLoop`]. `Drop` calls
-/// `SyncLoop::shutdown` which joins the sync thread; the returned
-/// [`Outbox`] is dropped here.
-pub struct SyncLoopGuard {
-    inner: Option<SyncLoop>,
-}
-
-impl Drop for SyncLoopGuard {
-    fn drop(&mut self) {
-        if let Some(loop_) = self.inner.take() {
-            let _outbox = loop_.shutdown();
-        }
-    }
-}
-
-/// Start the sync loop iff `SyncBootstrap::from_env()` succeeds.
-/// Returns `None` (and logs why in debug builds) when any required
-/// env var is missing — the whole boot path is opt-in until slice
-/// 2b.4 supplies keys/tokens from the OS keystore.
-pub fn start_sync_loop_if_configured(is_online: Arc<AtomicBool>) -> Option<SyncLoopGuard> {
-    let bootstrap = match SyncBootstrap::from_env() {
-        Ok(b) => b,
-        Err(reason) => {
-            #[cfg(debug_assertions)]
-            eprintln!(
-                "[cloudpunch] sync loop not started ({reason}); \
-                set all six CLOUDPUNCH_* env vars to opt in"
-            );
-            #[cfg(not(debug_assertions))]
-            let _ = reason;
-            return None;
-        }
-    };
-
-    let outbox = match Outbox::open(&bootstrap.outbox_path, &bootstrap.outbox_key) {
-        Ok(o) => o,
-        Err(e) => {
-            eprintln!(
-                "[cloudpunch] sync loop not started: outbox open failed at {}: {e}",
-                bootstrap.outbox_path.display()
-            );
-            return None;
-        }
-    };
-
-    let client = ReqwestBackendClient::new(bootstrap.backend_url, bootstrap.bearer_token);
-    let config = SyncConfig::new(bootstrap.device_id, bootstrap.employee_id);
-    let loop_ = SyncLoop::start(outbox, Box::new(client), config, is_online);
-
-    #[cfg(debug_assertions)]
-    eprintln!("[cloudpunch] sync loop started");
-
-    Some(SyncLoopGuard { inner: Some(loop_) })
-}
-
 /// Entry point invoked from `main.rs`. Kept separate so the same
 /// initialisation can be reused by future mobile targets (if we ever
 /// build for them).
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // Guards are held for the lifetime of tauri::Builder::run. Drop
-    // order (Rust: reverse of declaration): sync first (drains its
-    // thread), then watchers (which frees the is_online Arc it
-    // shares with sync).
+    // Guards are held for the lifetime of tauri::Builder::run. The
+    // sync loop is started per user after sign-in (sync::live) and
+    // shares the watchers' is_online flag through the recorder.
     let recorder = recorder::Recorder::new();
     let agent = Agent::with_recorder(CoreConfig::default(), &recorder);
     let auth = Arc::new(commands::Auth::new(
@@ -242,7 +184,6 @@ pub fn run() {
     let watchers = start_watchers(agent.clone());
     recorder.set_online_flag(watchers.is_online());
     let restore_recorder = recorder.clone();
-    let _sync = start_sync_loop_if_configured(watchers.is_online());
     let _ticker = agent.start_ticker();
 
     let setup_agent = agent.clone();
@@ -252,6 +193,7 @@ pub fn run() {
         .manage(auth)
         .manage(enrollment)
         .manage(recorder)
+        .manage(sync::live::LiveSync::default())
         .invoke_handler(tauri::generate_handler![
             commands::get_state,
             commands::hide_to_tray,

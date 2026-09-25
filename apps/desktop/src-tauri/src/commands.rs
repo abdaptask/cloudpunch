@@ -19,6 +19,8 @@ use crate::enroll::{self, EnrollError, Enroller, Enrollment, EnrollmentStatus};
 use crate::keystore::{OsStore, Secrets};
 use crate::machine::{CoreState, Input, PromptResponse};
 use crate::recorder::{Recorder, Target};
+use crate::sync::live::LiveSync;
+use crate::sync::reqwest_client::TokenSource;
 
 /// The app's sign-in manager (ADR-0002 §5).
 pub type Auth = AuthManager<OsStore>;
@@ -146,6 +148,43 @@ fn arm_from_cache(app: &AppHandle, oid: &str, recorder: &Recorder) {
     }
 }
 
+/// Start (or keep) the sync loop for `oid`'s outbox, sending with the
+/// signed-in user's access token, refreshed as needed (F3c).
+fn start_live_sync(
+    app: &AppHandle,
+    auth: &Arc<Auth>,
+    base_url: &str,
+    oid: &str,
+    recorder: &Recorder,
+) {
+    let Some(dir) = data_dir(app) else { return };
+    let key = match Secrets::new(OsStore).outbox_key(oid) {
+        Ok(k) => k,
+        Err(e) => {
+            eprintln!("[cloudpunch] sync not started: {e}");
+            return;
+        }
+    };
+    let token_auth = auth.clone();
+    let token: TokenSource = Box::new(move || {
+        token_auth
+            .access_token(SystemTime::now())
+            .map_err(|e| e.code().to_string())
+    });
+    let live = app.state::<LiveSync>();
+    match live.start(
+        oid,
+        &Target::outbox_path(&dir, oid),
+        &key,
+        base_url,
+        token,
+        recorder.online_flag(),
+    ) {
+        Ok(()) => eprintln!("[cloudpunch] sync loop running"),
+        Err(e) => eprintln!("[cloudpunch] sync not started: {e}"),
+    }
+}
+
 /// Enrol this device for the signed-in user on a background thread,
 /// retrying with backoff while the backend is unreachable. A newer
 /// sign-in or a sign-out makes this attempt stop (generation check).
@@ -180,6 +219,13 @@ pub fn start_enrollment(
         return;
     };
     let dir = data_dir(app);
+    // A cached identity can sync right away (offline launches catch up).
+    if recorder.is_armed() {
+        if let Some(oid) = auth.oid() {
+            start_live_sync(app, &auth, &base_url, &oid, &recorder);
+        }
+    }
+    let sync_app = app.clone();
     emit();
     let spawned = std::thread::Builder::new()
         .name("cp-enroll".into())
@@ -207,7 +253,10 @@ pub fn start_enrollment(
                         eprintln!("[cloudpunch] device enrolled");
                         let Some(dir) = &dir else { return };
                         match Target::open(dir, identity, &Secrets::new(OsStore)) {
-                            Ok(target) => recorder.arm(target),
+                            Ok(target) => {
+                                recorder.arm(target);
+                                start_live_sync(&sync_app, &auth, &base_url, &oid, &recorder);
+                            }
                             Err(e) => eprintln!("[cloudpunch] recorder not armed: {e}"),
                         }
                         return;
@@ -294,6 +343,7 @@ pub fn sign_out(
         }
     }
     let oid = auth.oid();
+    app.state::<LiveSync>().stop();
     recorder.disarm();
     auth.sign_out().map_err(|e| e.code().to_string())?;
     if let (Some(oid), Some(dir)) = (oid, data_dir(&app)) {

@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Desktop: live sync (2b.4 F3c, PR 2 of 2) (2026-09-25)
+
+- **Batches follow ADR-0014.** Each envelope now carries the
+  `correlation_id`, `device_id` and `employee_id` stored on its rows,
+  the same on every retry, instead of a new UUID per batch. Rows are
+  grouped by session and identity, so rows signed with different IDs
+  are never mixed in one batch.
+- **Fresh tokens.** The HTTP client asks for a bearer token on every
+  batch; the app supplies the signed-in user's access token and
+  refreshes it as needed. If the token fails, that batch counts as
+  transient and is retried.
+- **New `sync/live.rs`.** `LiveSync` starts one sync loop per user:
+  - after the recorder is armed, from a fresh enrollment or from the
+    cached identity (so an offline launch catches up once back online);
+  - on its own connection to the user's outbox;
+  - and stops it on sign-out, before the outbox is deleted.
+  - The loop's sleep is sliced, so stopping it is prompt.
+- **Verified by the owner on 2026-09-25 against the dev VM:** a clock-in and a clock-out reached `time_event` as seq 1 and 2 of one session with one correlation id; the server opened and closed the session (`user_clock_out`).
+- **Env-var bootstrap removed.** `SyncBootstrap::from_env`, the six
+  `CLOUDPUNCH_*` sync env vars and `start_sync_loop_if_configured` are
+  gone. `CLOUDPUNCH_BACKEND_URL` is the only setting left.
+
 ### Desktop: signed events into the outbox (2b.4 F3c, PR 1 of 2) (2026-09-25)
 
 - **New `recorder.rs`.** `OutboxSink` replaces the log-only sink in the
