@@ -18,6 +18,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - New theme colours (`go` and `stop`, light and dark) and Button
   variants (`go`, `stop`, `stopOutline`).
 - A test pins the colours.
+### Doc fixes: ADRs match the code (2026-09-25)
+
+- **ADR-0003 transition diagram.**
+  - Added `USER_CLOCK_OUT` from `IDLE_PENDING` (both state machines
+    already allowed it) and the silent-call idle trigger from `ON_CALL`
+    (ADR-0010).
+  - Corrected `INPUT_ACTIVITY`, which never leaves `IDLE_PENDING` or
+    `AWAY`: it only resets the prompt countdown (ADR-0008).
+- **ADR-0004 §5 enrollment.** It uses the normal Entra access token, not
+  a separate "enrollment JWT". The agent generates the device id, and
+  the employee id comes from `/v1/me`.
+- **ADR-0004 §9 payloads.** The examples are now the shapes the agent
+  actually sends; the old media example had fields that never existed.
+  The schema path is fixed, and the ADR now says plainly that ingest
+  doesn't yet validate payloads against the per-type schemas (a
+  follow-up).
+- **ADR-0012.** Notes that the call-app lists now come from policy
+  (ADR-0015 §8).
+- **The desktop app is now version 0.1.0** (was 0.0.0) in `Cargo.toml`,
+  `tauri.conf.json` and `package.json`. It is sent as `app_version` on
+  every event and enrollment.
 
 ### CI: Rust is built, linted and tested (2026-09-25)
 

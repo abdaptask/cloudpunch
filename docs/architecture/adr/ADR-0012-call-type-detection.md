@@ -45,6 +45,12 @@ If several apps capture at once, Teams wins over Zoom, and either over
 The allowlist is compiled into the agent for now; it moves to policy
 (`idle.call_type_apps`) when policy fetch exists.
 
+*Update (2026-09-25):* done. The allowlist and the ignored-app list
+(§1a) come from policy as `idle.call_type_apps` and
+`idle.call_type_ignored` (ADR-0015 §8), with the lists above as the
+defaults. They change at the next clock-in. Only the category is ever
+recorded.
+
 ### 1a. Apps that hold the microphone while idle are ignored
 
 Some softphones keep their microphone stream open whenever they run
