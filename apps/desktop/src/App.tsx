@@ -109,6 +109,8 @@ function enrollText(code: string | null): string {
 
 const ERROR_TEXT: Record<string, string> = {
   invalid_transition: "That action isn't available right now.",
+  // First clock-in on this computer waits for enrollment (2b.4 F3c).
+  not_enrolled: 'Connecting to CloudPunch… try again in a moment.',
   ...ENROLL_TEXT,
 };
 
@@ -200,6 +202,12 @@ export function App(): JSX.Element {
       {signedIn && authError === 'clock_out_first' && (
         <p role="alert" style={{ margin: 0, fontSize: 13, color: t.danger }}>
           Clock out before signing out.
+        </p>
+      )}
+      {signedIn && authError === 'unsynced_events' && (
+        <p role="alert" style={{ margin: 0, fontSize: 13, color: t.danger }}>
+          Some of your time hasn't reached CloudPunch yet. Stay online for a moment, then sign out
+          again.
         </p>
       )}
       {enrollBlocked && (

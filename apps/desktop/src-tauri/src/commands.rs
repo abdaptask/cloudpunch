@@ -16,8 +16,9 @@ use tauri::{AppHandle, Emitter, LogicalSize, Manager, State, WebviewWindow};
 use crate::agent::{parse_away_tag, parse_break_kind, rejection_code, Agent, StateView};
 use crate::auth::{open_system_browser, AuthError, AuthManager, AuthStatus};
 use crate::enroll::{self, EnrollError, Enroller, Enrollment, EnrollmentStatus};
-use crate::keystore::OsStore;
+use crate::keystore::{OsStore, Secrets};
 use crate::machine::{CoreState, Input, PromptResponse};
+use crate::recorder::{Recorder, Target};
 
 /// The app's sign-in manager (ADR-0002 §5).
 pub type Auth = AuthManager<OsStore>;
@@ -89,19 +90,25 @@ pub fn get_state(agent: State<'_, Arc<Agent>>) -> StateView {
 
 /// Clocking in needs a signed-in user: every event is attributed to
 /// one (2b.4). A definite "no" from enrollment (no employee, revoked
-/// device, ...) blocks it too; being offline or not yet enrolled
-/// doesn't — events wait in the outbox (F3b).
+/// device, ...) blocks it too. So does a device that has never
+/// enrolled here, because events can't be signed without the employee
+/// id (F3c); once enrolled, the cached identity lets offline
+/// clock-ins through and events wait in the outbox.
 #[tauri::command]
 pub fn clock_in(
     agent: State<'_, Arc<Agent>>,
     auth: State<'_, Arc<Auth>>,
     enrollment: State<'_, Arc<Enrollment>>,
+    recorder: State<'_, Recorder>,
 ) -> CommandResult {
     if auth.oid().is_none() {
         return Err("not_signed_in".to_string());
     }
     if let Some(code) = enrollment.blocked() {
         return Err(code.to_string());
+    }
+    if !recorder.can_record() {
+        return Err("not_enrolled".to_string());
     }
     run(&agent, Input::ClockIn)
 }
@@ -111,10 +118,48 @@ pub fn enrollment_status(enrollment: State<'_, Arc<Enrollment>>) -> EnrollmentSt
     enrollment.status()
 }
 
+/// Where outbox files live.
+fn data_dir(app: &AppHandle) -> Option<std::path::PathBuf> {
+    match app.path().app_data_dir() {
+        Ok(dir) => Some(dir),
+        Err(e) => {
+            eprintln!("[cloudpunch] no app data folder: {e}");
+            None
+        }
+    }
+}
+
+/// Arm the recorder with the identity an earlier enrollment cached, so
+/// an offline launch can still record (F3c).
+fn arm_from_cache(app: &AppHandle, oid: &str, recorder: &Recorder) {
+    if recorder.is_armed() {
+        return;
+    }
+    let Some(dir) = data_dir(app) else { return };
+    match Target::from_cache(&dir, oid, &Secrets::new(OsStore)) {
+        Ok(Some(target)) => {
+            recorder.arm(target);
+            eprintln!("[cloudpunch] recorder armed from cached identity");
+        }
+        Ok(None) => {}
+        Err(e) => eprintln!("[cloudpunch] cached identity unavailable: {e}"),
+    }
+}
+
 /// Enrol this device for the signed-in user on a background thread,
 /// retrying with backoff while the backend is unreachable. A newer
 /// sign-in or a sign-out makes this attempt stop (generation check).
-pub fn start_enrollment(app: &AppHandle, auth: Arc<Auth>, enrollment: Arc<Enrollment>) {
+/// Arms the recorder from the cached identity first, then with the
+/// fresh one once enrolled.
+pub fn start_enrollment(
+    app: &AppHandle,
+    auth: Arc<Auth>,
+    enrollment: Arc<Enrollment>,
+    recorder: Recorder,
+) {
+    if let Some(oid) = auth.oid() {
+        arm_from_cache(app, &oid, &recorder);
+    }
     let generation = enrollment.reset();
     let emit = {
         let app = app.clone();
@@ -129,9 +174,12 @@ pub fn start_enrollment(app: &AppHandle, auth: Arc<Auth>, enrollment: Arc<Enroll
             enroll::BACKEND_URL_ENV
         );
         enrollment.set_not_configured(generation);
+        // Local development without a backend: log events only.
+        recorder.set_log_only();
         emit();
         return;
     };
+    let dir = data_dir(app);
     emit();
     let spawned = std::thread::Builder::new()
         .name("cp-enroll".into())
@@ -154,9 +202,14 @@ pub fn start_enrollment(app: &AppHandle, auth: Arc<Auth>, enrollment: Arc<Enroll
                     return;
                 }
                 emit();
-                match &outcome {
-                    Ok(_) => {
+                match outcome {
+                    Ok(identity) => {
                         eprintln!("[cloudpunch] device enrolled");
+                        let Some(dir) = &dir else { return };
+                        match Target::open(dir, identity, &Secrets::new(OsStore)) {
+                            Ok(target) => recorder.arm(target),
+                            Err(e) => eprintln!("[cloudpunch] recorder not armed: {e}"),
+                        }
                         return;
                     }
                     Err(e) if !e.is_transient() => {
@@ -187,6 +240,7 @@ pub async fn sign_in(
     app: AppHandle,
     auth: State<'_, Arc<Auth>>,
     enrollment: State<'_, Arc<Enrollment>>,
+    recorder: State<'_, Recorder>,
 ) -> Result<AuthStatus, String> {
     let auth = auth.inner().clone();
     let signing_in = auth.clone();
@@ -197,7 +251,12 @@ pub async fn sign_in(
     .map_err(|_| "internal".to_string())?
     .map_err(|e| e.code().to_string())?;
     let _ = app.emit(AUTH_EVENT, &status);
-    start_enrollment(&app, auth, enrollment.inner().clone());
+    start_enrollment(
+        &app,
+        auth,
+        enrollment.inner().clone(),
+        recorder.inner().clone(),
+    );
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.show();
         let _ = w.set_focus();
@@ -211,18 +270,40 @@ pub fn cancel_sign_in(auth: State<'_, Arc<Auth>>) {
     auth.cancel_sign_in();
 }
 
-/// Sign out: only while clocked out, so no session is left open.
+/// Sign out: only while clocked out, so no session is left open, and
+/// only once every event has been sent — sign-out deletes the outbox
+/// key, which would make unsent events unreadable (F3c decision 2).
+/// The outbox file goes with the key.
 #[tauri::command]
 pub fn sign_out(
     app: AppHandle,
     agent: State<'_, Arc<Agent>>,
     auth: State<'_, Arc<Auth>>,
     enrollment: State<'_, Arc<Enrollment>>,
+    recorder: State<'_, Recorder>,
 ) -> Result<AuthStatus, String> {
     if agent.state() != CoreState::ClockedOut {
         return Err("clock_out_first".to_string());
     }
+    match recorder.unsent() {
+        Ok(0) => {}
+        Ok(_) => return Err("unsynced_events".to_string()),
+        Err(e) => {
+            eprintln!("[cloudpunch] outbox check failed: {e}");
+            return Err("outbox".to_string());
+        }
+    }
+    let oid = auth.oid();
+    recorder.disarm();
     auth.sign_out().map_err(|e| e.code().to_string())?;
+    if let (Some(oid), Some(dir)) = (oid, data_dir(&app)) {
+        let path = Target::outbox_path(&dir, &oid);
+        if let Err(e) = std::fs::remove_file(&path) {
+            if e.kind() != std::io::ErrorKind::NotFound {
+                eprintln!("[cloudpunch] could not delete the outbox: {e}");
+            }
+        }
+    }
     enrollment.reset();
     let _ = app.emit(ENROLLMENT_EVENT, enrollment.status());
     let status = auth.status();

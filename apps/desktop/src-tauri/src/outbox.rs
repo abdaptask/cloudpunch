@@ -31,7 +31,7 @@ pub const CIPHER_KEY_LEN: usize = 32;
 /// Current schema version. Bump when adding a migration to
 /// [`migrate`]. The DB's `PRAGMA user_version` tracks the applied
 /// version; migrations run only for the delta.
-const SCHEMA_VERSION: i64 = 2;
+const SCHEMA_VERSION: i64 = 3;
 
 const SCHEMA_V1: &str = r#"
 CREATE TABLE IF NOT EXISTS outbox (
@@ -61,6 +61,25 @@ ALTER TABLE outbox ADD COLUMN poisoned INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE outbox ADD COLUMN poison_reason TEXT;
 "#;
 
+/// v3 (2b.4 F3c): each row carries the identity its signature covers,
+/// so the sync loop sends exactly what was signed (ADR-0014: one
+/// `correlation_id` per session, stored per row). Rows written before
+/// v3 get empty strings; only the pre-2b.4 env-var dev path wrote any.
+/// `identity` caches the enrolled identity per user so events can be
+/// signed offline on later launches.
+const SCHEMA_V3: &str = r#"
+ALTER TABLE outbox ADD COLUMN correlation_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE outbox ADD COLUMN device_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE outbox ADD COLUMN employee_id TEXT NOT NULL DEFAULT '';
+
+CREATE TABLE IF NOT EXISTS identity (
+    oid          TEXT    PRIMARY KEY,
+    device_id    TEXT    NOT NULL,
+    employee_id  TEXT    NOT NULL,
+    updated_at   INTEGER NOT NULL
+);
+"#;
+
 fn migrate(conn: &Connection) -> Result<(), rusqlite::Error> {
     let current: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
     if current < 1 {
@@ -68,6 +87,9 @@ fn migrate(conn: &Connection) -> Result<(), rusqlite::Error> {
     }
     if current < 2 {
         conn.execute_batch(SCHEMA_V2)?;
+    }
+    if current < 3 {
+        conn.execute_batch(SCHEMA_V3)?;
     }
     if current < SCHEMA_VERSION {
         conn.pragma_update(None, "user_version", SCHEMA_VERSION)?;
@@ -93,6 +115,10 @@ pub struct EnqueueInput {
     pub sequence_number: i64,
     pub event_body: Vec<u8>,
     pub integrity_signature: Vec<u8>,
+    /// The batch-level identity this event was signed with (ADR-0014).
+    pub correlation_id: String,
+    pub device_id: String,
+    pub employee_id: String,
 }
 
 #[derive(Debug, Clone)]
@@ -112,6 +138,17 @@ pub struct OutboxEntry {
     /// remain in the table for forensics.
     pub poisoned: bool,
     pub poison_reason: Option<String>,
+    pub correlation_id: String,
+    pub device_id: String,
+    pub employee_id: String,
+}
+
+/// The enrolled identity cached for one user (2b.4 F3c).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CachedIdentity {
+    pub oid: String,
+    pub device_id: String,
+    pub employee_id: String,
 }
 
 pub struct Outbox {
@@ -162,6 +199,10 @@ impl Outbox {
         conn.query_row("SELECT count(*) FROM sqlite_master", [], |row| {
             row.get::<_, i64>(0)
         })?;
+        // The event sink and the sync loop each hold a connection to
+        // the same file (2b.4 F3c); wait for the other's write lock
+        // instead of failing with SQLITE_BUSY.
+        conn.busy_timeout(std::time::Duration::from_secs(5))?;
         migrate(&conn)?;
         Ok(Self { conn })
     }
@@ -175,8 +216,9 @@ impl Outbox {
             "INSERT OR IGNORE INTO outbox (
                 event_ulid, session_id, event_type, sequence_number,
                 event_body, integrity_signature,
-                created_at, retry_count, next_retry_at, last_error
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 0, ?7, NULL)",
+                created_at, retry_count, next_retry_at, last_error,
+                correlation_id, device_id, employee_id
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 0, ?7, NULL, ?8, ?9, ?10)",
             params![
                 event.event_ulid,
                 event.session_id,
@@ -185,6 +227,9 @@ impl Outbox {
                 event.event_body,
                 event.integrity_signature,
                 now_secs,
+                event.correlation_id,
+                event.device_id,
+                event.employee_id,
             ],
         )?;
         Ok(())
@@ -200,7 +245,8 @@ impl Outbox {
             "SELECT event_ulid, session_id, event_type, sequence_number,
                     event_body, integrity_signature,
                     created_at, retry_count, next_retry_at, last_error,
-                    poisoned, poison_reason
+                    poisoned, poison_reason,
+                    correlation_id, device_id, employee_id
              FROM outbox
              WHERE next_retry_at <= ?1 AND poisoned = 0
              ORDER BY next_retry_at ASC, sequence_number ASC
@@ -250,7 +296,8 @@ impl Outbox {
             "SELECT event_ulid, session_id, event_type, sequence_number,
                     event_body, integrity_signature,
                     created_at, retry_count, next_retry_at, last_error,
-                    poisoned, poison_reason
+                    poisoned, poison_reason,
+                    correlation_id, device_id, employee_id
              FROM outbox WHERE event_ulid = ?1",
         )?;
         stmt.query_row(params![event_ulid], row_to_entry)
@@ -280,6 +327,50 @@ impl Outbox {
         Ok(n as u64)
     }
 
+    /// Rows still waiting to be sent (not poisoned). Sign-out is
+    /// refused while this is non-zero (2b.4 F3c decision 2).
+    pub fn unsent_count(&self) -> Result<u64, OutboxError> {
+        let n: i64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM outbox WHERE poisoned = 0",
+            [],
+            |row| row.get(0),
+        )?;
+        Ok(n as u64)
+    }
+
+    /// Remember the enrolled identity for `oid`, replacing any older one.
+    pub fn save_identity(&self, id: &CachedIdentity) -> Result<(), OutboxError> {
+        let now_secs = unix_seconds(SystemTime::now())?;
+        self.conn.execute(
+            "INSERT INTO identity (oid, device_id, employee_id, updated_at)
+             VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT (oid) DO UPDATE SET
+                 device_id = excluded.device_id,
+                 employee_id = excluded.employee_id,
+                 updated_at = excluded.updated_at",
+            params![id.oid, id.device_id, id.employee_id, now_secs],
+        )?;
+        Ok(())
+    }
+
+    /// The identity last saved for `oid`, if any.
+    pub fn load_identity(&self, oid: &str) -> Result<Option<CachedIdentity>, OutboxError> {
+        self.conn
+            .query_row(
+                "SELECT oid, device_id, employee_id FROM identity WHERE oid = ?1",
+                params![oid],
+                |r| {
+                    Ok(CachedIdentity {
+                        oid: r.get(0)?,
+                        device_id: r.get(1)?,
+                        employee_id: r.get(2)?,
+                    })
+                },
+            )
+            .optional()
+            .map_err(OutboxError::from)
+    }
+
     /// Rows marked poisoned.
     pub fn poisoned_count(&self) -> Result<u64, OutboxError> {
         let n: i64 = self.conn.query_row(
@@ -306,6 +397,9 @@ fn row_to_entry(row: &rusqlite::Row<'_>) -> Result<OutboxEntry, rusqlite::Error>
         last_error: row.get(9)?,
         poisoned: row.get::<_, i64>(10)? != 0,
         poison_reason: row.get(11)?,
+        correlation_id: row.get(12)?,
+        device_id: row.get(13)?,
+        employee_id: row.get(14)?,
     })
 }
 
@@ -343,6 +437,9 @@ mod tests {
             sequence_number: seq,
             event_body: b"canonical bytes here".to_vec(),
             integrity_signature: vec![0u8; 64],
+            correlation_id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc".to_string(),
+            device_id: "dddddddd-dddd-4ddd-8ddd-dddddddddddd".to_string(),
+            employee_id: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee".to_string(),
         }
     }
 
@@ -545,5 +642,105 @@ mod tests {
             Outbox::open(&path, &wrong),
             Err(OutboxError::Sqlite(_))
         ));
+    }
+}
+
+#[cfg(test)]
+mod v3_tests {
+    use super::*;
+
+    const KEY: [u8; CIPHER_KEY_LEN] = [9u8; CIPHER_KEY_LEN];
+
+    fn input(ulid: &str, seq: i64) -> EnqueueInput {
+        EnqueueInput {
+            event_ulid: ulid.into(),
+            session_id: "11111111-1111-4111-8111-111111111111".into(),
+            event_type: "USER_CLOCK_IN".into(),
+            sequence_number: seq,
+            event_body: b"{}".to_vec(),
+            integrity_signature: vec![0u8; 64],
+            correlation_id: "22222222-2222-4222-8222-222222222222".into(),
+            device_id: "33333333-3333-4333-8333-333333333333".into(),
+            employee_id: "44444444-4444-4444-8444-444444444444".into(),
+        }
+    }
+
+    #[test]
+    fn rows_keep_the_identity_they_were_signed_with() {
+        let o = Outbox::open_in_memory(&KEY).unwrap();
+        o.enqueue(&input("01J8Q00000000000000000000A", 1)).unwrap();
+        let row = &o.drain(10).unwrap()[0];
+        assert_eq!(row.correlation_id, "22222222-2222-4222-8222-222222222222");
+        assert_eq!(row.device_id, "33333333-3333-4333-8333-333333333333");
+        assert_eq!(row.employee_id, "44444444-4444-4444-8444-444444444444");
+        let got = o.get("01J8Q00000000000000000000A").unwrap().unwrap();
+        assert_eq!(got.correlation_id, row.correlation_id);
+    }
+
+    #[test]
+    fn unsent_count_ignores_poisoned_rows() {
+        let o = Outbox::open_in_memory(&KEY).unwrap();
+        o.enqueue(&input("01J8Q00000000000000000000A", 1)).unwrap();
+        o.enqueue(&input("01J8Q00000000000000000000B", 2)).unwrap();
+        assert_eq!(o.unsent_count().unwrap(), 2);
+        o.mark_poisoned("01J8Q00000000000000000000B", "x").unwrap();
+        assert_eq!(o.unsent_count().unwrap(), 1);
+        o.mark_sent("01J8Q00000000000000000000A").unwrap();
+        assert_eq!(o.unsent_count().unwrap(), 0);
+    }
+
+    #[test]
+    fn identity_is_saved_replaced_and_per_user() {
+        let o = Outbox::open_in_memory(&KEY).unwrap();
+        assert_eq!(o.load_identity("a").unwrap(), None);
+        let first = CachedIdentity {
+            oid: "a".into(),
+            device_id: "d1".into(),
+            employee_id: "e1".into(),
+        };
+        o.save_identity(&first).unwrap();
+        assert_eq!(o.load_identity("a").unwrap(), Some(first));
+        let second = CachedIdentity {
+            oid: "a".into(),
+            device_id: "d2".into(),
+            employee_id: "e1".into(),
+        };
+        o.save_identity(&second).unwrap();
+        assert_eq!(o.load_identity("a").unwrap(), Some(second));
+        assert_eq!(o.load_identity("b").unwrap(), None);
+    }
+
+    /// A v2 file on disk (what 2b.6 wrote) upgrades in place and its
+    /// rows survive with empty identity columns.
+    #[test]
+    fn v2_file_upgrades_to_v3_and_keeps_rows() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("outbox.db");
+        {
+            let conn = Connection::open(&path).unwrap();
+            conn.pragma_update(None, "key", format!("x'{}'", hex::encode(KEY)))
+                .unwrap();
+            conn.execute_batch(SCHEMA_V1).unwrap();
+            conn.execute_batch(SCHEMA_V2).unwrap();
+            conn.pragma_update(None, "user_version", 2).unwrap();
+            conn.execute(
+                "INSERT INTO outbox (event_ulid, session_id, event_type, sequence_number,
+                    event_body, integrity_signature, created_at, next_retry_at)
+                 VALUES ('01J8Q00000000000000000000A', 's', 'USER_CLOCK_IN', 1, x'00', x'00', 0, 0)",
+                [],
+            )
+            .unwrap();
+        }
+        let o = Outbox::open(&path, &KEY).unwrap();
+        let rows = o.drain(10).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].correlation_id, "");
+        let v: i64 = o
+            .conn
+            .query_row("PRAGMA user_version", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(v, 3);
+        // And the identity table exists.
+        assert_eq!(o.load_identity("x").unwrap(), None);
     }
 }

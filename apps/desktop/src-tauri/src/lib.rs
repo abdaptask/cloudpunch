@@ -37,6 +37,7 @@ pub mod event;
 pub mod keystore;
 pub mod machine;
 pub mod outbox;
+pub mod recorder;
 pub mod reminders;
 pub mod sync;
 pub mod timeline;
@@ -229,7 +230,8 @@ pub fn run() {
     // order (Rust: reverse of declaration): sync first (drains its
     // thread), then watchers (which frees the is_online Arc it
     // shares with sync).
-    let agent = Agent::new(CoreConfig::default());
+    let recorder = recorder::Recorder::new();
+    let agent = Agent::with_recorder(CoreConfig::default(), &recorder);
     let auth = Arc::new(commands::Auth::new(
         auth::EntraConfig::APTASK,
         keystore::OsStore,
@@ -238,6 +240,8 @@ pub fn run() {
     let enrollment = Arc::new(enroll::Enrollment::new());
     let restore_enrollment = enrollment.clone();
     let watchers = start_watchers(agent.clone());
+    recorder.set_online_flag(watchers.is_online());
+    let restore_recorder = recorder.clone();
     let _sync = start_sync_loop_if_configured(watchers.is_online());
     let _ticker = agent.start_ticker();
 
@@ -247,6 +251,7 @@ pub fn run() {
         .manage(agent)
         .manage(auth)
         .manage(enrollment)
+        .manage(recorder)
         .invoke_handler(tauri::generate_handler![
             commands::get_state,
             commands::hide_to_tray,
@@ -282,6 +287,7 @@ pub fn run() {
                             &handle,
                             restore_auth.clone(),
                             restore_enrollment,
+                            restore_recorder,
                         ),
                         Ok(false) => eprintln!(
                             "[cloudpunch] silent sign-in: no saved session (none stored, or it was rejected)"

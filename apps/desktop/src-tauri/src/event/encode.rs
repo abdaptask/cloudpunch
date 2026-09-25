@@ -209,7 +209,7 @@ pub fn encode(
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::event::signature::verify_bytes;
     use crate::machine::{AwayReason, BreakKind, CallType, IdleTrigger, PromptResponse};
@@ -243,7 +243,7 @@ mod tests {
 
     /// Rebuild the signed fields the way the backend does
     /// (`ingest.ts`): body fields + batch context.
-    fn verify(ctx: &SessionContext, body: &Value, key: &SigningKey) -> bool {
+    pub(crate) fn verify(ctx: &SessionContext, body: &Value, key: &SigningKey) -> bool {
         let signed = SignedEventFields {
             app_version: body["app_version"].as_str().unwrap(),
             client_ts: body["client_ts"].as_str().unwrap(),

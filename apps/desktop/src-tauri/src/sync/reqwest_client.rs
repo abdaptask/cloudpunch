@@ -237,6 +237,9 @@ mod tests {
             last_error: None,
             poisoned: false,
             poison_reason: None,
+            correlation_id: String::new(),
+            device_id: String::new(),
+            employee_id: String::new(),
         }
     }
 
