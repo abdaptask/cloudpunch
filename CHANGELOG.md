@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### CI: backend build and real-Postgres integration tests (2026-09-25)
+
+- **The backend production compile works again.** It
+  (`pnpm -F @cloudpunch/backend build`) had been failing on
+  `declarationMap` without `declaration`. The compile now runs in CI.
+- **New `postgres-integration` CI job** (ubuntu, Testcontainers
+  Postgres 16). It runs the backend's `*.integration.test.ts`, which had
+  never run anywhere: there is no Docker on the dev machine.
+- **First run: all 16 `PostgresDb` tests failed.** Their setup deleted
+  from `audit_log`, which the append-only trigger rejects, as it should.
+  Setup now uses `TRUNCATE`. All pass, including the jsonb payload
+  round trip from #27.
+- **Known gap.** The compiled server (`node dist/server.js`) doesn't
+  start yet, because the workspace packages ship TypeScript source
+  (`main: ./src/index.ts`). Running the compiled backend needs a
+  bundling step, which is for the deployment (AWS) phase. Dev runs use
+  `tsx`.
 ### CI invariants: no content capture, append-only ledger (2026-09-25)
 
 - **New package `tests/invariants`,** run by `pnpm test` and therefore

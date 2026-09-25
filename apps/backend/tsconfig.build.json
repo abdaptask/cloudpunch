@@ -3,7 +3,8 @@
   "compilerOptions": {
     "rootDir": "src",
     "noEmit": false,
-    "declaration": false
+    "declaration": false,
+    "declarationMap": false
   },
   "include": ["src/**/*.ts"],
   "exclude": ["dist", "node_modules", "**/*.test.ts", "**/*.spec.ts", "**/*.integration.test.ts"]
