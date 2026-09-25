@@ -121,6 +121,15 @@ Stored and served but not yet acted on: `system.*` (lock/sleep limits),
 `break.meal.min_minutes_before_prompt`, and the payability flags
 (payability is computed on the server in a later phase).
 
+*Implementation note (2026-09-25):*
+- The idle watcher's 120 s threshold only drives a diagnostic OS
+  signal that nothing consumes. Payroll idle is decided by the core's
+  1 Hz tick, which uses `idle.threshold_seconds` from the policy, so
+  the watcher was left as it is.
+- The desktop has no "other" away tag (only phone call, working away
+  and meeting). `away.require_note.other` is served but has nothing to
+  apply to yet.
+
 ### 8. Call-app allowlist in policy (ADR-0012 follow-up)
 
 New schema fields:

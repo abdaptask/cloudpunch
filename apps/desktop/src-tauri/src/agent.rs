@@ -25,10 +25,12 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 
+use crate::call_type::{self, Rules};
 use crate::machine::driver::Driver;
 use crate::machine::{
     AwayReason, BreakKind, CallType, Core, CoreConfig, CoreState, Effect, Input, Rejected,
 };
+use crate::policy::PolicyDoc;
 use crate::recorder::{OutboxSink, Recorder};
 use crate::reminders::{self, Inputs as ReminderInputs, Reminder, ReminderConfig, ReminderState};
 use crate::timeline::{epoch_ms, SegmentView, Timeline};
@@ -255,6 +257,15 @@ struct Inner {
     long_shift: bool,
     /// Last minute the tray tooltip was refreshed.
     tooltip_minute: Option<u64>,
+    /// A fetched policy waiting for the session to end (ADR-0015 §6).
+    pending_policy: Option<PendingPolicy>,
+}
+
+/// Core settings from a policy, adopted only while clocked out.
+struct PendingPolicy {
+    core: CoreConfig,
+    rules: Rules,
+    version: Option<String>,
 }
 
 impl Inner {
@@ -309,6 +320,8 @@ pub struct Agent<U: Ui = TauriUi> {
     inner: Mutex<Inner>,
     ui: OnceLock<U>,
     tray_notice: AtomicBool,
+    /// Told which policy version the core runs under.
+    recorder: Recorder,
 }
 
 impl<U: Ui> Agent<U> {
@@ -329,10 +342,41 @@ impl<U: Ui> Agent<U> {
                 reminders: ReminderState::default(),
                 long_shift: false,
                 tooltip_minute: None,
+                pending_policy: None,
             }),
             ui: OnceLock::new(),
             tray_notice: AtomicBool::new(false),
+            recorder: recorder.clone(),
         })
+    }
+
+    /// Apply a policy (ADR-0015 §6): reminders and quiet hours now; the
+    /// state machine's settings and call-app rules while clocked out —
+    /// now, or as soon as the current session ends. `version` is None
+    /// for the compiled-in defaults.
+    pub fn apply_policy(&self, doc: &PolicyDoc, version: Option<String>) {
+        let mut inner = self.lock();
+        inner.reminder_cfg = doc.reminder_config();
+        inner.pending_policy = Some(PendingPolicy {
+            core: doc.core_config(),
+            rules: doc.call_rules(),
+            version,
+        });
+        self.adopt_pending(&mut inner);
+    }
+
+    /// Adopt the pending policy if clocked out; otherwise keep waiting.
+    fn adopt_pending(&self, inner: &mut Inner) {
+        if inner.driver.state() != CoreState::ClockedOut {
+            return;
+        }
+        let Some(p) = inner.pending_policy.take() else {
+            return;
+        };
+        if inner.driver.core_mut().set_config(p.core).is_ok() {
+            call_type::set_rules(p.rules);
+            self.recorder.set_policy_version(p.version);
+        }
     }
 
     /// Give the agent its UI. Inputs handled before this (e.g. the
@@ -365,6 +409,10 @@ impl<U: Ui> Agent<U> {
             let call_before = inner.driver.core().call_type();
             let outcome = inner.driver.handle(input, now)?;
             let after = inner.driver.state();
+            // A policy that arrived mid-session takes over once it ends.
+            if after == CoreState::ClockedOut && before != CoreState::ClockedOut {
+                self.adopt_pending(&mut inner);
+            }
             let call_after = inner.driver.core().call_type();
             if after != before || call_after != call_before {
                 inner.timeline.record(after, call_after, now);
@@ -929,5 +977,54 @@ mod tests {
         assert!(agent.view().auto_clocked_out_at.is_some());
         agent.handle(Input::ClockIn).unwrap();
         assert_eq!(agent.view().auto_clocked_out_at, None);
+    }
+
+    fn policy(threshold: u64, bio_cap_min: u64) -> PolicyDoc {
+        PolicyDoc::from_value(&serde_json::json!({
+            "idle": { "threshold_seconds": threshold },
+            "break": { "bio": { "max_minutes": bio_cap_min } }
+        }))
+    }
+
+    fn idle_threshold(agent: &Agent<Arc<FakeUi>>) -> Duration {
+        agent.lock().driver.core().config().idle_threshold
+    }
+
+    #[test]
+    fn a_policy_while_clocked_out_applies_at_once() {
+        let agent = Agent::<Arc<FakeUi>>::new(CoreConfig::default());
+        agent.apply_policy(&policy(600, 20), Some("v1".into()));
+        assert_eq!(idle_threshold(&agent), Duration::from_secs(600));
+        assert_eq!(
+            agent.lock().reminder_cfg.bio_cap,
+            Duration::from_secs(20 * 60)
+        );
+    }
+
+    #[test]
+    fn a_policy_mid_session_waits_for_the_session_to_end_except_reminders() {
+        let agent = Agent::<Arc<FakeUi>>::new(CoreConfig::default());
+        agent.handle(Input::ClockIn).unwrap();
+        agent.apply_policy(&policy(900, 15), Some("v2".into()));
+        // The session keeps its idle rule; the nudge cadence changes now.
+        assert_eq!(idle_threshold(&agent), Duration::from_secs(300));
+        assert_eq!(
+            agent.lock().reminder_cfg.bio_cap,
+            Duration::from_secs(15 * 60)
+        );
+
+        agent.handle(Input::ClockOut).unwrap();
+        assert_eq!(idle_threshold(&agent), Duration::from_secs(900));
+        assert!(agent.lock().pending_policy.is_none());
+    }
+
+    #[test]
+    fn only_the_latest_pending_policy_is_adopted() {
+        let agent = Agent::<Arc<FakeUi>>::new(CoreConfig::default());
+        agent.handle(Input::ClockIn).unwrap();
+        agent.apply_policy(&policy(900, 10), Some("v2".into()));
+        agent.apply_policy(&policy(1200, 10), Some("v3".into()));
+        agent.handle(Input::ClockOut).unwrap();
+        assert_eq!(idle_threshold(&agent), Duration::from_secs(1200));
     }
 }

@@ -8,7 +8,7 @@
 //! The exception is `sign_in`, which is async and runs the browser
 //! round trip on a blocking worker, off the UI thread.
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 
 use tauri::{AppHandle, Emitter, LogicalSize, Manager, State, WebviewWindow};
@@ -18,6 +18,7 @@ use crate::auth::{open_system_browser, AuthError, AuthManager, AuthStatus};
 use crate::enroll::{self, EnrollError, Enroller, Enrollment, EnrollmentStatus};
 use crate::keystore::{OsStore, Secrets};
 use crate::machine::{CoreState, Input, PromptResponse};
+use crate::policy::{self, FetchError, FetchOutcome, PolicyDoc};
 use crate::recorder::{Recorder, Target};
 use crate::sync::live::LiveSync;
 use crate::sync::reqwest_client::TokenSource;
@@ -185,6 +186,100 @@ fn start_live_sync(
     }
 }
 
+/// The user whose policy loop is running, if any (one loop at a time).
+static POLICY_LOOP: Mutex<Option<String>> = Mutex::new(None);
+
+/// Keep `oid`'s policy current (ADR-0015 §5): apply the cached policy
+/// at once, then fetch now and every 15 minutes with `If-None-Match`.
+/// Ends when that user is no longer signed in.
+fn start_policy_sync(
+    app: &AppHandle,
+    auth: &Arc<Auth>,
+    base_url: &str,
+    oid: &str,
+    recorder: &Recorder,
+) {
+    {
+        let mut running = POLICY_LOOP.lock().unwrap_or_else(|p| p.into_inner());
+        if running.as_deref() == Some(oid) {
+            return;
+        }
+        *running = Some(oid.to_string());
+    }
+    let agent = app.state::<Arc<Agent>>().inner().clone();
+    let (auth, recorder) = (auth.clone(), recorder.clone());
+    let (base_url, oid) = (base_url.to_string(), oid.to_string());
+    let spawned = std::thread::Builder::new()
+        .name("cp-policy".into())
+        .spawn(move || {
+            let mut known = None;
+            match recorder.load_policy() {
+                Ok(Some((version, text))) => match serde_json::from_str(&text) {
+                    Ok(doc) => {
+                        agent.apply_policy(&PolicyDoc::from_value(&doc), Some(version.clone()));
+                        eprintln!("[cloudpunch] policy {version} applied from cache");
+                        known = Some(version);
+                    }
+                    Err(e) => eprintln!("[cloudpunch] cached policy unreadable: {e}"),
+                },
+                Ok(None) => {}
+                Err(e) => eprintln!("[cloudpunch] policy cache unavailable: {e}"),
+            }
+            let http = reqwest::blocking::Client::builder()
+                .timeout(Duration::from_secs(30))
+                .build()
+                .expect("reqwest Client::builder is infallible for this config");
+            while auth.oid().as_deref() == Some(oid.as_str()) {
+                let mut wait = policy::REFRESH_EVERY;
+                match auth.access_token(SystemTime::now()) {
+                    Ok(token) => match policy::fetch(&http, &base_url, &token, known.as_deref()) {
+                        Ok(FetchOutcome::NotModified) => {}
+                        Ok(FetchOutcome::Updated(f)) => {
+                            if let Err(e) =
+                                recorder.save_policy(&f.version, &f.document.to_string())
+                            {
+                                eprintln!("[cloudpunch] policy not cached: {e}");
+                            }
+                            agent.apply_policy(
+                                &PolicyDoc::from_value(&f.document),
+                                Some(f.version.clone()),
+                            );
+                            eprintln!("[cloudpunch] policy {} applied", f.version);
+                            known = Some(f.version);
+                        }
+                        Err(FetchError::Refused(e)) => {
+                            eprintln!("[cloudpunch] policy refused ({e}); keeping the current one")
+                        }
+                        Err(FetchError::Unavailable(e)) => {
+                            eprintln!("[cloudpunch] policy fetch will retry: {e}");
+                            wait = Duration::from_secs(60);
+                        }
+                    },
+                    Err(AuthError::NotSignedIn) => break,
+                    Err(e) => {
+                        eprintln!("[cloudpunch] policy fetch will retry: token {}", e.code());
+                        wait = Duration::from_secs(60);
+                    }
+                }
+                // Sleep in slices so a sign-out ends the loop promptly.
+                let until = std::time::Instant::now() + wait;
+                while std::time::Instant::now() < until
+                    && auth.oid().as_deref() == Some(oid.as_str())
+                {
+                    std::thread::sleep(Duration::from_secs(1));
+                }
+            }
+            let mut running = POLICY_LOOP.lock().unwrap_or_else(|p| p.into_inner());
+            if running.as_deref() == Some(oid.as_str()) {
+                *running = None;
+            }
+        });
+    if let Err(e) = spawned {
+        eprintln!("[cloudpunch] policy thread failed to start: {e}");
+        *POLICY_LOOP.lock().unwrap_or_else(|p| p.into_inner()) = None;
+    }
+}
+
 /// Enrol this device for the signed-in user on a background thread,
 /// retrying with backoff while the backend is unreachable. A newer
 /// sign-in or a sign-out makes this attempt stop (generation check).
@@ -223,6 +318,7 @@ pub fn start_enrollment(
     if recorder.is_armed() {
         if let Some(oid) = auth.oid() {
             start_live_sync(app, &auth, &base_url, &oid, &recorder);
+            start_policy_sync(app, &auth, &base_url, &oid, &recorder);
         }
     }
     let sync_app = app.clone();
@@ -256,6 +352,7 @@ pub fn start_enrollment(
                             Ok(target) => {
                                 recorder.arm(target);
                                 start_live_sync(&sync_app, &auth, &base_url, &oid, &recorder);
+                                start_policy_sync(&sync_app, &auth, &base_url, &oid, &recorder);
                             }
                             Err(e) => eprintln!("[cloudpunch] recorder not armed: {e}"),
                         }
@@ -345,6 +442,8 @@ pub fn sign_out(
     let oid = auth.oid();
     app.state::<LiveSync>().stop();
     recorder.disarm();
+    // The next user starts from the defaults until their policy arrives.
+    agent.apply_policy(&PolicyDoc::default(), None);
     auth.sign_out().map_err(|e| e.code().to_string())?;
     if let (Some(oid), Some(dir)) = (oid, data_dir(&app)) {
         let path = Target::outbox_path(&dir, &oid);
