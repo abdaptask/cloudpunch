@@ -1,14 +1,21 @@
 # Desktop app icons
 
-Icon files (`32x32.png`, `128x128.png`, `128x128@2x.png`, `icon.icns`,
-`icon.ico`) are added when we start producing installers in Phase 2b.9.
-At the current slice `bundle.active` is `false` in `tauri.conf.json`,
-so no icons are required for `cargo check` or `tauri dev` runs.
-
-When the time comes, generate them via the Tauri CLI:
+Generated from the brand app icon (`docs/brand/cloudpunch-app-icon.png`:
+the CloudPunch mark on a white rounded tile, 1024×1024) with:
 
 ```
-pnpm -F @cloudpunch/desktop tauri icon path/to/master-logo.png
+cd apps/desktop && npx tauri icon ../../docs/brand/cloudpunch-app-icon.png
 ```
 
-The master logo must be at least 1024×1024 PNG with transparency.
+That writes every size here (Windows `.ico`, macOS `.icns`, the store
+logos, and Android/iOS sets Tauri emits even though we don't ship them).
+
+Two files are ours, not Tauri's:
+
+- `tray-base.rgba`: the 32×32 tray tile as raw RGBA. `tray.rs` draws
+  the status dot on it at run time, so no image decoding is needed.
+- `signed-in-logo.png`: the logo on the browser page shown after
+  sign-in (`auth/loopback.rs`, embedded as a data URI).
+
+Regenerate all of them from `docs/brand/` if the logo changes (see
+`docs/brand/README.md`).

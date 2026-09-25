@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### CloudPunch logo everywhere (2026-09-25)
+
+- **Source.** The project owner's logo is saved in `docs/brand/`, with
+  the full logo, the mark alone, the app-icon tile, colours (navy
+  `#012456`, blue `#018AFE`, teal `#00BFB5`) and usage rules.
+- **App icon** (taskbar, Start menu, Alt-Tab, `.exe`): the mark on a
+  white rounded tile, so it reads on dark taskbars. Every size was
+  regenerated with `tauri icon`.
+- **Tray.** The tiled mark with the status colour as a white-ringed dot,
+  replacing the plain disc. The status signal is unchanged
+  (ADR-0013 §3 note).
+- **Main window.** The full logo replaces the text title. The dark theme
+  uses the reversed logo (navy parts in white) (`ui/Logo.tsx`).
+- **Sign-in screen, redesigned at the owner's request.**
+  - No window header while signed out, so the logo appears once.
+  - "WELCOME TO" sits centred above the large logo, followed by a
+    tagline, a divider, the explanation and the Microsoft button.
+  - Three true trust points: single sign-on, encrypted on this device,
+    works offline.
+  - A brand-gradient bar across the top, card shadow, a soft branded
+    backdrop, and a "Secured by Microsoft Entra ID · ApTask" footer.
+- **Every logo format** is in `docs/brand/`: full logo, mark and app
+  icon at several sizes; reversed, navy and white variants; JPG on
+  white and on navy; WebP; `.ico`; and favicons.
+- **Browser page after sign-in.** The logo is embedded as a data URI.
+
 ### Desktop: today's history survives a quit or restart (2026-09-25)
 
 - **Found by the project owner.** The day's timeline lived only in

@@ -166,28 +166,38 @@ pub fn tooltip(state: TrayStateSnapshot, session: Option<&str>) -> String {
 
 const ICON_SIZE: u32 = 32;
 
-/// A 32×32 RGBA disc in `color` with white clock hands. Pure, so no
-/// icon files are needed per state.
+/// The CloudPunch mark on a white tile, 32×32 RGBA (generated from
+/// `docs/brand/cloudpunch-app-icon.png`).
+const TRAY_BASE: &[u8; 32 * 32 * 4] = include_bytes!("../icons/tray-base.rgba");
+
+/// The tray icon: the CloudPunch mark with a status dot in `color` in
+/// the bottom-right corner, ringed in white so it reads on any taskbar
+/// (ADR-0013 §3, branding note). Pure, so no icon files per state.
 pub fn status_icon_rgba(color: [u8; 3]) -> Vec<u8> {
     let n = ICON_SIZE as i32;
-    let c = (n as f32 - 1.0) / 2.0;
-    let mut px = vec![0u8; (n * n * 4) as usize];
+    let mut px = TRAY_BASE.to_vec();
+    // Dot centre and radii (px): ring 7.5, fill 6.
+    let (cx, cy) = (n as f32 - 8.5, n as f32 - 8.5);
     for y in 0..n {
         for x in 0..n {
-            let (dx, dy) = (x as f32 - c, y as f32 - c);
-            let r = (dx * dx + dy * dy).sqrt();
-            let i = ((y * n + x) * 4) as usize;
-            // Anti-aliased disc edge.
-            let alpha = (15.5 - r).clamp(0.0, 1.0);
-            if alpha == 0.0 {
+            let r = ((x as f32 - cx).powi(2) + (y as f32 - cy).powi(2)).sqrt();
+            let ring = (8.0 - r).clamp(0.0, 1.0);
+            if ring == 0.0 {
                 continue;
             }
-            // Hands: 12 o'clock and 3 o'clock from the centre.
-            let hand = (dx.abs() <= 1.3 && (-9.0..=0.5).contains(&dy))
-                || (dy.abs() <= 1.3 && (-0.5..=7.0).contains(&dx));
-            let rgb = if hand { [255, 255, 255] } else { color };
-            px[i..i + 3].copy_from_slice(&rgb);
-            px[i + 3] = (alpha * 255.0) as u8;
+            let fill = (6.5 - r).clamp(0.0, 1.0);
+            let i = ((y * n + x) * 4) as usize;
+            let rgb: [f32; 3] = [0, 1, 2].map(|k| {
+                let white = 255.0;
+                let top = f32::from(color[k]) * fill + white * (1.0 - fill);
+                let under = f32::from(px[i + k]);
+                top * ring + under * (1.0 - ring)
+            });
+            for k in 0..3 {
+                px[i + k] = rgb[k].round() as u8;
+            }
+            let a = f32::from(px[i + 3]);
+            px[i + 3] = (255.0 * ring + a * (1.0 - ring)).round() as u8;
         }
     }
     px
@@ -297,14 +307,23 @@ mod tests {
     }
 
     #[test]
-    fn status_icon_is_a_32px_disc_with_transparent_corners() {
+    fn status_icon_is_the_mark_with_a_status_dot() {
         let px = status_icon_rgba([1, 2, 3]);
         assert_eq!(px.len(), 32 * 32 * 4);
-        assert_eq!(px[3], 0, "corner transparent");
-        let edge = ((16 * 32 + 1) * 4) as usize; // left edge, mid-height
-        assert_eq!(&px[edge..edge + 3], &[1, 2, 3]);
-        let centre = ((16 * 32 + 16) * 4) as usize;
-        assert_eq!(&px[centre..centre + 3], &[255, 255, 255], "hands");
+        let at = |x: usize, y: usize| &px[(y * 32 + x) * 4..(y * 32 + x) * 4 + 4];
+        assert_eq!(at(0, 0)[3], 0, "tile corner stays transparent");
+        assert_eq!(
+            &at(23, 23)[..3],
+            &[1, 2, 3],
+            "dot centre is the status colour"
+        );
+        assert_eq!(at(23, 23)[3], 255);
+        // Away from the dot the icon is the unchanged brand tile.
+        assert_eq!(
+            at(8, 16),
+            &TRAY_BASE[(16 * 32 + 8) * 4..(16 * 32 + 8) * 4 + 4]
+        );
+        assert_ne!(status_icon_rgba([200, 0, 0]), px, "colour changes the dot");
     }
 
     #[test]
