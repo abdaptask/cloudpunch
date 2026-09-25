@@ -166,6 +166,20 @@ Enrollment flow:
 4. Server issues a device identity that the agent includes in every
    subsequent request.
 
+*As implemented (2b.4 F3b, 2026-09-25):*
+- **Authentication.** The request authenticates with the user's normal
+  **Entra access token** (bearer). There is no separate enrollment JWT;
+  the server re-validates the token and its `roles` per request
+  (CLAUDE.md invariant 6).
+- **Device id.** The **agent** generates the `device_id`: a UUID v4
+  per user per machine, kept in the OS keystore (ADR-0007 §5). The body
+  is `{device_id, os, hostname_hash, public_key_ed25519, app_version}`,
+  and the server answers `{device_id, enrolled_at, revoked}`.
+- **Re-enrollment.** The agent enrolls on every launch and sign-in. The
+  same device and user refreshes the key; a different user returns 409.
+- **Identity.** The employee id comes from `GET /v1/me`, not from
+  enrollment.
+
 Revocation:
 
 - Admin can revoke a device via the CloudPunch admin UI.
@@ -303,41 +317,53 @@ Rather than inventing values, we mark reconstructed events explicitly:
 ### 9. Payload shape per event type
 
 Per-event JSON Schemas live in
-`packages/event-schema/payloads/<event_type>.schema.json` and are the
-sole source of truth. Every ingest validates the payload against the
-schema for its `event_type`. Unknown event types are rejected.
+`packages/event-schema/schemas/<event-type>.schema.json` (with
+`schemas/common/`). Unknown event types are rejected.
 
-Illustrative payloads:
+*Status (2026-09-25):* ingest does **not** yet validate each payload
+against its JSON Schema. It accepts any JSON object as `payload`, and
+the state machine checks the fields it depends on (`break_kind`,
+`in_use`, `call_type`, `away_reason`, `trigger`, `response`). Full
+per-type payload validation is a follow-up. Until then the CI invariant
+(§10) keeps banned field names out of everything the agent writes.
+
+Payloads as the desktop agent sends them today:
 
 ```jsonc
-// USER_CLOCK_IN
-{ "geo_optout": true }
+// USER_CLOCK_IN: empty under the default policy; otherwise the
+// version of the policy the session runs under (ADR-0015 §6)
+{ "policy_version": "sha256-…" }
 
 // USER_PROMPT_RESPONSE
 { "response": "bio_break", "note": null, "prompt_shown_at": "…" }
 
 // USER_START_BREAK
-{ "break_kind": "meal", "note": null }
+{ "break_kind": "meal" }
 
-// USER_MARK_AWAY
-{ "away_reason": "phone_call", "note": null }
+// USER_MARK_AWAY: note only when given
+{ "away_reason": "meeting", "note": "Client sync" }
 
-// MEDIA_DEVICE_STATE
-{ "in_use": true, "device_kind": "microphone", "detected_via": "IAudioSessionManager2" }
+// MEDIA_DEVICE_STATE: call_type only while in use (ADR-0012)
+{ "in_use": true, "call_type": "teams" }
+{ "in_use": false }
 
-// INPUT_IDLE_5M
-{ "elapsed_ms": 300000, "threshold_ms": 300000 }
+// INPUT_IDLE_5M: input_idle while ACTIVE, silent_call while ON_CALL (ADR-0010)
+{ "trigger": "input_idle" }
 
 // PROMPT_TIMEOUT_30S
-{ "grace_ms": 30000, "closed_session_at": "…" }
+{}
 
-// CLOCK_DRIFT_DETECTED
-{ "wall_delta_ms": 63000, "monotonic_delta_ms": 3000, "sample_window_ms": 30000 }
-
-// SESSION_RECOVERED
-{ "reconstruction_reason": "system_shutdown",
+// SESSION_RECOVERED: origin = "reconstructed" (ADR-0003 §10)
+{ "reconstruction_reason": "session_recovered",
   "last_heartbeat_at": "…",
   "recovered_at": "…" }
+```
+
+Not emitted yet; shape illustrative:
+
+```jsonc
+// CLOCK_DRIFT_DETECTED
+{ "wall_delta_ms": 63000, "monotonic_delta_ms": 3000, "sample_window_ms": 30000 }
 ```
 
 No payload field may match the banned surveillance regex (§10).
