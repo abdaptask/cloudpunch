@@ -251,6 +251,17 @@ describe('sign-in (2b.4 F2)', () => {
     expect(await screen.findByRole('button', { name: 'Clock in' })).toBeInTheDocument();
   });
 
+  it('sign out waits for unsent time, and first clock-in waits for enrollment', async () => {
+    mocks.signOut.mockRejectedValue('unsynced_events');
+    mocks.clockIn.mockRejectedValue('not_enrolled');
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole('button', { name: 'Sign out' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent("hasn't reached CloudPunch yet");
+    await user.click(screen.getByRole('button', { name: 'Clock in' }));
+    expect(await screen.findByText(/Connecting to CloudPunch/)).toBeInTheDocument();
+  });
+
   it('sign out is offered only while clocked out', async () => {
     mocks.signOut.mockResolvedValue(SIGNED_OUT);
     const user = userEvent.setup();

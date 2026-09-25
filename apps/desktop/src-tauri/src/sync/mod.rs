@@ -349,6 +349,9 @@ mod tests {
             sequence_number: seq,
             event_body: format!(r#"{{"event_ulid":"{ulid}"}}"#).into_bytes(),
             integrity_signature: vec![0u8; 64],
+            correlation_id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc".to_string(),
+            device_id: "dddddddd-dddd-4ddd-8ddd-dddddddddddd".to_string(),
+            employee_id: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee".to_string(),
         }
     }
 
@@ -412,6 +415,9 @@ mod tests {
             last_error: None,
             poisoned: false,
             poison_reason: None,
+            correlation_id: String::new(),
+            device_id: String::new(),
+            employee_id: String::new(),
         }
     }
 

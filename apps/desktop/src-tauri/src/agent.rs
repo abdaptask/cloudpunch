@@ -26,10 +26,10 @@ use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 
 use crate::machine::driver::Driver;
-use crate::machine::sink::LogSink;
 use crate::machine::{
     AwayReason, BreakKind, CallType, Core, CoreConfig, CoreState, Effect, Input, Rejected,
 };
+use crate::recorder::{OutboxSink, Recorder};
 use crate::reminders::{self, Inputs as ReminderInputs, Reminder, ReminderConfig, ReminderState};
 use crate::timeline::{epoch_ms, SegmentView, Timeline};
 use crate::tray::{self, TrayStateSnapshot};
@@ -246,7 +246,7 @@ impl Ui for TauriUi {
 }
 
 struct Inner {
-    driver: Driver<LogSink>,
+    driver: Driver<OutboxSink>,
     auto_clocked_out_at: Option<SystemTime>,
     timeline: Timeline,
     reminder_cfg: ReminderConfig,
@@ -312,11 +312,17 @@ pub struct Agent<U: Ui = TauriUi> {
 }
 
 impl<U: Ui> Agent<U> {
+    /// An agent whose events are only logged (tests).
     pub fn new(cfg: CoreConfig) -> Arc<Self> {
+        Self::with_recorder(cfg, &Recorder::log_only())
+    }
+
+    /// An agent recording signed events through `recorder` (2b.4 F3c).
+    pub fn with_recorder(cfg: CoreConfig, recorder: &Recorder) -> Arc<Self> {
         let core = Core::new(cfg, SystemTime::now());
         Arc::new(Self {
             inner: Mutex::new(Inner {
-                driver: Driver::new(core, LogSink),
+                driver: Driver::new(core, recorder.sink()),
                 auto_clocked_out_at: None,
                 timeline: Timeline::new(),
                 reminder_cfg: ReminderConfig::default(),

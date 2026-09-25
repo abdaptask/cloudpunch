@@ -50,6 +50,13 @@ unique per request.
 5. **Per-request tracing** (one retry vs. another) belongs in an HTTP
    request-ID header and server logs, not in `correlation_id`.
 
+**Implementation note (2b.4 F3c, 2026-09-25, approved by the project
+owner):** alongside `correlation_id`, each outbox row also stores the
+`device_id` and `employee_id` it was signed with. The signature covers
+all three, so the sync loop builds each envelope from the row rather
+than from whoever is signed in when it syncs. The outbox's v3 migration
+adds the three columns together.
+
 ## Consequences
 
 - Retries, offline replay and batch splitting all keep valid signatures,

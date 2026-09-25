@@ -7,6 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Desktop: signed events into the outbox (2b.4 F3c, PR 1 of 2) (2026-09-25)
+
+- **New `recorder.rs`.** `OutboxSink` replaces the log-only sink in the
+  agent's driver. Each event is:
+  - signed with the F3a encoder, using the device key and the local
+    time zone;
+  - given a monotonic ULID and `monotonic_ns`, with `offline_captured`
+    taken from the network watcher;
+  - written to the user's encrypted outbox (`outbox-<oid>.db` in the
+    app data folder).
+- **Sessions.**
+  - `USER_CLOCK_IN` starts a session with a new `session_id` and
+    `correlation_id` (ADR-0014) at sequence number 1.
+  - The session ends when the payroll state reaches `Closed`, whether
+    by clock-out or automatic clock-out. It is tracked with the same
+    transition table as the core and the backend.
+- **Recorder modes.**
+  - *Armed*: from a fresh enrollment, or from the identity cached in
+    the outbox by an earlier one, so offline launches still record.
+  - *Log-only*: when `CLOUDPUNCH_BACKEND_URL` is unset (local
+    development).
+  - *Unarmed*: before either of the above.
+- **Outbox schema v3.**
+  - Each row now stores `correlation_id`, `device_id` and
+    `employee_id` (ADR-0014 implementation note).
+  - A new `identity` table holds the cached identity.
+  - `busy_timeout` is set to 5 s so the sync loop's connection can
+    share the file.
+  - Existing v2 files upgrade in place.
+- **Approved decisions.**
+  - The first-ever clock-in on a machine waits for enrollment (error
+    `not_enrolled`: "Connecting to CloudPunch… try again in a moment").
+  - Sign-out is refused while events are unsent (error
+    `unsynced_events`). On sign-out the outbox is closed and its file
+    deleted along with its key.
+- **Not yet:** nothing is sent. The live sync loop comes in PR 2, and
+  until then sign-out stays blocked once you have clocked in.
+
 ### Device visibility: who signs in from where (2026-09-25)
 
 - Requested by the project owner. Every device a user enrolls is
