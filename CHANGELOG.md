@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### ADR-0015: policy storage, resolution and desktop fetch (2026-09-25)
+
+- Accepted by the project owner. Policy lives in a new
+  `policy_override` table of partial documents per scope.
+- Resolution merges schema defaults, then global, then department,
+  then employee (most specific wins), validated with `ajv`. The
+  version is a hash of the content.
+- `GET /v1/me/policy` has ETag/304 support. The admin write API is
+  audited. HR may write department and employee scopes through a new
+  `hr.policy.write`; global stays Administrator-only.
+- The desktop fetches after enrollment, at launch and every 15 min,
+  and caches the last good policy offline.
+- When a change applies: reminders and quiet hours immediately; idle,
+  break and away rules at the next clock-in. `USER_CLOCK_IN` carries
+  `policy_version`.
+- The call-app allowlist moves to `idle.call_type_apps`.
+- Docs only in this entry; implementation follows in three PRs.
+
 ### Desktop: one running copy (2026-09-25)
 
 - Found during the crash-recovery test: nothing stopped a second copy
