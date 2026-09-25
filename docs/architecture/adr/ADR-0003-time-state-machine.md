@@ -120,9 +120,18 @@ ACTIVE
   ├─ NETWORK_OFFLINE                     → OFFLINE_PENDING_SYNC (prior=ACTIVE)
   ├─ CLOCK_DRIFT_DETECTED                → ERROR_REQUIRING_ATTENTION
 
+*Corrected 2026-09-25 to match the implemented tables
+(`apps/backend/src/events/state-machine.ts`,
+`apps/desktop/src-tauri/src/machine/transitions.rs`, and the shared
+fixture `state-transitions.json`). The earlier draft omitted
+`USER_CLOCK_OUT` and the silent-call idle trigger, and had
+`INPUT_ACTIVITY` leaving `IDLE_PENDING` and `AWAY`. `INPUT_ACTIVITY` is
+ambient and never changes the state.*
+
 ON_CALL
   ├─ MEDIA_DEVICE_STATE (in_use=false)   → ACTIVE          [re-arm 5-min timer from now]
   ├─ INPUT_ACTIVITY                      → ON_CALL         [no state change; do not re-arm 5-min timer while on call]
+  ├─ INPUT_IDLE_5M (trigger=silent_call) → IDLE_PENDING    [no input for idle.max_silent_call_minutes; ADR-0010]
   ├─ USER_START_BREAK                    → ON_BREAK        [kind attribute]
   ├─ USER_CLOCK_OUT                      → CLOCKING_OUT
   ├─ SYSTEM_LOCK                         → LOCKED
@@ -136,7 +145,8 @@ IDLE_PENDING
   ├─ USER_PROMPT_RESPONSE (on_phone_call) → AWAY            [reason=phone_call, note optional]
   ├─ USER_PROMPT_RESPONSE (working_away)  → AWAY            [reason=working_away, note required]
   ├─ USER_PROMPT_RESPONSE (end_shift)     → CLOCKING_OUT
-  ├─ INPUT_ACTIVITY                       → ACTIVE          [dismiss prompt, re-arm 5-min timer]
+  ├─ USER_CLOCK_OUT                       → CLOCKING_OUT    [Clock out from the main window or tray while the prompt shows]
+  ├─ INPUT_ACTIVITY                       → IDLE_PENDING    [no state change; resets the 30-s countdown, does NOT dismiss the prompt (ADR-0008)]
   ├─ MEDIA_DEVICE_STATE (in_use=true)     → ON_CALL         [dismiss prompt]
   ├─ PROMPT_TIMEOUT_30S                   → CLOCKING_OUT   [reason=idle_auto_clock_out, preserve time up to prompt appearance, DO NOT include the 5-min idle window OR the 30-s grace in payable time]
 
@@ -150,7 +160,7 @@ ON_BREAK
 
 AWAY
   ├─ USER_MARK_BACK                       → ACTIVE
-  ├─ INPUT_ACTIVITY                       → ACTIVE          [ask for confirmation once]
+  ├─ INPUT_ACTIVITY                       → AWAY            [no state change; the user marks back explicitly (ADR-0011 §2)]
   ├─ USER_CLOCK_OUT                       → CLOCKING_OUT
   ├─ SYSTEM_LOCK                          → LOCKED         [remember away_reason for resume]
   ├─ NETWORK_OFFLINE                      → OFFLINE_PENDING_SYNC (prior=AWAY, reason)
