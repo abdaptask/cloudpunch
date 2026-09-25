@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### ADR-0016: day history (2026-09-25)
+
+- Accepted; the decisions were set by the project owner.
+- **A working day is a run of sessions**, each starting within 6 hours of
+  the previous one ending. It is dated by its first clock-in, in that
+  computer's own time zone, and never split at midnight. A night shift
+  of 18:30–03:30 IST, even with a clock-out around midnight, is one
+  day. Computers in US
+  Eastern and India time file shifts on the right day, independent of
+  server or viewer.
+- **Times are shown on the clock where the work happened**
+  (`client_ts`), labelled when the zone differs from the viewer's.
+  `server_ts` is kept for audit and drift checks.
+- **API:** `GET /v1/me/days/{date}` (sessions, segments of the kinds the
+  desktop already draws, totals) and `GET /v1/me/days?from&to` (daily
+  totals). Self only.
+- **Look-back:** 30 days. Today stays on the local journal for now.
+- Docs only; implementation follows.
 ### Desktop: "your day on a clock" home screen (2026-09-25)
 
 - **Requested by the project owner:** the home window had become a
