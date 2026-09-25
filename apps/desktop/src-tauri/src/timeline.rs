@@ -12,8 +12,12 @@
 //! (`Timeline::to_json` / `restore`), so quitting or restarting the app
 //! keeps today's history. A segment a crash left open is closed at the
 //! last heartbeat, where the server closes the recovered session.
+//!
+//! "Today" is the current **working day** (ADR-0016 §1): sessions each
+//! starting within [`MAX_GAP`] of the previous one ending. It is never
+//! cut at midnight, so a 6:30 pm – 3:30 am shift stays one day.
 
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
@@ -79,6 +83,9 @@ impl SegmentKind {
     }
 }
 
+/// Sessions this close together are one working day (ADR-0016 §1).
+pub const MAX_GAP: Duration = Duration::from_secs(6 * 3600);
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Segment {
     pub kind: SegmentKind,
@@ -132,6 +139,8 @@ impl Timeline {
             None => self.session_started_at = None,
             Some(kind) => {
                 if self.session_started_at.is_none() {
+                    // A new session: earlier working days are done.
+                    self.prune(at);
                     self.session_started_at = Some(at);
                     self.sessions += 1;
                 }
@@ -169,13 +178,34 @@ impl Timeline {
         &self.segments
     }
 
-    /// Whether any segment is still open or ended after `t` (e.g. local
-    /// midnight: "anything tracked today?").
-    pub fn any_since(&self, t: SystemTime) -> bool {
-        self.segments.iter().any(|s| match s.ended_at {
-            None => true,
-            Some(e) => e > t,
-        })
+    /// Start of the current working day as of `now`: the first segment
+    /// of the run of sessions, each within [`MAX_GAP`] of the previous
+    /// one, that is still open or ended at most [`MAX_GAP`] ago. `None`
+    /// when nothing is that recent (a new day hasn't started).
+    pub fn current_day_start(&self, now: SystemTime) -> Option<SystemTime> {
+        let last = self.segments.last()?;
+        if let Some(end) = last.ended_at {
+            if now.duration_since(end).unwrap_or_default() > MAX_GAP {
+                return None;
+            }
+        }
+        let mut start = last.started_at;
+        for s in self.segments.iter().rev().skip(1) {
+            let end = s.ended_at.unwrap_or(s.started_at);
+            if start.duration_since(end).unwrap_or_default() > MAX_GAP {
+                break;
+            }
+            start = s.started_at;
+        }
+        Some(start)
+    }
+
+    /// Drop segments from working days before the current one.
+    pub fn prune(&mut self, now: SystemTime) {
+        match self.current_day_start(now) {
+            None => self.segments.clear(),
+            Some(start) => self.segments.retain(|s| s.started_at >= start),
+        }
     }
 
     /// Forget everything (sign-out: the next user starts clean).
@@ -267,6 +297,52 @@ mod tests {
 
     fn kinds(tl: &Timeline) -> Vec<&'static str> {
         tl.segments().iter().map(|s| s.kind.as_str()).collect()
+    }
+
+    const H: u64 = 3600;
+
+    /// Clock in at `from` hours, out at `to` hours.
+    fn shift(tl: &mut Timeline, from: u64, to: u64) {
+        tl.on_state(CoreState::Active, t(from * H));
+        tl.on_state(CoreState::ClockedOut, t(to * H));
+    }
+
+    #[test]
+    fn a_night_shift_across_midnight_is_one_working_day() {
+        // 18:30–23:30, then 00:15–03:30 (hours from an arbitrary 00:00).
+        let mut tl = Timeline::new();
+        tl.on_state(CoreState::Active, t(18 * H + 1800));
+        tl.on_state(CoreState::ClockedOut, t(23 * H + 1800));
+        tl.on_state(CoreState::Active, t(24 * H + 900));
+        assert_eq!(tl.segments().len(), 2, "the evening is kept");
+        assert_eq!(tl.current_day_start(t(25 * H)), Some(t(18 * H + 1800)));
+        tl.on_state(CoreState::ClockedOut, t(27 * H + 1800));
+        // Still the same day just under 6 hours after clocking out…
+        assert_eq!(tl.current_day_start(t(33 * H)), Some(t(18 * H + 1800)));
+        // …and a new one after.
+        assert_eq!(tl.current_day_start(t(34 * H)), None);
+    }
+
+    #[test]
+    fn clocking_in_on_a_new_day_drops_the_old_one() {
+        let mut tl = Timeline::new();
+        shift(&mut tl, 9, 13);
+        shift(&mut tl, 14, 18); // lunch clock-out: same day
+        assert_eq!(tl.current_day_start(t(19 * H)), Some(t(9 * H)));
+        tl.on_state(CoreState::Active, t(33 * H)); // next morning, 09:00
+        assert_eq!(kinds(&tl), ["working"]);
+        assert_eq!(tl.current_day_start(t(34 * H)), Some(t(33 * H)));
+    }
+
+    #[test]
+    fn prune_keeps_only_the_current_day() {
+        let mut tl = Timeline::new();
+        shift(&mut tl, 9, 17);
+        tl.prune(t(20 * H));
+        assert_eq!(tl.segments().len(), 1);
+        tl.prune(t(24 * H));
+        assert!(tl.segments().is_empty());
+        assert_eq!(Timeline::new().current_day_start(t(0)), None);
     }
 
     #[test]
@@ -448,16 +524,5 @@ mod tests {
         for k in SegmentKind::ALL {
             assert_eq!(SegmentKind::from_wire(k.as_str()), Some(k));
         }
-    }
-
-    #[test]
-    fn any_since_sees_open_and_later_segments_only() {
-        let mut tl = Timeline::new();
-        assert!(!tl.any_since(at(0)));
-        tl.on_state(CoreState::Active, at(100));
-        assert!(tl.any_since(at(5000)), "open segment");
-        tl.on_state(CoreState::ClockedOut, at(200));
-        assert!(tl.any_since(at(150)));
-        assert!(!tl.any_since(at(300)), "ended before");
     }
 }
