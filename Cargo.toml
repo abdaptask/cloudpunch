@@ -10,7 +10,7 @@ members = ["apps/desktop/src-tauri"]
 
 [workspace.package]
 edition = "2021"
-rust-version = "1.75"
+rust-version = "1.77.2"
 license = "Proprietary"
 publish = false
 

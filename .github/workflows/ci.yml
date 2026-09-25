@@ -44,3 +44,46 @@ jobs:
 
       - name: Format check
         run: pnpm format:check
+
+  # The desktop agent targets Windows (Win32 watchers, Credential
+  # Manager), so its Rust is built, linted and tested on Windows.
+  rust:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+          run_install: false
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # tauri::generate_context! embeds the built frontend (frontendDist).
+      - name: Build desktop frontend
+        run: pnpm -F @cloudpunch/desktop vite:build
+
+      - name: Install Rust (rust-toolchain.toml)
+        run: rustup show active-toolchain || rustup toolchain install
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+
+      - name: Format check
+        run: cargo fmt --all --check
+
+      - name: Clippy (warnings are errors)
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Test
+        run: cargo test
