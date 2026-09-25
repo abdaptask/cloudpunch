@@ -18,8 +18,7 @@ until API access is confirmed). AWS `ap-south-1` primary region.
    detected call, the _category_ of the app holding the microphone
    (`teams` / `zoom` / `other`) from a fixed allowlist — never the
    app name, path, window title, or audio. Enforced by
-   `test/invariants/no-content-capture.ts` (not yet implemented — tracked
-   under the CI item).
+   `tests/invariants/` (run by `pnpm test` in CI; ADR-0004 §10).
 2. **Immutable event history.** `time_event` table is append-only. Any code
    path that issues `UPDATE` or `DELETE` on `time_event` must be rejected in
    CI.
