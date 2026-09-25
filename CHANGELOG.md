@@ -10,8 +10,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### ADR-0016: day history (2026-09-25)
 
 - Accepted; the decisions were set by the project owner.
-- **A session belongs to the date it was clocked in, in that computer's
-  own time zone**, and is never split at midnight. Computers in US
+- **A working day is a run of sessions**, each starting within 6 hours of
+  the previous one ending. It is dated by its first clock-in, in that
+  computer's own time zone, and never split at midnight. A night shift
+  of 18:30–03:30 IST, even with a clock-out around midnight, is one
+  day. Computers in US
   Eastern and India time file shifts on the right day, independent of
   server or viewer.
 - **Times are shown on the clock where the work happened**

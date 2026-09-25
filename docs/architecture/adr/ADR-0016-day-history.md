@@ -21,14 +21,28 @@ out.**
 
 ## Decision
 
-### 1. A session belongs to the day it was clocked in, in its own zone
+### 1. A working day is a run of sessions, dated by its first clock-in
 
-The **shift date** of a session is the local calendar date of its
+A **working day** is one or more consecutive sessions of the same
+employee where each session starts **within 6 hours** of the previous
+one ending. Its **date** is the local calendar date of its first
 `USER_CLOCK_IN`, in the zone recorded on that event (`tz_iana` and the
-offset in `client_ts`). A session is **never split at midnight**: a
-22:00–03:00 shift belongs entirely to the day it started. A 09:00–17:00
-shift in New York and one in Hyderabad are both on the same date,
-though they are hours apart in real time.
+offset in `client_ts`).
+- **Never split at midnight.** Neither a session nor a working day is
+  cut by midnight.
+- **Night shifts.** An India team working US hours (owner's example):
+  18:30–23:30 IST, then 00:15–03:30 IST after a clock-out around
+  midnight, is **one working day** on the first date. The next shift at
+  18:30 starts 15 hours later, so it is a new day.
+- **Day shifts.** 09:00–13:00, a lunch clock-out, then 14:00–18:00, is
+  one day. 09:00 the next morning is a new day.
+- **Different zones.** A 09:00–17:00 shift in New York and one in
+  Hyderabad are both on their own date, though they are hours apart in
+  real time.
+
+Six hours separates any two real shifts yet tolerates long breaks. It
+can become a policy setting (`workday.max_gap_hours`) if a team needs
+something else.
 
 There is no time-zone setting and no zone parameter on the API. Each
 session carries its own.
@@ -46,7 +60,7 @@ labels it (for example "09:00 EST"). Durations never depend on zones.
 ### 3. The API
 
 - `GET /v1/me/days/{date}` (`date` = `YYYY-MM-DD`): the caller's
-  sessions whose shift date is `date`. For each session it returns:
+  working day dated `date` (§1). For each session it returns:
   - times (ISO 8601 with the recorded offset), the zone, the device,
     the close reason and `reconstructed`;
   - its **segments**, derived by replaying the session's events through
@@ -78,8 +92,8 @@ follow-up.
 
 - One rule, independent of server, viewer and machine zones; a shift
   is never cut in two.
-- A session's date is fixed at clock-in, so a later move to another
-  zone never re-files past days.
+- A working day's date is fixed by its first clock-in, so a later move
+  to another zone never re-files past days.
 - The day view reuses the desktop's dial and lists unchanged, because
   the server returns the same segment kinds.
 - Derived segments are computed on request from the immutable ledger,
@@ -94,6 +108,9 @@ follow-up.
 - **Split days at the viewer's or the server's midnight.** Rejected:
   a US shift would straddle two India dates, and the same shift would
   land on different days for different viewers.
+- **One session = one day (date of its own clock-in).** Rejected: a
+  clock-out and back in around midnight on a night shift would split
+  one working day in two.
 - **Show times in the viewer's zone.** Rejected: an employee in New
   York would see their morning as "18:30".
 - **An employee-profile time zone.** Unnecessary: each event already
