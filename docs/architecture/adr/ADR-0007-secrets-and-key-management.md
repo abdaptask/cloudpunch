@@ -165,6 +165,19 @@ this data is safe to log at debug level.
   encrypted DB. A new sign-in generates new material. The device-id
   entry is kept, so the next sign-in re-enrols the same device with
   the new public key rather than registering another one.
+- *Implementation note (2026-09-25, approved by the project owner):*
+  sign-out is never blocked by unsent time.
+  - The app first gives the sync loop about 6 s to send what is left.
+  - If events are still unsent after that (for example offline), it
+    removes only the sign-in: the refresh token and the current-user
+    pointer.
+  - It **keeps** that user's device key, outbox key and outbox file,
+    so the next time the same user signs in on this computer the kept
+    events verify and send. With nothing unsent, all entries and the
+    outbox file are deleted as above.
+  - Kept keys stay in the same per-user DPAPI/Keychain vault. Another
+    Entra user on the same OS account has their own entries and
+    outbox.
 
 ### 6. Tauri auto-updater signing
 

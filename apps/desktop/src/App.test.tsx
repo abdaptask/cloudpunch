@@ -251,14 +251,24 @@ describe('sign-in (2b.4 F2)', () => {
     expect(await screen.findByRole('button', { name: 'Clock in' })).toBeInTheDocument();
   });
 
-  it('sign out waits for unsent time, and first clock-in waits for enrollment', async () => {
-    mocks.signOut.mockRejectedValue('unsynced_events');
-    mocks.clockIn.mockRejectedValue('not_enrolled');
+  it('sign out never blocks on unsent time: it says what is kept for later', async () => {
+    mocks.signOut.mockResolvedValue({ ...SIGNED_OUT, unsentKept: 3 });
     const user = userEvent.setup();
     render(<App />);
     await user.click(await screen.findByRole('button', { name: 'Sign out' }));
-    expect(await screen.findByRole('alert')).toHaveTextContent("hasn't reached CloudPunch yet");
-    await user.click(screen.getByRole('button', { name: 'Clock in' }));
+    expect(
+      await screen.findByText(
+        'Signed out. 3 events will be sent the next time you sign in on this computer.',
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Sign in with Microsoft' })).toBeInTheDocument();
+  });
+
+  it('the first clock-in on a computer waits for enrollment', async () => {
+    mocks.clockIn.mockRejectedValue('not_enrolled');
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole('button', { name: 'Clock in' }));
     expect(await screen.findByText(/Connecting to CloudPunch/)).toBeInTheDocument();
   });
 

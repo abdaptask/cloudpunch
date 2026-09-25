@@ -43,6 +43,8 @@ export interface AuthStatus {
   signedIn: boolean;
   name: string | null;
   username: string | null;
+  /** After sign-out: events kept here until this user signs in again. */
+  unsentKept?: number;
 }
 
 /** Emitted after sign-in, sign-out, and the silent start-up restore. */

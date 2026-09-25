@@ -215,6 +215,35 @@ fn sign_out_deletes_tokens_pointer_and_device_keys() {
 }
 
 #[test]
+fn sign_out_keeping_device_removes_the_sign_in_but_keeps_the_keys() {
+    let server = MockServer::start();
+    server.mock(|when, then| {
+        when.method(POST).path("/token");
+        then.status(200)
+            .json_body(token_json("at", Some("rt"), OID, 3600));
+    });
+    let auth = manager(&server);
+    auth.sign_in(&fake_browser, Duration::from_secs(5)).unwrap();
+    let secrets = Secrets::new(auth.store.clone());
+    let device = secrets.device_key(OID).unwrap().to_bytes();
+    let outbox = secrets.outbox_key(OID).unwrap();
+
+    auth.sign_out_keeping_device().unwrap();
+    assert!(!auth.status().signed_in);
+    assert!(auth.store.get(&Slot::current_user()).unwrap().is_none());
+    let rt = Slot::refresh_token(
+        EntraConfig::APTASK.tenant_id,
+        EntraConfig::APTASK.client_id,
+        OID,
+    )
+    .unwrap();
+    assert!(auth.store.get(&rt).unwrap().is_none(), "sign-in is gone");
+    // The keys that can read and send the kept events stay.
+    assert_eq!(secrets.device_key(OID).unwrap().to_bytes(), device);
+    assert_eq!(secrets.outbox_key(OID).unwrap(), outbox);
+}
+
+#[test]
 fn denied_in_browser_reports_denied() {
     let server = MockServer::start();
     let auth = manager(&server);
