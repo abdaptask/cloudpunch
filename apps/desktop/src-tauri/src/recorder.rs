@@ -155,6 +155,9 @@ struct Shared {
     /// Version of the policy the core runs under, stamped on each
     /// `USER_CLOCK_IN` (ADR-0015 §6). None: the compiled-in defaults.
     policy_version: Option<String>,
+    /// Last heartbeat of a session recovered at arming, for closing the
+    /// journaled timeline segment it left open.
+    recovered_heartbeat: Option<SystemTime>,
 }
 
 impl Shared {
@@ -187,6 +190,7 @@ impl Recorder {
                 online: None,
                 run_id: uuid::Uuid::new_v4().to_string(),
                 policy_version: None,
+                recovered_heartbeat: None,
             })),
         }
     }
@@ -208,8 +212,11 @@ impl Recorder {
     fn arm_at(&self, target: Target, now: SystemTime, zone: &Zone) {
         let mut shared = self.lock();
         match recover_stale_session(&target, &shared.run_id, shared.online(), now, zone) {
-            Ok(true) => eprintln!("[cloudpunch] recovered a session left open by an earlier run"),
-            Ok(false) => {}
+            Ok(Some(heartbeat)) => {
+                eprintln!("[cloudpunch] recovered a session left open by an earlier run");
+                shared.recovered_heartbeat = Some(heartbeat);
+            }
+            Ok(None) => {}
             Err(e) => eprintln!("[cloudpunch] session recovery failed: {e}"),
         }
         shared.mode = Mode::Armed(Box::new(target));
@@ -234,6 +241,39 @@ impl Recorder {
             Mode::Armed(t) => t.outbox.load_policy(&t.identity.oid),
             _ => Ok(None),
         }
+    }
+
+    /// Journal today's timeline (display only) in the user's outbox.
+    pub fn save_day(&self, segments_json: &str) {
+        let shared = self.lock();
+        if let Mode::Armed(t) = &shared.mode {
+            let (today, keep_from) = local_days();
+            if let Err(e) = t
+                .outbox
+                .save_day(&t.identity.oid, &today, segments_json, &keep_from)
+            {
+                eprintln!("[cloudpunch] timeline not journaled: {e}");
+            }
+        }
+    }
+
+    /// Today's journaled timeline for the armed user.
+    pub fn load_today(&self) -> Option<String> {
+        let shared = self.lock();
+        let Mode::Armed(t) = &shared.mode else {
+            return None;
+        };
+        t.outbox
+            .load_day(&t.identity.oid, &local_days().0)
+            .unwrap_or_else(|e| {
+                eprintln!("[cloudpunch] timeline journal unavailable: {e}");
+                None
+            })
+    }
+
+    /// The heartbeat of a session recovered at arming, once.
+    pub fn take_recovered_heartbeat(&self) -> Option<SystemTime> {
+        self.lock().recovered_heartbeat.take()
     }
 
     /// Heartbeat for the session in progress (called every minute).
@@ -455,13 +495,13 @@ fn recover_stale_session(
     online: bool,
     now: SystemTime,
     zone: &Zone,
-) -> Result<bool, RecorderError> {
+) -> Result<Option<SystemTime>, RecorderError> {
     let oid = &target.identity.oid;
     let Some(stale) = target.outbox.load_open_session(oid)? else {
-        return Ok(false);
+        return Ok(None);
     };
     if stale.run_id == run_id {
-        return Ok(false);
+        return Ok(None);
     }
     let ctx = SessionContext {
         device_id: stale.device_id.clone(),
@@ -507,7 +547,18 @@ fn recover_stale_session(
         employee_id: ctx.employee_id,
     })?;
     target.outbox.clear_open_session(oid)?;
-    Ok(true)
+    Ok(Some(stale.last_alive_at))
+}
+
+/// Today and the oldest day the journal keeps (a week), as local
+/// `YYYY-MM-DD`.
+fn local_days() -> (String, String) {
+    let today = chrono::Local::now().date_naive();
+    let keep_from = today - chrono::Duration::days(7);
+    (
+        today.format("%Y-%m-%d").to_string(),
+        keep_from.format("%Y-%m-%d").to_string(),
+    )
 }
 
 #[cfg(test)]
@@ -886,5 +937,29 @@ mod tests {
             r.load_policy().unwrap(),
             Some(("sha256-1".into(), r#"{"idle":{}}"#.into()))
         );
+    }
+
+    #[test]
+    fn today_journal_follows_the_armed_user_and_recovery_heartbeat_is_given_once() {
+        let r = Recorder::new();
+        r.save_day("[1]"); // not armed: ignored
+        assert_eq!(r.load_today(), None);
+        r.arm(Target::in_memory(identity(), key()));
+        r.save_day(r#"[{"kind":"working"}]"#);
+        assert_eq!(r.load_today().as_deref(), Some(r#"[{"kind":"working"}]"#));
+
+        // A recovery at arming hands its heartbeat over exactly once.
+        let run1 = Recorder::new();
+        run1.arm(Target::in_memory(identity(), key()));
+        let mut sink = run1.sink().with_zone(Zone::fixed("Asia/Kolkata", 330));
+        sink.record(&CoreEvent::UserClockIn, t(0)).unwrap();
+        run1.heartbeat(t(900));
+        let Mode::Armed(target) = std::mem::replace(&mut run1.lock().mode, Mode::Unarmed) else {
+            unreachable!()
+        };
+        let run2 = Recorder::new();
+        run2.arm_at(*target, t(5000), &Zone::fixed("Asia/Kolkata", 330));
+        assert_eq!(run2.take_recovered_heartbeat(), Some(t(900)));
+        assert_eq!(run2.take_recovered_heartbeat(), None);
     }
 }

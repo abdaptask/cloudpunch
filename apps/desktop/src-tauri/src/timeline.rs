@@ -8,12 +8,14 @@
 //! payable hours — payroll rules (bio-break cap, unpaid meal, prompt
 //! classification) are applied server-side from the event ledger.
 //!
-//! In memory until the outbox lands (2b.4 F3): an app restart starts
-//! an empty timeline.
+//! Kept in memory and journaled per day in the user's encrypted outbox
+//! (`Timeline::to_json` / `restore`), so quitting or restarting the app
+//! keeps today's history. A segment a crash left open is closed at the
+//! last heartbeat, where the server closes the recovered session.
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::machine::{AwayReason, BreakKind, CallType, CoreState};
 
@@ -39,6 +41,25 @@ impl SegmentKind {
             CoreState::OnBreak { kind } => SegmentKind::Break(kind),
             CoreState::Away { reason } => SegmentKind::Away(reason),
         })
+    }
+
+    /// Every kind, for parsing stored segments.
+    const ALL: [SegmentKind; 11] = [
+        SegmentKind::Working,
+        SegmentKind::OnCall(CallType::Teams),
+        SegmentKind::OnCall(CallType::Zoom),
+        SegmentKind::OnCall(CallType::Other),
+        SegmentKind::Break(BreakKind::Bio),
+        SegmentKind::Break(BreakKind::Meal),
+        SegmentKind::Break(BreakKind::Other),
+        SegmentKind::Away(AwayReason::PhoneCall),
+        SegmentKind::Away(AwayReason::WorkingAway),
+        SegmentKind::Away(AwayReason::Meeting),
+        SegmentKind::Prompt,
+    ];
+
+    pub fn from_wire(s: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|k| k.as_str() == s)
     }
 
     pub fn as_str(self) -> &'static str {
@@ -148,6 +169,50 @@ impl Timeline {
         &self.segments
     }
 
+    /// Forget everything (sign-out: the next user starts clean).
+    pub fn clear(&mut self) {
+        *self = Self::default();
+    }
+
+    /// The journal form of today's segments.
+    pub fn to_json(&self) -> String {
+        serde_json::to_string(&self.views()).unwrap_or_else(|_| "[]".into())
+    }
+
+    /// Load a journaled day into an **empty** timeline (a live day is
+    /// never overwritten). A segment still open — the app stopped
+    /// without clocking out — is closed at `close_open_at`, never
+    /// before it started. Returns whether anything was restored.
+    pub fn restore(&mut self, json: &str, close_open_at: SystemTime) -> bool {
+        if !self.segments.is_empty() {
+            return false;
+        }
+        let stored: Vec<StoredSegment> = serde_json::from_str(json).unwrap_or_default();
+        let mut segments: Vec<Segment> = stored
+            .into_iter()
+            .filter_map(|s| {
+                Some(Segment {
+                    kind: SegmentKind::from_wire(&s.kind)?,
+                    started_at: from_epoch_ms(s.started_at),
+                    ended_at: s.ended_at.map(from_epoch_ms),
+                    session: s.session,
+                })
+            })
+            .collect();
+        for seg in &mut segments {
+            if seg.ended_at.is_none() {
+                seg.ended_at = Some(close_open_at.max(seg.started_at));
+            }
+        }
+        if segments.is_empty() {
+            return false;
+        }
+        self.sessions = segments.iter().map(|s| s.session).max().unwrap_or(0);
+        self.session_started_at = None;
+        self.segments = segments;
+        true
+    }
+
     pub fn views(&self) -> Vec<SegmentView> {
         self.segments
             .iter()
@@ -159,6 +224,20 @@ impl Timeline {
             })
             .collect()
     }
+}
+
+/// A journaled segment (the serialised [`SegmentView`]).
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct StoredSegment {
+    kind: String,
+    started_at: u64,
+    ended_at: Option<u64>,
+    session: u32,
+}
+
+fn from_epoch_ms(ms: u64) -> SystemTime {
+    UNIX_EPOCH + std::time::Duration::from_millis(ms)
 }
 
 pub fn epoch_ms(t: SystemTime) -> u64 {
@@ -295,5 +374,70 @@ mod tests {
         assert_eq!(json[0]["startedAt"], 2_000);
         assert!(json[0]["endedAt"].is_null());
         assert_eq!(json[0]["session"], 1);
+    }
+
+    fn at(secs: u64) -> SystemTime {
+        t(1_790_000_000 + secs)
+    }
+    #[test]
+    fn a_journaled_day_restores_into_an_empty_timeline() {
+        let mut day = Timeline::new();
+        day.on_state(CoreState::Active, at(0));
+        day.on_state(
+            CoreState::OnBreak {
+                kind: BreakKind::Meal,
+            },
+            at(3600),
+        );
+        day.on_state(CoreState::Active, at(5400));
+        day.on_state(CoreState::ClockedOut, at(9000));
+        day.on_state(CoreState::Active, at(10_000));
+        day.on_state(CoreState::ClockedOut, at(11_000));
+        let json = day.to_json();
+
+        let mut after = Timeline::new();
+        assert!(after.restore(&json, at(20_000)));
+        assert_eq!(after.views(), day.views());
+        assert_eq!(after.session_started_at(), None);
+        // The next clock-in is the day's third session.
+        after.on_state(CoreState::Active, at(30_000));
+        assert_eq!(after.segments().last().unwrap().session, 3);
+    }
+
+    #[test]
+    fn an_open_segment_left_by_a_crash_closes_at_the_heartbeat() {
+        let mut day = Timeline::new();
+        day.on_state(CoreState::Active, at(0));
+        let json = day.to_json(); // crash while clocked in
+
+        let mut after = Timeline::new();
+        assert!(after.restore(&json, at(1800)));
+        assert_eq!(after.segments()[0].ended_at, Some(at(1800)));
+        // Never before it started.
+        let mut early = Timeline::new();
+        early.restore(&json, at(0) - Duration::from_secs(60));
+        assert_eq!(early.segments()[0].ended_at, Some(at(0)));
+    }
+
+    #[test]
+    fn restore_never_overwrites_a_live_day_or_takes_junk() {
+        let mut live = Timeline::new();
+        live.on_state(CoreState::Active, at(0));
+        let json = live.to_json();
+        assert!(!live.restore(&json, at(10)));
+        let mut empty = Timeline::new();
+        assert!(!empty.restore("not json", at(10)));
+        assert!(!empty.restore(
+            r#"[{"kind":"nope","startedAt":1,"endedAt":2,"session":1}]"#,
+            at(10)
+        ));
+        assert!(empty.segments().is_empty());
+    }
+
+    #[test]
+    fn every_kind_round_trips_through_its_wire_name() {
+        for k in SegmentKind::ALL {
+            assert_eq!(SegmentKind::from_wire(k.as_str()), Some(k));
+        }
     }
 }

@@ -416,6 +416,8 @@ impl<U: Ui> Agent<U> {
             let call_after = inner.driver.core().call_type();
             if after != before || call_after != call_before {
                 inner.timeline.record(after, call_after, now);
+                // Journal the day so a restart keeps it on screen.
+                self.recorder.save_day(&inner.timeline.to_json());
             }
 
             if let Some(err) = &outcome.sink_error {
@@ -502,6 +504,46 @@ impl<U: Ui> Agent<U> {
         }
         for (title, body) in &plan.notes {
             ui.notify(title, body);
+        }
+    }
+
+    /// Put back today's timeline from the journal after a restart (only
+    /// while clocked out with nothing on screen yet). A segment a crash
+    /// left open closes at the recovered session's last heartbeat.
+    pub fn restore_today(&self) {
+        let Some(json) = self.recorder.load_today() else {
+            return;
+        };
+        let close_at = self
+            .recorder
+            .take_recovered_heartbeat()
+            .unwrap_or(SystemTime::UNIX_EPOCH);
+        let (view, snapshot) = {
+            let mut inner = self.lock();
+            if inner.driver.state() != CoreState::ClockedOut
+                || !inner.timeline.restore(&json, close_at)
+            {
+                return;
+            }
+            let snapshot = tray_snapshot(inner.driver.state(), inner.driver.core().call_type());
+            (inner.view(), snapshot)
+        };
+        eprintln!("[cloudpunch] today's timeline restored");
+        if let Some(ui) = self.ui.get() {
+            ui.state_changed(&view, snapshot);
+        }
+    }
+
+    /// Forget the day on screen (sign-out: the next user starts clean).
+    pub fn clear_timeline(&self) {
+        let (view, snapshot) = {
+            let mut inner = self.lock();
+            inner.timeline.clear();
+            let snapshot = tray_snapshot(inner.driver.state(), inner.driver.core().call_type());
+            (inner.view(), snapshot)
+        };
+        if let Some(ui) = self.ui.get() {
+            ui.state_changed(&view, snapshot);
         }
     }
 
@@ -1026,5 +1068,38 @@ mod tests {
         agent.apply_policy(&policy(1200, 10), Some("v3".into()));
         agent.handle(Input::ClockOut).unwrap();
         assert_eq!(idle_threshold(&agent), Duration::from_secs(1200));
+    }
+
+    #[test]
+    fn today_is_journaled_and_restored_after_a_restart() {
+        use crate::recorder::Target;
+        use ed25519_dalek::SigningKey;
+
+        let id = crate::enroll::Identity {
+            oid: "0f8e1c2a-3b4d-4e5f-8a9b-0c1d2e3f4a5b".into(),
+            device_id: "33333333-3333-4333-8333-333333333333".into(),
+            employee_id: "44444444-4444-4444-8444-444444444444".into(),
+        };
+        let recorder = Recorder::new();
+        recorder.arm(Target::in_memory(id, SigningKey::from_bytes(&[7u8; 32])));
+        let first = Agent::<Arc<FakeUi>>::with_recorder(CoreConfig::default(), &recorder);
+        first.handle(Input::ClockIn).unwrap();
+        first.handle(Input::StartBreak(BreakKind::Meal)).unwrap();
+        first.handle(Input::EndBreak).unwrap();
+        first.handle(Input::ClockOut).unwrap();
+        let before = first.view().timeline;
+        assert_eq!(before.len(), 3);
+
+        // "Restart": a new agent on the same (still armed) outbox.
+        let second = Agent::<Arc<FakeUi>>::with_recorder(CoreConfig::default(), &recorder);
+        assert!(second.view().timeline.is_empty());
+        second.restore_today();
+        assert_eq!(second.view().timeline, before);
+
+        // Restoring again never duplicates, and sign-out clears it.
+        second.restore_today();
+        assert_eq!(second.view().timeline.len(), 3);
+        second.clear_timeline();
+        assert!(second.view().timeline.is_empty());
     }
 }

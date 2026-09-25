@@ -31,7 +31,7 @@ pub const CIPHER_KEY_LEN: usize = 32;
 /// Current schema version. Bump when adding a migration to
 /// [`migrate`]. The DB's `PRAGMA user_version` tracks the applied
 /// version; migrations run only for the delta.
-const SCHEMA_VERSION: i64 = 5;
+const SCHEMA_VERSION: i64 = 6;
 
 const SCHEMA_V1: &str = r#"
 CREATE TABLE IF NOT EXISTS outbox (
@@ -111,6 +111,20 @@ CREATE TABLE IF NOT EXISTS policy_cache (
 );
 "#;
 
+/// v6: the day's timeline, so a quit or restart keeps today's history
+/// on screen. One row per user per local day (`YYYY-MM-DD`), holding
+/// the serialised segments (the same state + time data the window
+/// shows). Display only, never sent; rows older than a week are pruned.
+const SCHEMA_V6: &str = r#"
+CREATE TABLE IF NOT EXISTS day_timeline (
+    oid         TEXT    NOT NULL,
+    day         TEXT    NOT NULL,
+    segments    TEXT    NOT NULL,
+    updated_at  INTEGER NOT NULL,
+    PRIMARY KEY (oid, day)
+);
+"#;
+
 fn migrate(conn: &Connection) -> Result<(), rusqlite::Error> {
     let current: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
     if current < 1 {
@@ -127,6 +141,9 @@ fn migrate(conn: &Connection) -> Result<(), rusqlite::Error> {
     }
     if current < 5 {
         conn.execute_batch(SCHEMA_V5)?;
+    }
+    if current < 6 {
+        conn.execute_batch(SCHEMA_V6)?;
     }
     if current < SCHEMA_VERSION {
         conn.pragma_update(None, "user_version", SCHEMA_VERSION)?;
@@ -516,6 +533,43 @@ impl Outbox {
                 "SELECT version, document FROM policy_cache WHERE oid = ?1",
                 params![oid],
                 |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()
+            .map_err(OutboxError::from)
+    }
+
+    /// Store `oid`'s timeline for `day`, and drop days before `keep_from`
+    /// (both `YYYY-MM-DD`, so they compare as text).
+    pub fn save_day(
+        &self,
+        oid: &str,
+        day: &str,
+        segments: &str,
+        keep_from: &str,
+    ) -> Result<(), OutboxError> {
+        let now = unix_seconds(SystemTime::now())?;
+        self.conn.execute(
+            "INSERT INTO day_timeline (oid, day, segments, updated_at)
+             VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT (oid, day) DO UPDATE SET
+                 segments = excluded.segments,
+                 updated_at = excluded.updated_at",
+            params![oid, day, segments, now],
+        )?;
+        self.conn.execute(
+            "DELETE FROM day_timeline WHERE oid = ?1 AND day < ?2",
+            params![oid, keep_from],
+        )?;
+        Ok(())
+    }
+
+    /// `oid`'s journaled timeline for `day`, if any.
+    pub fn load_day(&self, oid: &str, day: &str) -> Result<Option<String>, OutboxError> {
+        self.conn
+            .query_row(
+                "SELECT segments FROM day_timeline WHERE oid = ?1 AND day = ?2",
+                params![oid, day],
+                |r| r.get(0),
             )
             .optional()
             .map_err(OutboxError::from)
@@ -958,5 +1012,21 @@ mod v5_tests {
             Some(("sha256-2".to_string(), r#"{"reminders":{}}"#.to_string()))
         );
         assert_eq!(o.load_policy("b").unwrap(), None);
+    }
+}
+
+#[cfg(test)]
+mod v6_tests {
+    use super::*;
+
+    #[test]
+    fn day_timeline_is_per_user_per_day_and_prunes_old_days() {
+        let o = Outbox::open_in_memory(&[4u8; CIPHER_KEY_LEN]).unwrap();
+        o.save_day("a", "2026-09-17", "[1]", "2026-09-10").unwrap();
+        o.save_day("a", "2026-09-25", "[2]", "2026-09-18").unwrap();
+        o.save_day("a", "2026-09-25", "[3]", "2026-09-18").unwrap();
+        assert_eq!(o.load_day("a", "2026-09-25").unwrap().as_deref(), Some("[3]"));
+        assert_eq!(o.load_day("a", "2026-09-17").unwrap(), None, "pruned");
+        assert_eq!(o.load_day("b", "2026-09-25").unwrap(), None);
     }
 }

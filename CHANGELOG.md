@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Desktop: today's history survives a quit or restart (2026-09-25)
+
+- **Found by the project owner.** The day's timeline lived only in
+  memory, so quitting and restarting emptied it. Outbox rows are
+  deleted once sent, so there was nothing to rebuild it from.
+- **Outbox v6 `day_timeline`.** One row per user per local day holding
+  the serialised segments: the same state and time data the window
+  shows. It is encrypted, never sent, and pruned after a week. The
+  agent journals the day on every timeline change.
+- **On launch**, once the recorder is armed (from the cached identity
+  or a fresh enrollment), today's segments are restored while you're
+  clocked out and the screen is empty. A live day is never
+  overwritten.
+- **After a crash**, a segment that was left open closes at the
+  recovered session's last heartbeat, matching the server's close
+  (ADR-0003 §10). Without a heartbeat it closes at its own start rather
+  than inventing time.
+- **Bug fixed along the way.** Sign-out now clears the timeline, so the
+  next person to sign in doesn't see the previous user's day.
+- Past days and other computers remain the server's job
+  (`GET /v1/me/days/{date}`, on the roadmap).
+
 ### Sign-out never blocks on unsent time (2026-09-25)
 
 - **Requested by the project owner.** The F3c guard ("Some of your time

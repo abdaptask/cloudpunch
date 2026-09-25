@@ -143,6 +143,7 @@ fn arm_from_cache(app: &AppHandle, oid: &str, recorder: &Recorder) {
         Ok(Some(target)) => {
             recorder.arm(target);
             eprintln!("[cloudpunch] recorder armed from cached identity");
+            app.state::<Arc<Agent>>().restore_today();
         }
         Ok(None) => {}
         Err(e) => eprintln!("[cloudpunch] cached identity unavailable: {e}"),
@@ -351,6 +352,7 @@ pub fn start_enrollment(
                         match Target::open(dir, identity, &Secrets::new(OsStore)) {
                             Ok(target) => {
                                 recorder.arm(target);
+                                sync_app.state::<Arc<Agent>>().restore_today();
                                 start_live_sync(&sync_app, &auth, &base_url, &oid, &recorder);
                                 start_policy_sync(&sync_app, &auth, &base_url, &oid, &recorder);
                             }
@@ -472,8 +474,10 @@ fn sign_out_blocking(
     let oid = auth.oid();
     app.state::<LiveSync>().stop();
     recorder.disarm();
-    // The next user starts from the defaults until their policy arrives.
+    // The next user starts from the defaults until their policy arrives,
+    // with an empty day on screen.
     agent.apply_policy(&PolicyDoc::default(), None);
+    agent.clear_timeline();
 
     if unsent > 0 {
         auth.sign_out_keeping_device()
