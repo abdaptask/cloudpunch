@@ -83,8 +83,5 @@ pub trait WatcherHandle: Send {
 /// [`supervisor::Supervisor`]'s channel through so all signals fan
 /// into one place.
 pub trait Watcher {
-    fn start(
-        self,
-        tx: std::sync::mpsc::Sender<OsSignal>,
-    ) -> Box<dyn WatcherHandle>;
+    fn start(self, tx: std::sync::mpsc::Sender<OsSignal>) -> Box<dyn WatcherHandle>;
 }
