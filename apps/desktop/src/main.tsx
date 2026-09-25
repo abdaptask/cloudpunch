@@ -2,6 +2,7 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { App } from './App.js';
+import { ErrorBoundary } from './ErrorBoundary.js';
 import { PromptWindow } from './PromptWindow.js';
 import { ThemeProvider } from './ui/theme.js';
 
@@ -22,6 +23,8 @@ function windowLabel(): string {
 
 ReactDOM.createRoot(root).render(
   <React.StrictMode>
-    <ThemeProvider>{windowLabel() === 'idle-prompt' ? <PromptWindow /> : <App />}</ThemeProvider>
+    <ErrorBoundary>
+      <ThemeProvider>{windowLabel() === 'idle-prompt' ? <PromptWindow /> : <App />}</ThemeProvider>
+    </ErrorBoundary>
   </React.StrictMode>,
 );
