@@ -29,12 +29,18 @@ importers:
       '@cloudpunch/event-schema':
         specifier: workspace:*
         version: link:../../packages/event-schema
+      '@cloudpunch/policy-schema':
+        specifier: workspace:*
+        version: link:../../packages/policy-schema
       '@cloudpunch/shared':
         specifier: workspace:*
         version: link:../../packages/shared
       '@fastify/sensible':
         specifier: ^5.6.0
         version: 5.6.0
+      ajv:
+        specifier: ^8.17.1
+        version: 8.20.0
       fastify:
         specifier: ^4.28.1
         version: 4.29.1

@@ -26,6 +26,10 @@ All values live in `packages/policy-schema/idle-policy.schema.json`
 and are validated at load time. Values outside the accepted ranges
 are rejected at the admin UI.
 
+How overrides are stored, merged, versioned and delivered to the
+desktop (`GET /v1/me/policy`), and when a change takes effect, is in
+ADR-0015.
+
 ## 1. Inactivity threshold
 
 **Setting:** `idle.threshold_seconds`
@@ -105,6 +109,20 @@ prompt ends the session as usual. See ADR-0010.
 
 **When to raise or disable:** roles with long listen-only sessions
 (trainings, all-hands) where a prompt every 30 minutes is disruptive.
+
+**Setting:** `idle.call_type_apps`
+**Default:** `ms-teams.exe`, `teams.exe` → `teams`; `zoom.exe` → `zoom`
+**Range:** up to 50 entries of `{process, call_type}`, where
+`call_type` is `teams`, `zoom` or `other`
+**Effect:** which apps' microphone use counts as a call, and the
+category shown for it. This is configuration only: CloudPunch records
+the category, never the app's name (ADR-0012, ADR-0015 §8).
+
+**Setting:** `idle.call_type_ignored`
+**Default:** `["ace dialer.exe"]`
+**Effect:** apps that hold the microphone without being a call (for
+example a dialler that keeps it open all day). They never start the
+"on a call" state.
 
 ## 5. Idle prompt options
 

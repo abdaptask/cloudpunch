@@ -91,6 +91,11 @@ exists.
 
 ### 2.3 Idle and policy defaults (fallback if no per-tenant DB row exists)
 
+> **Superseded by ADR-0015 (2026-09-25).** Policy defaults live in the
+> `default` keywords of `packages/policy-schema/idle-policy.schema.json`
+> and overrides in the `policy_override` table. These SSM paths were
+> never wired and are not read. The table is kept for history.
+
 | Path | Type | Example |
 |---|---|---|
 | `cloudpunch/config/<env>/idle/threshold-seconds` | String | `300` |
