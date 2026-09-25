@@ -9,6 +9,7 @@ import {
   today,
   totals,
   type Segment,
+  workingDayStart,
 } from './timelineModel.js';
 
 const MIN = 60_000;
@@ -97,5 +98,35 @@ describe('timelineModel', () => {
     expect(formatDuration(-1)).toBe('0s');
     expect(formatTimer(3_723_000)).toBe('01:02:03');
     expect(formatTimer(-5)).toBe('00:00:00');
+  });
+});
+
+describe('workingDayStart (ADR-0016 §1)', () => {
+  const at = (day: number, h: number, m = 0): number => new Date(2026, 8, day, h, m).getTime();
+  const seg = (from: number, to: number | null, session: number): Segment => ({
+    kind: 'working',
+    startedAt: from,
+    endedAt: to,
+    session,
+  });
+
+  it('a night shift across midnight is one day, until 6 hours after clocking out', () => {
+    const night = [seg(at(25, 18, 30), at(25, 23, 30), 1), seg(at(26, 0, 15), at(26, 3, 30), 2)];
+    expect(workingDayStart(night, at(26, 1))).toBe(at(25, 18, 30));
+    expect(workingDayStart(night, at(26, 9, 29))).toBe(at(25, 18, 30));
+    expect(workingDayStart(night, at(26, 9, 31))).toBeNull();
+    // Totals for "today" at 04:00 include the evening before midnight.
+    const since = workingDayStart(night, at(26, 4)) ?? 0;
+    expect(totals(night, at(26, 4), since).working).toBe(8 * 3_600_000 + 15 * 60_000);
+  });
+
+  it('an open session is always today; nothing tracked is null', () => {
+    expect(workingDayStart([seg(at(25, 9), null, 1)], at(25, 23))).toBe(at(25, 9));
+    expect(workingDayStart([], at(25, 9))).toBeNull();
+  });
+
+  it('a gap over 6 hours starts a new day', () => {
+    const segs = [seg(at(25, 8), at(25, 10), 1), seg(at(25, 16, 1), null, 2)];
+    expect(workingDayStart(segs, at(25, 17))).toBe(at(25, 16, 1));
   });
 });

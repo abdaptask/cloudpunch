@@ -266,14 +266,20 @@ impl Recorder {
         }
     }
 
-    /// Today's journaled timeline for the armed user.
+    /// The armed user's latest journaled timeline from today or
+    /// yesterday: a night shift that crossed midnight may have been
+    /// saved under yesterday's date. The caller keeps only the current
+    /// working day ([`crate::timeline::Timeline::prune`]).
     pub fn load_today(&self) -> Option<String> {
         let shared = self.lock();
         let Mode::Armed(t) = &shared.mode else {
             return None;
         };
+        let yesterday = (chrono::Local::now().date_naive() - chrono::Duration::days(1))
+            .format("%Y-%m-%d")
+            .to_string();
         t.outbox
-            .load_day(&t.identity.oid, &local_days().0)
+            .load_latest_day(&t.identity.oid, &yesterday)
             .unwrap_or_else(|e| {
                 eprintln!("[cloudpunch] timeline journal unavailable: {e}");
                 None

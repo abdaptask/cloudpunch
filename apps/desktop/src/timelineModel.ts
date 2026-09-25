@@ -80,6 +80,28 @@ export const WORKING_PART_LABEL: Partial<Record<SegmentKind, string>> = {
   away_working: 'Working away',
 };
 
+/** Sessions this close together are one working day (ADR-0016 §1). */
+export const MAX_GAP_MS = 6 * 3_600_000;
+
+/**
+ * Start of the current working day (mirrors `Timeline::current_day_start`):
+ * the run of sessions, each within 6 hours of the previous one, that is
+ * still open or ended at most 6 hours ago. Null when a new day hasn't
+ * started. Never cut at midnight: a 6:30 pm – 3:30 am shift is one day.
+ */
+export function workingDayStart(segments: readonly Segment[], now: number): number | null {
+  const sorted = [...segments].sort((a, b) => a.startedAt - b.startedAt);
+  const last = sorted[sorted.length - 1];
+  if (!last) return null;
+  if (last.endedAt !== null && now - last.endedAt > MAX_GAP_MS) return null;
+  let start = last.startedAt;
+  for (const s of sorted.slice(0, -1).reverse()) {
+    if (start - (s.endedAt ?? s.startedAt) > MAX_GAP_MS) break;
+    start = s.startedAt;
+  }
+  return start;
+}
+
 export function startOfLocalDay(now: number): number {
   const d = new Date(now);
   d.setHours(0, 0, 0, 0);

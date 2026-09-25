@@ -28,6 +28,7 @@ import {
   WORKING_PART_LABEL,
   type Segment,
   type SegmentKind,
+  workingDayStart,
 } from './timelineModel.js';
 import { Button } from './ui/Button.js';
 import { Logo } from './ui/Logo.js';
@@ -49,12 +50,18 @@ import { useNow } from './useNow.js';
  * reports and manager views still count them as active (ADR-0011).
  */
 
+/** Where "today" starts: the current working day, else now (nothing yet). */
+function daySince(v: StateView, now: number): number {
+  return workingDayStart(v.timeline, now) ?? now;
+}
+
 /** Tracked time today and when the last session ended (clocked out). */
 function dayOf(v: StateView, now: number): { worked: number; lastOut: number | null } {
-  const rows = today(v.timeline, now);
+  const since = daySince(v, now);
+  const rows = today(v.timeline, now, since);
   if (rows.length === 0) return { worked: 0, lastOut: null };
   return {
-    worked: totals(v.timeline, now).working,
+    worked: totals(v.timeline, now, since).working,
     lastOut: Math.max(...rows.map((r) => r.endedAt)),
   };
 }
@@ -186,9 +193,12 @@ export function App(): JSX.Element {
     if (!signedIn) setViewDate(null);
   }, [signedIn]);
   // What the stats and details show: today live, or the past day whole.
-  const shownSegs = pastDate ? pastSegs : (view?.timeline ?? []);
+  // Today is the current working day, so a night shift isn't cut at midnight.
+  const todaySince = view ? daySince(view, now) : now;
+  const todaySegs = (view?.timeline ?? []).filter((s) => (s.endedAt ?? now) > todaySince);
+  const shownSegs = pastDate ? pastSegs : todaySegs;
   const shownNow = pastDate ? (pastEnd ?? now) : now;
-  const shownSince = pastDate ? -Infinity : undefined;
+  const shownSince = pastDate ? -Infinity : todaySince;
 
   // The close button asks first, unless "keep running" was remembered
   // (ADR-0013 §1). The tray's Quit while clocked in lands here too.
@@ -327,7 +337,7 @@ export function App(): JSX.Element {
               />
             ) : (
               <DayDial
-                segments={view?.timeline ?? []}
+                segments={todaySegs}
                 now={now}
                 tint={view ? t.tint[tintFor(view.status)] : undefined}
               >

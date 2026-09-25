@@ -565,6 +565,23 @@ impl Outbox {
         Ok(())
     }
 
+    /// `oid`'s most recent journaled timeline on or after `from_day`.
+    pub fn load_latest_day(
+        &self,
+        oid: &str,
+        from_day: &str,
+    ) -> Result<Option<String>, OutboxError> {
+        self.conn
+            .query_row(
+                "SELECT segments FROM day_timeline WHERE oid = ?1 AND day >= ?2
+                 ORDER BY day DESC LIMIT 1",
+                params![oid, from_day],
+                |r| r.get(0),
+            )
+            .optional()
+            .map_err(OutboxError::from)
+    }
+
     /// `oid`'s journaled timeline for `day`, if any.
     pub fn load_day(&self, oid: &str, day: &str) -> Result<Option<String>, OutboxError> {
         self.conn
@@ -1058,5 +1075,22 @@ mod v6_tests {
         );
         assert_eq!(o.load_day("a", "2026-09-17").unwrap(), None, "pruned");
         assert_eq!(o.load_day("b", "2026-09-25").unwrap(), None);
+    }
+
+    #[test]
+    fn load_latest_day_finds_last_nights_journal() {
+        let o = Outbox::open_in_memory(&[4u8; CIPHER_KEY_LEN]).unwrap();
+        o.save_day("a", "2026-09-24", "[1]", "2026-09-17").unwrap();
+        o.save_day("a", "2026-09-25", "[2]", "2026-09-18").unwrap();
+        assert_eq!(
+            o.load_latest_day("a", "2026-09-25").unwrap().as_deref(),
+            Some("[2]")
+        );
+        assert_eq!(
+            o.load_latest_day("a", "2026-09-24").unwrap().as_deref(),
+            Some("[2]")
+        );
+        assert_eq!(o.load_latest_day("a", "2026-09-26").unwrap(), None);
+        assert_eq!(o.load_latest_day("b", "2026-09-20").unwrap(), None);
     }
 }

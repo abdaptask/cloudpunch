@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Desktop: "Today" is the working day, not the date (2026-09-25)
+
+Follow-up to ADR-0016, approved by the project owner.
+
+- **Night shifts stay whole on Today.** Today now shows the current
+  working day: sessions each starting within 6 hours of the previous
+  one ending. At 01:00, a shift that started at 6:30 pm shows the whole
+  evening instead of starting at midnight. The dial, stats, Details and
+  "worked today" all follow the same rule.
+- **Restart after midnight keeps the shift.** The day journal is read
+  from today or yesterday, so a shift saved before midnight comes back
+  after a restart. Only the current working day is restored.
+- **A new day starts cleanly.** Clocking in more than 6 hours after the
+  last clock-out drops the previous day from the screen. Past days
+  remain under ‹ ›.
+- **"Ready to clock in?" nudge** now waits 6 hours after the last
+  clock-out instead of until midnight. A night-shift worker is no longer
+  kept from getting the nudge all day. Quiet hours (22:00–07:00 by
+  default) still apply.
+
 ### Desktop: past days on the dial, and a status-coloured face (2026-09-25)
 
 The desktop half of past-days history (ADR-0016), plus a request from

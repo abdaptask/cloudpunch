@@ -294,18 +294,6 @@ impl Inner {
     }
 }
 
-/// Local midnight at or before `now` (for "worked today").
-fn local_midnight(now: SystemTime) -> SystemTime {
-    use chrono::{Local, TimeZone};
-    let local: chrono::DateTime<Local> = now.into();
-    local
-        .date_naive()
-        .and_hms_opt(0, 0, 0)
-        .and_then(|m| Local.from_local_datetime(&m).earliest())
-        .map(SystemTime::from)
-        .unwrap_or(now)
-}
-
 /// Notification text for a reminder (ADR-0013 §2, §4, §5, §7).
 fn reminder_text(r: &Reminder) -> (String, String) {
     match r {
@@ -490,7 +478,8 @@ impl<U: Ui> Agent<U> {
                         now,
                         ready: self.recorder.is_armed(),
                         clocked_out: after == CoreState::ClockedOut,
-                        worked_today: inner.timeline.any_since(local_midnight(now)),
+                        // The current working day, not the date (ADR-0016 §1).
+                        worked_today: inner.timeline.current_day_start(now).is_some(),
                         last_input_at,
                         window_visible: visible,
                         minute_of_day: reminders::local_minute_of_day(),
@@ -565,6 +554,8 @@ impl<U: Ui> Agent<U> {
             {
                 return;
             }
+            // Only the current working day comes back.
+            inner.timeline.prune(SystemTime::now());
             let snapshot = tray_snapshot(inner.driver.state(), inner.driver.core().call_type());
             (inner.view(), snapshot)
         };
