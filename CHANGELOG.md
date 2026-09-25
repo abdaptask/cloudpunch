@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Sign-out never blocks on unsent time (2026-09-25)
+
+- **Requested by the project owner.** The F3c guard ("Some of your time
+  hasn't reached CloudPunch yet… sign out again") forced people to stay
+  online. It was hit in testing by signing out seconds after clocking
+  out, before the 5 s sync pass.
+- **Now:**
+  - Sign-out gives the sync loop up to 6 s to send what's left.
+  - If anything is still unsent, it removes only the sign-in and
+    **keeps** that user's device key, outbox key and outbox. The
+    events send automatically the next time the same user signs in on
+    this computer.
+  - The window says "Signed out. N events will be sent the next time
+    you sign in on this computer."
+  - With nothing unsent, everything is deleted as before.
+- **Code.** `sign_out` is now async (the wait runs off the UI thread).
+  `AuthManager::sign_out_keeping_device` is new. `AuthStatus` has an
+  optional `unsentKept`.
+- **Docs.** ADR-0007 §5 gets an implementation note. This replaces F3c
+  decision 2.
+- **Known limit.** If someone signs out offline and never signs in on
+  that computer again, those events stay on it. A server-side flag for
+  sessions with no clock-out is a possible follow-up.
+
 ### Desktop: policy fetch, cache and apply (ADR-0015, PR C) (2026-09-25)
 
 - **New `policy.rs`.**

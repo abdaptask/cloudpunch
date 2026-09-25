@@ -204,10 +204,10 @@ export function App(): JSX.Element {
           Clock out before signing out.
         </p>
       )}
-      {signedIn && authError === 'unsynced_events' && (
-        <p role="alert" style={{ margin: 0, fontSize: 13, color: t.danger }}>
-          Some of your time hasn't reached CloudPunch yet. Stay online for a moment, then sign out
-          again.
+      {auth && !signedIn && (auth.unsentKept ?? 0) > 0 && (
+        <p role="status" style={{ margin: 0, fontSize: 13, color: t.muted }}>
+          Signed out. {auth.unsentKept === 1 ? '1 event' : `${auth.unsentKept} events`} will be sent
+          the next time you sign in on this computer.
         </p>
       )}
       {enrollBlocked && (

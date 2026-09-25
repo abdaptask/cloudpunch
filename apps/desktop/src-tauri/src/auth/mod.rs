@@ -109,6 +109,10 @@ pub struct AuthStatus {
     pub signed_in: bool,
     pub name: Option<String>,
     pub username: Option<String>,
+    /// After a sign-out: events that could not be sent yet and are kept
+    /// on this computer until the same user signs in again.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub unsent_kept: Option<u64>,
 }
 
 impl AuthStatus {
@@ -117,6 +121,7 @@ impl AuthStatus {
             signed_in: false,
             name: None,
             username: None,
+            unsent_kept: None,
         }
     }
 }
@@ -164,6 +169,7 @@ impl<S: SecretStore> AuthManager<S> {
                 signed_in: true,
                 name: s.name.clone(),
                 username: s.username.clone(),
+                unsent_kept: None,
             },
             None => AuthStatus::signed_out(),
         }
@@ -277,6 +283,18 @@ impl<S: SecretStore> AuthManager<S> {
     /// Delete the refresh token, the current-user pointer, and the
     /// device and outbox keys (ADR-0007 §5 logout).
     pub fn sign_out(&self) -> Result<(), AuthError> {
+        self.sign_out_with(true)
+    }
+
+    /// Sign out but keep this user's device and outbox keys, because
+    /// their outbox still holds unsent events: those are sent the next
+    /// time the same user signs in here (ADR-0007 §5 implementation
+    /// note, 2026-09-25). Only the sign-in itself is removed.
+    pub fn sign_out_keeping_device(&self) -> Result<(), AuthError> {
+        self.sign_out_with(false)
+    }
+
+    fn sign_out_with(&self, forget_device: bool) -> Result<(), AuthError> {
         let oid = self.lock().take().map(|s| s.oid);
         let oid = match oid {
             Some(o) => Some(o),
@@ -288,7 +306,9 @@ impl<S: SecretStore> AuthManager<S> {
                 self.cfg.client_id,
                 &oid,
             )?)?;
-            Secrets::new(self.store.clone()).forget(&oid)?;
+            if forget_device {
+                Secrets::new(self.store.clone()).forget(&oid)?;
+            }
         }
         self.store.delete(&Slot::current_user())?;
         Ok(())

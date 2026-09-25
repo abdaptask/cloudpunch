@@ -416,12 +416,18 @@ pub fn cancel_sign_in(auth: State<'_, Arc<Auth>>) {
     auth.cancel_sign_in();
 }
 
-/// Sign out: only while clocked out, so no session is left open, and
-/// only once every event has been sent — sign-out deletes the outbox
-/// key, which would make unsent events unreadable (F3c decision 2).
-/// The outbox file goes with the key.
+/// How long sign-out waits for unsent events to go (the sync loop
+/// sends every 5 s).
+const SIGN_OUT_FLUSH: Duration = Duration::from_secs(6);
+
+/// Sign out: only while clocked out, so no session is left open. Never
+/// blocked by unsent time: if the outbox still holds events after a
+/// short wait for the sync loop, they are **kept** with this user's
+/// keys and sent the next time the same user signs in here (the
+/// sign-in itself is removed). With nothing unsent, the outbox and its
+/// key are deleted (ADR-0007 §5).
 #[tauri::command]
-pub fn sign_out(
+pub async fn sign_out(
     app: AppHandle,
     agent: State<'_, Arc<Agent>>,
     auth: State<'_, Arc<Auth>>,
@@ -431,33 +437,64 @@ pub fn sign_out(
     if agent.state() != CoreState::ClockedOut {
         return Err("clock_out_first".to_string());
     }
-    match recorder.unsent() {
-        Ok(0) => {}
-        Ok(_) => return Err("unsynced_events".to_string()),
-        Err(e) => {
-            eprintln!("[cloudpunch] outbox check failed: {e}");
-            return Err("outbox".to_string());
-        }
+    let (agent, auth, enrollment) = (
+        agent.inner().clone(),
+        auth.inner().clone(),
+        enrollment.inner().clone(),
+    );
+    let recorder = recorder.inner().clone();
+    let worker_app = app.clone();
+    let status = tauri::async_runtime::spawn_blocking(move || {
+        sign_out_blocking(&worker_app, &agent, &auth, &enrollment, &recorder)
+    })
+    .await
+    .map_err(|_| "internal".to_string())??;
+    let _ = app.emit(AUTH_EVENT, &status);
+    Ok(status)
+}
+
+fn sign_out_blocking(
+    app: &AppHandle,
+    agent: &Arc<Agent>,
+    auth: &Arc<Auth>,
+    enrollment: &Arc<Enrollment>,
+    recorder: &Recorder,
+) -> Result<AuthStatus, String> {
+    // Give the sync loop a moment to send what's left (it keeps running
+    // while online).
+    let deadline = std::time::Instant::now() + SIGN_OUT_FLUSH;
+    let mut unsent = recorder.unsent().unwrap_or(0);
+    while unsent > 0 && std::time::Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(250));
+        unsent = recorder.unsent().unwrap_or(unsent);
     }
+
     let oid = auth.oid();
     app.state::<LiveSync>().stop();
     recorder.disarm();
     // The next user starts from the defaults until their policy arrives.
     agent.apply_policy(&PolicyDoc::default(), None);
-    auth.sign_out().map_err(|e| e.code().to_string())?;
-    if let (Some(oid), Some(dir)) = (oid, data_dir(&app)) {
-        let path = Target::outbox_path(&dir, &oid);
-        if let Err(e) = std::fs::remove_file(&path) {
-            if e.kind() != std::io::ErrorKind::NotFound {
-                eprintln!("[cloudpunch] could not delete the outbox: {e}");
+
+    if unsent > 0 {
+        auth.sign_out_keeping_device()
+            .map_err(|e| e.code().to_string())?;
+        eprintln!("[cloudpunch] signed out; {unsent} unsent event(s) kept for the next sign-in");
+    } else {
+        auth.sign_out().map_err(|e| e.code().to_string())?;
+        if let (Some(oid), Some(dir)) = (oid, data_dir(app)) {
+            let path = Target::outbox_path(&dir, &oid);
+            if let Err(e) = std::fs::remove_file(&path) {
+                if e.kind() != std::io::ErrorKind::NotFound {
+                    eprintln!("[cloudpunch] could not delete the outbox: {e}");
+                }
             }
         }
+        eprintln!("[cloudpunch] signed out");
     }
     enrollment.reset();
     let _ = app.emit(ENROLLMENT_EVENT, enrollment.status());
-    eprintln!("[cloudpunch] signed out");
-    let status = auth.status();
-    let _ = app.emit(AUTH_EVENT, &status);
+    let mut status = auth.status();
+    status.unsent_kept = (unsent > 0).then_some(unsent);
     Ok(status)
 }
 
