@@ -8,6 +8,7 @@ import { devicesRoutes } from './devices/routes.js';
 import { eventsRoutes } from './events/routes.js';
 import { healthPlugin, type HealthProbe } from './health/routes.js';
 import { meRoutes } from './me/routes.js';
+import { policyAdminRoutes } from './policy/admin-routes.js';
 import { policyRoutes } from './policy/routes.js';
 
 export interface BuildAppOptions {
@@ -70,6 +71,7 @@ export async function buildApp(opts: BuildAppOptions) {
     await app.register(devicesRoutes, { db: opts.db });
     await app.register(eventsRoutes, { db: opts.db });
     await app.register(policyRoutes, { db: opts.db });
+    await app.register(policyAdminRoutes, { db: opts.db });
   } else {
     opts.logger.warn(
       'buildApp called without a DbRepositories; /v1/me, /v1/me/policy, /v1/devices/enroll, and /v1/events are not registered.',

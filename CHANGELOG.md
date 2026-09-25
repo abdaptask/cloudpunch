@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Policy admin API (ADR-0015, PR B) (2026-09-25)
+
+- **Routes.** `GET`, `PUT` and `DELETE` on:
+  - `/v1/admin/policy/global`
+  - `/v1/admin/policy/departments/:id`
+  - `/v1/admin/policy/employees/:id`
+
+  Also `GET /v1/admin/policy/employees/:id/effective`, which shows an
+  employee's policy with every layer applied.
+- **Permissions.**
+  - Global needs `admin.policy.write` (Administrator).
+  - Department and employee scopes also accept the new
+    `hr.policy.write` (HR), as approved by the project owner.
+  - Reads are open to writers and to Auditors (`audit.read.all`).
+- **Rules.**
+  - Documents are validated against the schema; errors come back as
+    `policy_invalid` with the schema issues.
+  - Per-employee changes and removals need a reason.
+  - Unknown departments and employees give 404.
+  - Removing a missing override gives 404 and writes no audit row.
+- **Audit (policy doc §14).** Each change writes an `audit_log` row in
+  the same transaction: `policy_set` or `policy_clear`, the actor, the
+  scope id, `previous_value` and `new_value` as `{scope, document}`,
+  the reason and a per-request correlation id.
+- New repos: `policies.put` / `policies.remove` (transactional in
+  Postgres) and `departments.exists`.
+- There is no web UI yet; the API comes first.
+- **Verified on the dev DB as the app role:** set, read and clear of a
+  global override, with both audit rows correct. The table is empty
+  again; the two audit rows remain, since `audit_log` is append-only.
+
 ### Policy storage and read API (ADR-0015, PR A) (2026-09-25)
 
 - **Migration 0003** adds `policy_override`: one partial policy

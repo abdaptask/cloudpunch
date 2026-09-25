@@ -14,6 +14,9 @@ import type {
   EventOrigin,
   InsertEventResult,
   OpenSessionInput,
+  DepartmentRepo,
+  PolicyChange,
+  PolicyOverride,
   PolicyRepo,
   PolicyScope,
   SessionCloseReason,
@@ -41,6 +44,7 @@ export class PostgresDb implements DbRepositories {
   readonly timeSessions: TimeSessionRepo;
   readonly timeEvents: TimeEventRepo;
   readonly policies: PolicyRepo;
+  readonly departments: DepartmentRepo;
 
   constructor(private readonly sql: postgres.Sql) {
     this.employees = this.buildEmployeeRepo();
@@ -49,6 +53,12 @@ export class PostgresDb implements DbRepositories {
     this.timeSessions = this.buildTimeSessionRepo();
     this.timeEvents = this.buildTimeEventRepo();
     this.policies = this.buildPolicyRepo();
+    this.departments = {
+      exists: async (id) => {
+        const rows = await this.sql`SELECT 1 FROM department WHERE id = ${id} LIMIT 1`;
+        return rows.length > 0;
+      },
+    };
   }
 
   // -------------------------------------------------------------------
@@ -56,26 +66,81 @@ export class PostgresDb implements DbRepositories {
   // -------------------------------------------------------------------
 
   private buildPolicyRepo(): PolicyRepo {
+    const map = (row: PolicyOverrideRow): PolicyOverride => ({
+      scope: row.scope,
+      scopeId: row.scopeId,
+      document: row.document,
+      reason: row.reason,
+      updatedByUserId: row.updatedByUserId,
+      updatedAt: row.updatedAt,
+    });
+    const select = async (
+      q: postgres.Sql | postgres.TransactionSql,
+      scope: PolicyScope,
+      scopeId: string | null,
+      lock: boolean,
+    ): Promise<PolicyOverride | null> => {
+      const rows = lock
+        ? await q<PolicyOverrideRow[]>`
+            SELECT scope, scope_id, document, reason, updated_by_user_id, updated_at
+            FROM policy_override
+            WHERE scope = ${scope} AND scope_id IS NOT DISTINCT FROM ${scopeId}
+            FOR UPDATE`
+        : await q<PolicyOverrideRow[]>`
+            SELECT scope, scope_id, document, reason, updated_by_user_id, updated_at
+            FROM policy_override
+            WHERE scope = ${scope} AND scope_id IS NOT DISTINCT FROM ${scopeId}`;
+      const row = rows[0];
+      return row ? map(row) : null;
+    };
+    const audit = async (
+      tx: postgres.TransactionSql,
+      change: PolicyChange,
+      action: 'policy_set' | 'policy_clear',
+      previous: Record<string, unknown> | null,
+      next: Record<string, unknown> | null,
+    ): Promise<void> => {
+      const value = (doc: Record<string, unknown> | null) =>
+        doc ? tx.json({ scope: change.scope, document: doc } as postgres.JSONValue) : null;
+      await tx`
+        INSERT INTO audit_log (actor_type, actor_user_id, entity_type, entity_id, action,
+                               previous_value, new_value, reason, correlation_id, occurred_at)
+        VALUES ('user', ${change.actorUserId}, 'policy_override', ${change.scopeId}, ${action},
+                ${value(previous)}, ${value(next)}, ${change.reason}, ${change.correlationId},
+                ${change.at})`;
+    };
     return {
-      find: async (scope, scopeId) => {
-        const rows = await this.sql<PolicyOverrideRow[]>`
-          SELECT scope, scope_id, document, reason, updated_by_user_id, updated_at
-          FROM policy_override
-          WHERE scope = ${scope} AND scope_id IS NOT DISTINCT FROM ${scopeId}
-          LIMIT 1
-        `;
-        const row = rows[0];
-        return row
-          ? {
-              scope: row.scope,
-              scopeId: row.scopeId,
-              document: row.document,
-              reason: row.reason,
-              updatedByUserId: row.updatedByUserId,
-              updatedAt: row.updatedAt,
-            }
-          : null;
-      },
+      find: (scope, scopeId) => select(this.sql, scope, scopeId, false),
+      put: async (change, document) =>
+        this.sql.begin(async (tx) => {
+          const previous = await select(tx, change.scope, change.scopeId, true);
+          const doc = tx.json(document as postgres.JSONValue);
+          if (previous) {
+            await tx`
+              UPDATE policy_override
+              SET document = ${doc}, reason = ${change.reason},
+                  updated_by_user_id = ${change.actorUserId}, updated_at = ${change.at}
+              WHERE scope = ${change.scope} AND scope_id IS NOT DISTINCT FROM ${change.scopeId}`;
+          } else {
+            await tx`
+              INSERT INTO policy_override (scope, scope_id, document, reason,
+                                           updated_by_user_id, updated_at)
+              VALUES (${change.scope}, ${change.scopeId}, ${doc}, ${change.reason},
+                      ${change.actorUserId}, ${change.at})`;
+          }
+          await audit(tx, change, 'policy_set', previous?.document ?? null, document);
+          return previous;
+        }),
+      remove: async (change) =>
+        this.sql.begin(async (tx) => {
+          const previous = await select(tx, change.scope, change.scopeId, true);
+          if (!previous) return null;
+          await tx`
+            DELETE FROM policy_override
+            WHERE scope = ${change.scope} AND scope_id IS NOT DISTINCT FROM ${change.scopeId}`;
+          await audit(tx, change, 'policy_clear', previous.document, null);
+          return previous;
+        }),
     };
   }
 

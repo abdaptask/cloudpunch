@@ -31,6 +31,8 @@ export const Capability = {
   HrEmployeeWrite: 'hr.employee.write',
   HrDepartmentWrite: 'hr.department.write',
   HrOverrideWrite: 'hr.override.write',
+  /** Team and per-employee policy overrides (ADR-0015 §4); not global. */
+  HrPolicyWrite: 'hr.policy.write',
 
   // Admin — full config + operational surface
   AdminConfigWrite: 'admin.config.write',
@@ -88,6 +90,7 @@ const _ROLE_CAPABILITIES: { readonly [K in AppRole]: readonly Capability[] } = {
     Capability.HrEmployeeWrite,
     Capability.HrDepartmentWrite,
     Capability.HrOverrideWrite,
+    Capability.HrPolicyWrite,
     // HR has team-visibility across the org
     Capability.TeamTimelineRead,
     Capability.TeamTimesheetRead,
