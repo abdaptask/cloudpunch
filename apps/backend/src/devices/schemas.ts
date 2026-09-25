@@ -40,3 +40,34 @@ export const enrollDeviceResponseSchema = z
   .strict();
 
 export type EnrollDeviceResponse = z.infer<typeof enrollDeviceResponseSchema>;
+
+/**
+ * `GET /v1/admin/devices`: who signs in from where. The public key is
+ * left out (not needed to answer the question); the hostname stays a
+ * hash (ADR-0004 §5).
+ */
+export interface AdminDeviceListResponse {
+  devices: {
+    device_id: string;
+    user_id: string;
+    work_email: string;
+    display_name: string;
+    os: 'windows' | 'macos';
+    hostname_hash: string;
+    app_version: string;
+    enrolled_at: string;
+    last_seen_at: string | null;
+    revoked_at: string | null;
+    revoked_reason: string | null;
+  }[];
+  /** One row per user who has enrolled at least one device. */
+  users: {
+    user_id: string;
+    work_email: string;
+    display_name: string;
+    /** Not revoked. */
+    active_devices: number;
+    total_devices: number;
+    last_seen_at: string | null;
+  }[];
+}

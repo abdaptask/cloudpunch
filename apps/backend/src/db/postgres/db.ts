@@ -230,6 +230,23 @@ export class PostgresDb implements DbRepositories {
           UPDATE device SET last_seen_at = ${at} WHERE id = ${id}
         `;
       },
+      listWithOwners: async () => {
+        const rows = await this.sql<
+          (DeviceRow & { ownerWorkEmail: string; ownerDisplayName: string })[]
+        >`
+          SELECT d.id, d.user_id, d.os, d.hostname_hash, d.public_key_ed25519,
+                 d.app_version, d.enrolled_at, d.last_seen_at,
+                 d.revoked_at, d.revoked_reason, d.revoked_by_user_id,
+                 u.work_email AS owner_work_email, u.display_name AS owner_display_name
+          FROM device d JOIN app_user u ON u.id = d.user_id
+          ORDER BY d.last_seen_at DESC NULLS LAST, d.enrolled_at DESC
+        `;
+        return rows.map((r) => ({
+          ...map(r),
+          ownerWorkEmail: r.ownerWorkEmail,
+          ownerDisplayName: r.ownerDisplayName,
+        }));
+      },
     };
   }
 

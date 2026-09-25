@@ -8,6 +8,8 @@ export interface EnrollDeviceServiceInput {
   hostnameHash: string;
   publicKeyEd25519: Uint8Array;
   appVersion: string;
+  /** Injectable clock for tests. */
+  now?: Date;
 }
 
 export type EnrollDeviceServiceResult =
@@ -49,7 +51,7 @@ export async function enrollDeviceService(
   }
 
   try {
-    const device = await input.db.devices.enroll({
+    const enrolled = await input.db.devices.enroll({
       id: input.deviceId,
       userId: user.id,
       os: input.os,
@@ -57,7 +59,11 @@ export async function enrollDeviceService(
       publicKeyEd25519: input.publicKeyEd25519,
       appVersion: input.appVersion,
     });
-    return { ok: true, device };
+    // The agent enrols on every launch and sign-in, so this is also
+    // "last signed in from this device" (ingest touches it too).
+    const now = input.now ?? new Date();
+    await input.db.devices.touchLastSeen(enrolled.id, now);
+    return { ok: true, device: { ...enrolled, lastSeenAt: now } };
   } catch (err) {
     if (err instanceof Error && /different user/.test(err.message)) {
       return {

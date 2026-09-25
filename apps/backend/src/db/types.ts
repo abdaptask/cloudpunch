@@ -60,6 +60,12 @@ export interface Device {
   revokedByUserId: string | null;
 }
 
+/** A device plus who enrolled it, for the admin device list. */
+export interface DeviceWithOwner extends Device {
+  ownerWorkEmail: string;
+  ownerDisplayName: string;
+}
+
 export interface TimeSession {
   id: string;
   employeeId: string;
@@ -175,6 +181,8 @@ export interface DeviceRepo {
   findByUserId(userId: string): Promise<readonly Device[]>;
   revoke(id: string, reason: string, byUserId: string, at: Date): Promise<void>;
   touchLastSeen(id: string, at: Date): Promise<void>;
+  /** Every device with its owner, most recently seen first. */
+  listWithOwners(): Promise<readonly DeviceWithOwner[]>;
 }
 
 export interface TimeSessionRepo {

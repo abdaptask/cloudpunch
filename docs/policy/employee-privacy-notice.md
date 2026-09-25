@@ -148,6 +148,12 @@ Access is on a strict need-to-know basis:
   aggregate operational data (for example, "50 users clocked in
   today"). They can also access individual data during a support
   ticket you have opened, and every such access is logged.
+- **CloudPunch administrators and auditors** can see **which computers
+  you have signed in to CloudPunch from**: for each one, the operating
+  system, the CloudPunch version, when it was first set up and when it
+  was last used. Your computer's name is never stored, only a
+  one-way fingerprint of it. This lets ApTask spot a lost or unknown
+  computer and switch it off.
 
 No one outside ApTask can see your data. Approved attendance totals
 are sent to greytHR for payroll. Raw activity data is never sent to

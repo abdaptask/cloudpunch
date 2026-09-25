@@ -13,6 +13,7 @@ import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { authPlugin } from '../auth/plugin.js';
 import { InMemoryDb } from '../db/in-memory.js';
 import { devicesRoutes } from './routes.js';
+import type { AdminDeviceListResponse } from './schemas.js';
 
 const TENANT_ID = '12345678-1234-1234-1234-123456789012';
 const CLIENT_ID = 'abcdefab-abcd-abcd-abcd-abcdefabcdef';
@@ -260,5 +261,69 @@ describe('POST /v1/devices/enroll', () => {
     });
     expect(r2.statusCode).toBe(200);
     await app.close();
+  });
+});
+
+describe('GET /v1/admin/devices', () => {
+  async function enroll(token: string, body = validBody()) {
+    const app = await buildApp();
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/devices/enroll',
+      headers: { authorization: `Bearer ${token}` },
+      payload: body,
+    });
+    await app.close();
+    expect(res.statusCode).toBe(200);
+    return body.device_id;
+  }
+
+  async function list(roles: readonly string[]) {
+    const app = await buildApp();
+    const res = await app.inject({
+      method: 'GET',
+      url: '/v1/admin/devices',
+      headers: { authorization: `Bearer ${await signToken(roles)}` },
+    });
+    await app.close();
+    return res;
+  }
+
+  it('enrolling records when the device was last seen', async () => {
+    const id = await enroll(await signToken([AppRole.Employee]));
+    const device = await db.devices.findById(id);
+    expect(device?.lastSeenAt).toBeInstanceOf(Date);
+  });
+
+  it('is forbidden to employees and managers', async () => {
+    expect((await list([AppRole.Employee])).statusCode).toBe(403);
+    expect((await list([AppRole.Manager])).statusCode).toBe(403);
+  });
+
+  it('lists every device with its owner and a per-user count', async () => {
+    const token = await signToken([AppRole.Employee]);
+    const laptop = await enroll(token);
+    const desktop = await enroll(token);
+    await db.devices.revoke(desktop, 'lost', userId, new Date());
+
+    for (const role of [AppRole.Administrator, AppRole.Auditor]) {
+      const res = await list([role]);
+      expect(res.statusCode).toBe(200);
+      const body = res.json() as AdminDeviceListResponse;
+      expect(body.devices.map((d) => d.device_id).sort()).toEqual([laptop, desktop].sort());
+      expect(body.devices.every((d) => d.work_email === 'alice@aptask.com')).toBe(true);
+      expect(body.devices.find((d) => d.device_id === desktop)?.revoked_reason).toBe('lost');
+      expect(body.users).toEqual([
+        expect.objectContaining({
+          user_id: userId,
+          work_email: 'alice@aptask.com',
+          active_devices: 1,
+          total_devices: 2,
+        }),
+      ]);
+      expect(body.users[0]?.last_seen_at).not.toBeNull();
+      // The public key is never part of the listing.
+      expect(JSON.stringify(body)).not.toContain('public_key');
+    }
   });
 });

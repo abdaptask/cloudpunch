@@ -36,6 +36,8 @@ export const Capability = {
   AdminConfigWrite: 'admin.config.write',
   AdminEmployeeAssignRole: 'admin.role.assign',
   AdminDeviceRevoke: 'admin.device.revoke',
+  /** List every enrolled device and its owner (who signs in from where). */
+  AdminDeviceRead: 'admin.device.read',
   AdminIntegrationConfigure: 'admin.integration.configure',
   AdminReconciliationAct: 'admin.reconciliation.act',
   AdminPolicyWrite: 'admin.policy.write',
@@ -95,6 +97,7 @@ const _ROLE_CAPABILITIES: { readonly [K in AppRole]: readonly Capability[] } = {
     Capability.AdminConfigWrite,
     Capability.AdminEmployeeAssignRole,
     Capability.AdminDeviceRevoke,
+    Capability.AdminDeviceRead,
     Capability.AdminIntegrationConfigure,
     Capability.AdminReconciliationAct,
     Capability.AdminPolicyWrite,
@@ -109,7 +112,11 @@ const _ROLE_CAPABILITIES: { readonly [K in AppRole]: readonly Capability[] } = {
     Capability.PayrollExport,
     Capability.PayrollPeriodLockToggle,
   ],
-  [AppRole.Auditor]: [Capability.AuditReadAll, Capability.AuditReadEvents],
+  [AppRole.Auditor]: [
+    Capability.AuditReadAll,
+    Capability.AuditReadEvents,
+    Capability.AdminDeviceRead,
+  ],
 };
 
 // Freeze arrays and outer object; expose the frozen view only.

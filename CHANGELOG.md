@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Device visibility: who signs in from where (2026-09-25)
+
+- Requested by the project owner. Every device a user enrolls is
+  already a `device` row, and device IDs are per user and per machine,
+  so the row count per user is the number of machines they sign in
+  from.
+- Enrollment now sets `device.last_seen_at`. The agent enrolls on
+  every launch and sign-in, and ingest already updated the field.
+- New capability `admin.device.read`, held by **Administrator** and
+  **Auditor**. It is read-only; Auditor stays write-free.
+- New route `GET /v1/admin/devices`. It returns every device with its
+  owner's email and name, OS, app version, hostname hash, enrollment
+  time, last-seen time and revocation status, plus a per-user summary
+  (active devices, total devices, last seen). Public keys are never
+  listed.
+- New script `pnpm -F @cloudpunch/backend report:devices`: the same
+  data as tables, read-only from the dev DB, for use until the web
+  dashboard exists.
+- Privacy notice: a new "Who can see your data" bullet says
+  administrators and auditors can see which computers each person
+  signs in from.
+- Known gap: reads by administrators are not yet written to
+  `audit_log`.
+
 ### Local dev API against the dev VM (2b.4 F4 prep) (2026-09-25)
 
 - `server.ts` now wires `PostgresDb` when `POSTGRES_APP_URL` is set, so
