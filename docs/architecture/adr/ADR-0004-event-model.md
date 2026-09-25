@@ -362,6 +362,25 @@ every PR:
 4. `sequence-integrity.ts` — property test that verifies the ingest API
    rejects out-of-order and duplicate sequence numbers.
 
+*Implementation note (2026-09-25):* checks 1 and 2 live in the
+`@cloudpunch/tests-invariants` package (`tests/invariants/src/`) and run
+with `pnpm test` in CI.
+- **no-content-capture** applies the regex above to field names from
+  the event JSON Schemas, the shared fixtures, the canonical signed-field
+  set, the backend ingest schema, and the keys the desktop's Rust
+  actually writes into payloads.
+- It also fails on content-capturing Windows APIs (window text,
+  foreground window, clipboard, keyboard hooks, screen and audio or
+  camera capture), on capture crates, and on webview clipboard, screen
+  or media APIs.
+- **append-only** covers `time_event` and `audit_log` in migrations and
+  production backend code. Tests are excluded: they prove the triggers
+  reject those statements.
+- Every scanner is unit-tested against planted violations.
+- Checks 3 (payability) and 4 (sequence integrity) are follow-ups.
+  Payability needs the server-side pay computation, which doesn't exist
+  yet. Sequence rules are covered today by the ingest tests.
+
 ### 11. Retention and archival
 
 | Table | Hot (Aurora) | Warm (Aurora archived partition) | Cold (S3 Parquet, KMS-encrypted) |
