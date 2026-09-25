@@ -4,9 +4,12 @@
 //! poll loop on its own thread. Each tick:
 //!   1. `outbox.drain(batch_size)` returns due, un-poisoned rows.
 //!   2. Rows are grouped by `session_id` (backend requires one session
-//!      per HTTP call). Within-group order is preserved.
-//!   3. Each group becomes a [`SessionEnvelope`] with a fresh v4 UUID
-//!      correlation_id and gets sent.
+//!      per HTTP call) and by the identity they were signed with.
+//!      Within-group order is preserved.
+//!   3. Each group becomes a [`SessionEnvelope`] carrying the
+//!      `correlation_id`, `device_id` and `employee_id` stored on its
+//!      rows (ADR-0014: one correlation id per session, reused on
+//!      every retry) and gets sent.
 //!   4. The response is folded back into the outbox via `mark_sent` /
 //!      `mark_poisoned` / `mark_failed` depending on outcome (see
 //!      [`apply_response`]).
@@ -28,24 +31,20 @@
 //!   - `SyncLoop::shutdown` returns the `Outbox` so callers can inspect
 //!     it in tests or drop it explicitly.
 //!
-//! Not in this slice:
-//!   - Real HTTP client (2b.6.2 replaces the mock).
-//!   - Network-awareness (pause when offline) (2b.6.3 adds that).
-//!   - Entra token acquisition (2b.4; sync loop currently trusts a
-//!     placeholder `employee_id` in [`SyncConfig`]).
+//! Started per signed-in user by [`live::LiveSync`] (2b.4 F3c) once
+//! the recorder is armed; the HTTP client asks for a fresh Entra
+//! access token on every batch.
 
-use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, SystemTime};
 
-use uuid::Uuid;
-
-use crate::outbox::{Outbox, OutboxEntry, CIPHER_KEY_LEN};
+use crate::outbox::{Outbox, OutboxEntry};
 
 pub mod backoff;
 pub mod client;
+pub mod live;
 pub mod reqwest_client;
 
 pub use backoff::BackoffPolicy;
@@ -56,11 +55,6 @@ pub use reqwest_client::ReqwestBackendClient;
 
 #[derive(Debug, Clone)]
 pub struct SyncConfig {
-    /// Device identifier assigned at enrollment. Placeholder until
-    /// device enrollment is wired end-to-end in the auth slice (2b.4).
-    pub device_id: String,
-    /// Signed-in employee. Placeholder for the same reason.
-    pub employee_id: String,
     /// Maximum events pulled per outbox drain call.
     pub batch_size: usize,
     /// How often the loop wakes up to drain. On an active session
@@ -77,81 +71,15 @@ pub struct SyncConfig {
     pub backoff: BackoffPolicy,
 }
 
-impl SyncConfig {
-    pub fn new(device_id: impl Into<String>, employee_id: impl Into<String>) -> Self {
+impl Default for SyncConfig {
+    fn default() -> Self {
         Self {
-            device_id: device_id.into(),
-            employee_id: employee_id.into(),
             batch_size: 100,
             poll_interval: Duration::from_secs(5),
             auth_retry: Duration::from_secs(60),
             multi_device_retry: Duration::from_secs(300),
             backoff: BackoffPolicy::default(),
         }
-    }
-}
-
-/// Bundle of everything the sync loop needs to actually start on
-/// boot. Kept separate from [`SyncConfig`] so the config stays purely
-/// about scheduling policy and this holds identity/secret plumbing.
-///
-/// **Dev-only opt-in for now.** Real production wiring lands with
-/// slice 2b.4 (MSAL for bearer token, OS keystore for outbox key,
-/// enrollment record for device_id). Until then, unset env vars mean
-/// `from_env()` returns `None` and the sync loop stays off.
-#[derive(Debug, Clone)]
-pub struct SyncBootstrap {
-    pub backend_url: String,
-    pub bearer_token: String,
-    pub device_id: String,
-    pub employee_id: String,
-    pub outbox_path: PathBuf,
-    pub outbox_key: [u8; CIPHER_KEY_LEN],
-}
-
-impl SyncBootstrap {
-    /// Read six env vars:
-    ///   CLOUDPUNCH_BACKEND_URL        — e.g. https://api.cloudpunch.local
-    ///   CLOUDPUNCH_BEARER_TOKEN       — placeholder Entra token until 2b.4
-    ///   CLOUDPUNCH_DEVICE_ID          — UUID
-    ///   CLOUDPUNCH_EMPLOYEE_ID        — UUID
-    ///   CLOUDPUNCH_OUTBOX_PATH        — file path for the SQLCipher DB
-    ///   CLOUDPUNCH_OUTBOX_KEY_HEX     — 32 bytes hex (64 chars)
-    ///
-    /// Returns `None` if ANY var is missing or the outbox key isn't
-    /// exactly 32 bytes when hex-decoded. Caller (`run()`) treats
-    /// `None` as "sync loop stays off, log why".
-    pub fn from_env() -> Result<Self, String> {
-        use std::env::{var, var_os};
-        let backend_url =
-            var("CLOUDPUNCH_BACKEND_URL").map_err(|_| "CLOUDPUNCH_BACKEND_URL unset".to_string())?;
-        let bearer_token = var("CLOUDPUNCH_BEARER_TOKEN")
-            .map_err(|_| "CLOUDPUNCH_BEARER_TOKEN unset".to_string())?;
-        let device_id =
-            var("CLOUDPUNCH_DEVICE_ID").map_err(|_| "CLOUDPUNCH_DEVICE_ID unset".to_string())?;
-        let employee_id = var("CLOUDPUNCH_EMPLOYEE_ID")
-            .map_err(|_| "CLOUDPUNCH_EMPLOYEE_ID unset".to_string())?;
-        let outbox_path: PathBuf = var_os("CLOUDPUNCH_OUTBOX_PATH")
-            .ok_or_else(|| "CLOUDPUNCH_OUTBOX_PATH unset".to_string())?
-            .into();
-        let key_hex = var("CLOUDPUNCH_OUTBOX_KEY_HEX")
-            .map_err(|_| "CLOUDPUNCH_OUTBOX_KEY_HEX unset".to_string())?;
-        let key_bytes = hex::decode(key_hex.trim())
-            .map_err(|e| format!("CLOUDPUNCH_OUTBOX_KEY_HEX not hex: {e}"))?;
-        let outbox_key: [u8; CIPHER_KEY_LEN] = key_bytes.try_into().map_err(|v: Vec<u8>| {
-            format!(
-                "CLOUDPUNCH_OUTBOX_KEY_HEX decodes to {} bytes, want {CIPHER_KEY_LEN}",
-                v.len()
-            )
-        })?;
-        Ok(Self {
-            backend_url,
-            bearer_token,
-            device_id,
-            employee_id,
-            outbox_path,
-            outbox_key,
-        })
     }
 }
 
@@ -186,7 +114,13 @@ impl SyncLoop {
                     if is_online.load(Ordering::Acquire) {
                         run_tick(&outbox, &*client, &config);
                     }
-                    thread::sleep(config.poll_interval);
+                    // Sleep in slices so shutdown (sign-out) is prompt.
+                    let wake = std::time::Instant::now() + config.poll_interval;
+                    while !stop_clone.load(Ordering::Acquire)
+                        && std::time::Instant::now() < wake
+                    {
+                        thread::sleep(Duration::from_millis(50).min(config.poll_interval));
+                    }
                 }
                 outbox
             })
@@ -223,11 +157,13 @@ pub fn run_tick(outbox: &Outbox, client: &dyn BackendClient, config: &SyncConfig
     }
 
     for group in group_by_session(entries) {
+        // Every row in a group shares these (see group_by_session).
+        let first = &group[0];
         let envelope = SessionEnvelope {
-            device_id: config.device_id.clone(),
-            session_id: group[0].session_id.clone(),
-            employee_id: config.employee_id.clone(),
-            correlation_id: Uuid::new_v4().to_string(),
+            device_id: first.device_id.clone(),
+            session_id: first.session_id.clone(),
+            employee_id: first.employee_id.clone(),
+            correlation_id: first.correlation_id.clone(),
             take_over: false,
             events: group,
         };
@@ -236,21 +172,34 @@ pub fn run_tick(outbox: &Outbox, client: &dyn BackendClient, config: &SyncConfig
     }
 }
 
-/// Group by session_id while preserving the drain-order of both
-/// sessions and events-within-a-session.
+/// Group by session and signed identity (session_id, correlation_id,
+/// device_id, employee_id) while preserving the drain-order of both
+/// groups and events-within-a-group. Rows of one session normally
+/// share one identity; if they somehow don't, they go in separate
+/// batches rather than mixed (ADR-0014 §3).
 fn group_by_session(entries: Vec<OutboxEntry>) -> Vec<Vec<OutboxEntry>> {
     use std::collections::HashMap;
-    let mut order: Vec<String> = Vec::new();
-    let mut groups: HashMap<String, Vec<OutboxEntry>> = HashMap::new();
+    type Key = (String, String, String, String);
+    let key = |e: &OutboxEntry| -> Key {
+        (
+            e.session_id.clone(),
+            e.correlation_id.clone(),
+            e.device_id.clone(),
+            e.employee_id.clone(),
+        )
+    };
+    let mut order: Vec<Key> = Vec::new();
+    let mut groups: HashMap<Key, Vec<OutboxEntry>> = HashMap::new();
     for e in entries {
-        if !groups.contains_key(&e.session_id) {
-            order.push(e.session_id.clone());
+        let k = key(&e);
+        if !groups.contains_key(&k) {
+            order.push(k.clone());
         }
-        groups.entry(e.session_id.clone()).or_default().push(e);
+        groups.entry(k).or_default().push(e);
     }
     order
         .into_iter()
-        .map(|sid| groups.remove(&sid).expect("session id was inserted"))
+        .map(|k| groups.remove(&k).expect("group key was inserted"))
         .collect()
 }
 
@@ -329,6 +278,7 @@ fn apply_response(
 mod tests {
     use super::*;
     use crate::outbox::{EnqueueInput, Outbox, CIPHER_KEY_LEN};
+    use uuid::Uuid;
     use crate::sync::client::{CallRecord, MockClient};
     use rand::RngCore;
     use std::sync::{Arc, Mutex};
@@ -357,8 +307,6 @@ mod tests {
 
     fn cfg() -> SyncConfig {
         SyncConfig {
-            device_id: "dev-11111111-1111-1111-1111-111111111111".to_string(),
-            employee_id: "emp-11111111-1111-1111-1111-111111111111".to_string(),
             batch_size: 100,
             poll_interval: Duration::from_millis(20),
             auth_retry: Duration::from_secs(60),
@@ -434,6 +382,35 @@ mod tests {
 
         assert_eq!(outbox.pending_count().unwrap(), 0);
         assert_eq!(client.calls().lock().unwrap().len(), 1);
+    }
+
+    /// ADR-0014: the envelope carries the correlation id stored on the
+    /// rows, the same on every retry, and rows signed with different
+    /// ids are never mixed in one batch.
+    #[test]
+    fn envelopes_reuse_the_stored_correlation_id_and_never_mix_ids() {
+        let outbox = Outbox::open_in_memory(&make_key()).unwrap();
+        let other = Uuid::new_v4().to_string();
+        outbox.enqueue(&mk_event("01J8Q00000000000000000000A", 1, "s1")).unwrap();
+        let mut odd = mk_event("01J8Q00000000000000000000B", 2, "s1");
+        odd.correlation_id = other.clone();
+        outbox.enqueue(&odd).unwrap();
+
+        // First attempt fails transiently, so both rows are retried.
+        let fail = MockClient::new(|_| SendBatchResponse::Transient("down".into()));
+        run_tick(&outbox, &fail, &cfg());
+        let first: Vec<_> = fail.calls().lock().unwrap().iter().map(|c| c.correlation_id.clone()).collect();
+        assert_eq!(first, ["cccccccc-cccc-4ccc-8ccc-cccccccccccc".to_string(), other.clone()]);
+
+        let conn = &outbox;
+        for ulid in ["01J8Q00000000000000000000A", "01J8Q00000000000000000000B"] {
+            conn.mark_failed(ulid, "retry now", SystemTime::UNIX_EPOCH).unwrap();
+        }
+        let ok = MockClient::new(all_accepted);
+        run_tick(&outbox, &ok, &cfg());
+        let second: Vec<_> = ok.calls().lock().unwrap().iter().map(|c| c.correlation_id.clone()).collect();
+        assert_eq!(second, first, "same ids on retry");
+        assert_eq!(outbox.pending_count().unwrap(), 0);
     }
 
     #[test]

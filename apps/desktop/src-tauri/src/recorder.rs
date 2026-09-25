@@ -189,6 +189,15 @@ impl Recorder {
         self.lock().online = Some(online);
     }
 
+    /// The reachability flag for the sync loop (online until the
+    /// network watcher says otherwise).
+    pub fn online_flag(&self) -> Arc<AtomicBool> {
+        self.lock()
+            .online
+            .clone()
+            .unwrap_or_else(|| Arc::new(AtomicBool::new(true)))
+    }
+
     pub fn is_armed(&self) -> bool {
         matches!(self.lock().mode, Mode::Armed(_))
     }

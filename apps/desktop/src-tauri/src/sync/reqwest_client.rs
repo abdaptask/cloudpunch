@@ -25,24 +25,35 @@ use super::client::{
     BackendClient, PerEventOutcome, PerEventResult, SendBatchResponse, SessionEnvelope,
 };
 
+/// Supplies a bearer token for each request (the app passes the
+/// signed-in user's Entra access token, refreshed as needed). An error
+/// makes that batch `Transient`.
+pub type TokenSource = Box<dyn Fn() -> Result<String, String> + Send + Sync>;
+
 pub struct ReqwestBackendClient {
     base_url: String,
-    bearer_token: String,
+    token: TokenSource,
     http: Client,
 }
 
 impl ReqwestBackendClient {
     /// `base_url` should NOT include the `/v1/events` path — it's
     /// appended internally so we can hit different routes from the
-    /// same client later.
+    /// same client later. Uses one fixed bearer token (tests).
     pub fn new(base_url: impl Into<String>, bearer_token: impl Into<String>) -> Self {
+        let token = bearer_token.into();
+        Self::with_token_source(base_url, Box::new(move || Ok(token.clone())))
+    }
+
+    /// A client that asks `token` for a bearer token on every batch.
+    pub fn with_token_source(base_url: impl Into<String>, token: TokenSource) -> Self {
         let http = Client::builder()
             .timeout(Duration::from_secs(30))
             .build()
             .expect("reqwest Client::builder is infallible for this config");
         Self {
             base_url: base_url.into().trim_end_matches('/').to_string(),
-            bearer_token: bearer_token.into(),
+            token,
             http,
         }
     }
@@ -75,11 +86,15 @@ impl BackendClient for ReqwestBackendClient {
             "events": events_json,
         });
 
+        let bearer = match (self.token)() {
+            Ok(t) => t,
+            Err(e) => return SendBatchResponse::Transient(format!("token: {e}")),
+        };
         let url = format!("{}/v1/events", self.base_url);
         let response = self
             .http
             .post(&url)
-            .bearer_auth(&self.bearer_token)
+            .bearer_auth(&bearer)
             .json(&body)
             .send();
 
