@@ -35,6 +35,12 @@ const envSchema = z.object({
   ENTRA_REQUIRED_SCOPE: z.string().default('api.access'),
 
   APP_VERSION: z.string().default('0.0.0-dev'),
+
+  // Dev-only exception to "no secrets in env": the dev VM's app-role
+  // connection string, from the git-ignored apps/backend/.env.local.
+  // Honoured only when CLOUDPUNCH_ENV=dev (see server.ts); staging and
+  // prod get their DB credentials from Secrets Manager (ADR-0007 §2).
+  POSTGRES_APP_URL: z.string().min(1).optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;

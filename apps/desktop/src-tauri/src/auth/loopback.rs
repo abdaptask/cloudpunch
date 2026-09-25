@@ -90,19 +90,59 @@ fn handle(mut stream: TcpStream, expected_state: &str) -> Option<Result<String, 
     }
     let result = parse_callback(target, expected_state);
     let body = match &result {
-        Ok(_) => "Signed in to CloudPunch. You can close this window.",
-        Err(AuthError::Denied(_)) => "Sign-in was cancelled or denied. You can close this window.",
-        Err(_) => "Sign-in failed. Return to CloudPunch and try again.",
+        Ok(_) => result_page(
+            true,
+            "You're signed in",
+            "Return to CloudPunch. You can close this tab.",
+        ),
+        Err(AuthError::Denied(_)) => result_page(
+            false,
+            "Sign-in was cancelled",
+            "Return to CloudPunch to try again. You can close this tab.",
+        ),
+        Err(_) => result_page(
+            false,
+            "Sign-in failed",
+            "Return to CloudPunch and try again. You can close this tab.",
+        ),
     };
-    let _ = respond(&mut stream, "200 OK", body);
+    let _ = respond(&mut stream, "200 OK", &body);
     Some(result)
 }
 
-fn respond(stream: &mut TcpStream, status: &str, text: &str) -> std::io::Result<()> {
-    let body = format!(
+/// The page the browser shows after the redirect. On success it also
+/// tries `window.close()`: browsers ignore that for a tab the OS
+/// opened (the usual case), so the text always says it can be closed.
+fn result_page(ok: bool, heading: &str, text: &str) -> String {
+    let (mark, colour) = if ok {
+        ("&#10003;", "#1a7f37")
+    } else {
+        ("!", "#b35900")
+    };
+    let close = if ok {
+        "<script>setTimeout(function(){window.close()},1500)</script>"
+    } else {
+        ""
+    };
+    format!(
         "<!doctype html><meta charset=utf-8><title>CloudPunch</title>\
-         <p style=\"font-family:sans-serif;margin:3em\">{text}</p>"
-    );
+         <meta name=viewport content=\"width=device-width,initial-scale=1\">\
+         <body style=\"margin:0;min-height:100vh;display:flex;align-items:center;\
+         justify-content:center;background:#f6f7f9;color:#1f2328;\
+         font-family:'Segoe UI',system-ui,-apple-system,sans-serif\">\
+         <main style=\"text-align:center;padding:40px 48px;background:#fff;\
+         border-radius:12px;box-shadow:0 1px 3px rgba(0,0,0,.12)\">\
+         <div aria-hidden=true style=\"width:48px;height:48px;margin:0 auto 16px;\
+         border-radius:50%;background:{colour};color:#fff;font-size:26px;\
+         line-height:48px;font-weight:700\">{mark}</div>\
+         <h1 style=\"margin:0 0 8px;font-size:20px;font-weight:600\">{heading}</h1>\
+         <p style=\"margin:0;color:#57606a;font-size:14px\">{text}</p>\
+         <p style=\"margin:20px 0 0;color:#8c959f;font-size:12px\">CloudPunch</p>\
+         </main>{close}"
+    )
+}
+
+fn respond(stream: &mut TcpStream, status: &str, body: &str) -> std::io::Result<()> {
     write!(
         stream,
         "HTTP/1.1 {status}\r\nContent-Type: text/html; charset=utf-8\r\n\
@@ -183,7 +223,16 @@ mod tests {
         assert_eq!(code, "the-code");
         let page = browser.join().unwrap();
         assert!(page.starts_with("HTTP/1.1 200 OK"));
-        assert!(page.contains("You can close this window"));
+        assert!(page.contains("You're signed in"));
+        assert!(page.contains("window.close()"));
+    }
+
+    #[test]
+    fn only_the_success_page_tries_to_close_itself() {
+        let failed = result_page(false, "Sign-in failed", "Try again.");
+        assert!(failed.contains("Sign-in failed"));
+        assert!(!failed.contains("<script"));
+        assert!(result_page(true, "h", "t").contains("window.close()"));
     }
 
     #[test]

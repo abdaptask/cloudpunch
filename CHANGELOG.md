@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Local dev API against the dev VM (2b.4 F4 prep) (2026-09-25)
+
+- `server.ts` now wires `PostgresDb` when `POSTGRES_APP_URL` is set, so
+  `/v1/me`, `/v1/devices/enroll` and `/v1/events` are served. Before
+  this they were never registered outside tests.
+- The URL is honoured only with `CLOUDPUNCH_ENV=dev`. Other
+  environments ignore it and log a warning. The pool closes when the
+  server shuts down.
+- New scripts:
+  - `dev:local` runs the API with `--env-file=.env.local`.
+  - `seed:dev` (`scripts/seed-dev-user.ts`) creates an active
+    `local_admin` employee and links the given Entra user to it. It is
+    idempotent, dev-only, and accepts only `@aptask.com` addresses.
+- The runbook is in `docs/ops/env-vars.md` §5.1.
+- **Verified by the owner on 2026-09-25:** after sign-in, `GET /v1/me` and
+  `POST /v1/devices/enroll` both returned 200 against the dev VM, and
+  the desktop logged "device enrolled".
+- Desktop, found during that run:
+  - The browser page after sign-in is now a styled result card. On
+    success it tries `window.close()` after 1.5 s. Browsers usually
+    ignore that for a tab the OS opened, so the page still says it can
+    be closed.
+  - New log lines for two cases that used to be silent: the silent
+    start-up sign-in finding no usable session, and enrollment blocked
+    because the hostname can't be read.
+
 ### Desktop device enrollment (2b.4 F3b) (2026-09-25)
 
 - New `enroll.rs`. After sign-in and after the silent start-up
