@@ -181,7 +181,7 @@ mod tests {
         sup.shutdown();
 
         // Drain anything already queued, then confirm disconnect.
-        while let Ok(_) = rx.recv_timeout(Duration::from_millis(50)) {}
+        while rx.recv_timeout(Duration::from_millis(50)).is_ok() {}
         assert!(rx.recv().is_err(), "channel should be closed");
     }
 }

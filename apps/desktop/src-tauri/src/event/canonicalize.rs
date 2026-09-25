@@ -225,7 +225,7 @@ mod tests {
     #[test]
     fn rejects_fractional_and_out_of_range() {
         assert!(matches!(
-            canonicalize(&json!(3.14)),
+            canonicalize(&json!(2.5)),
             Err(CanonicalizeError::Fractional)
         ));
         // 2^53 exceeds the safe integer range.
@@ -238,7 +238,10 @@ mod tests {
     #[test]
     fn strings_escape_and_utf8() {
         assert_eq!(to_utf8(&canonicalize(&json!("")).unwrap()), "\"\"");
-        assert_eq!(to_utf8(&canonicalize(&json!("hello")).unwrap()), "\"hello\"");
+        assert_eq!(
+            to_utf8(&canonicalize(&json!("hello")).unwrap()),
+            "\"hello\""
+        );
         assert_eq!(
             to_utf8(&canonicalize(&json!("a\"b\\c")).unwrap()),
             "\"a\\\"b\\\\c\""

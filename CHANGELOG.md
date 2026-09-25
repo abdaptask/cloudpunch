@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### CI: Rust is built, linted and tested (2026-09-25)
+
+- **New `rust` CI job on `windows-latest`** (the desktop agent is
+  Windows-specific). It builds the desktop frontend (embedded by
+  `generate_context!`), then runs `cargo fmt --all --check`,
+  `cargo clippy --all-targets -- -D warnings` and `cargo test`, with a
+  build cache. CLAUDE.md's "deny warnings in CI" now holds.
+- **`rust-toolchain.toml`** pins Rust 1.98.1 for everyone and for CI, so
+  a new stable release can't add lints that fail the build unexpectedly.
+- **Workspace `rust-version`** is now 1.77.2; Tauri 2.11 needs it, and
+  the old 1.75 was stale.
+- **Fixed the six pre-existing Clippy findings:** a `3.14` literal in a
+  test (a hard error), `while let Ok(_)`, an overindented doc list, and
+  a test-only function.
+- **One-time `cargo fmt` of the crate** (whitespace only, its own
+  commit). Formatting is enforced from now on.
 ### CI: backend build and real-Postgres integration tests (2026-09-25)
 
 - **The backend production compile works again.** It
