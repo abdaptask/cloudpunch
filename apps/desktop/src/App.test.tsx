@@ -194,6 +194,15 @@ describe('sign-in recovery when the browser tab was closed', () => {
     expect(await screen.findByRole('button', { name: 'Clock in' })).toBeInTheDocument();
   });
 
+  it('signed out shows the logo once, under "Welcome to", with no window header', async () => {
+    mocks.authStatus.mockResolvedValue(SIGNED_OUT);
+    render(<App />);
+    await screen.findByRole('button', { name: 'Sign in with Microsoft' });
+    expect(screen.getAllByRole('img', { name: 'CloudPunch' })).toHaveLength(1);
+    expect(screen.getByRole('heading', { name: 'Welcome to' })).toBeInTheDocument();
+    expect(screen.queryByRole('banner')).not.toBeInTheDocument();
+  });
+
   it('Cancel stops waiting and re-enables sign-in', async () => {
     mocks.authStatus.mockResolvedValue(SIGNED_OUT);
     mocks.signIn.mockReturnValue(new Promise(() => undefined));

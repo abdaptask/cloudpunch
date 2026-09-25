@@ -54,6 +54,12 @@ The tray icon is a coloured status disc — green clocked in, amber on a
 break, grey clocked out — and the tooltip reads e.g. "CloudPunch —
 Clocked in · 2h 30m", refreshed every minute.
 
+*Implementation note (2026-09-25, approved by the project owner):* the
+disc became the CloudPunch mark on a white tile, with the same status
+colours as a white-ringed dot in the bottom-right corner. The status
+signal is unchanged and the app is recognisable in the tray
+(`docs/brand/`).
+
 ### 4. Break-cap nudge
 
 When a bio break passes `break.bio.max_minutes` (10) or a meal break

@@ -132,14 +132,30 @@ fn result_page(ok: bool, heading: &str, text: &str) -> String {
          font-family:'Segoe UI',system-ui,-apple-system,sans-serif\">\
          <main style=\"text-align:center;padding:40px 48px;background:#fff;\
          border-radius:12px;box-shadow:0 1px 3px rgba(0,0,0,.12)\">\
-         <div aria-hidden=true style=\"width:48px;height:48px;margin:0 auto 16px;\
-         border-radius:50%;background:{colour};color:#fff;font-size:26px;\
-         line-height:48px;font-weight:700\">{mark}</div>\
+         <img src=\"{logo}\" alt=\"CloudPunch\" width=\"140\" \
+         style=\"display:block;margin:0 auto 24px\">\
+         <div aria-hidden=true style=\"width:40px;height:40px;margin:0 auto 14px;\
+         border-radius:50%;background:{colour};color:#fff;font-size:22px;\
+         line-height:40px;font-weight:700\">{mark}</div>\
          <h1 style=\"margin:0 0 8px;font-size:20px;font-weight:600\">{heading}</h1>\
          <p style=\"margin:0;color:#57606a;font-size:14px\">{text}</p>\
-         <p style=\"margin:20px 0 0;color:#8c959f;font-size:12px\">CloudPunch</p>\
-         </main>{close}"
+         </main>{close}",
+        logo = logo_data_uri(),
     )
+}
+
+/// The CloudPunch logo as a data URI: the loopback server serves only
+/// this one page, so the image travels inside it.
+fn logo_data_uri() -> &'static str {
+    static URI: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    URI.get_or_init(|| {
+        use base64::Engine;
+        let png = include_bytes!("../../icons/signed-in-logo.png");
+        format!(
+            "data:image/png;base64,{}",
+            base64::engine::general_purpose::STANDARD.encode(png)
+        )
+    })
 }
 
 fn respond(stream: &mut TcpStream, status: &str, body: &str) -> std::io::Result<()> {
@@ -233,6 +249,10 @@ mod tests {
         assert!(failed.contains("Sign-in failed"));
         assert!(!failed.contains("<script"));
         assert!(result_page(true, "h", "t").contains("window.close()"));
+        assert!(
+            failed.contains("data:image/png;base64,iVBOR"),
+            "logo is embedded"
+        );
     }
 
     #[test]

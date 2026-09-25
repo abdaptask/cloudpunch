@@ -14,6 +14,7 @@ import {
   type SegmentKind,
 } from './timelineModel.js';
 import { Button } from './ui/Button.js';
+import { Logo } from './ui/Logo.js';
 import { useTheme, type Theme } from './ui/theme.js';
 import { SignIn } from './SignIn.js';
 import { useAgentState } from './useAgentState.js';
@@ -143,7 +144,13 @@ export function App(): JSX.Element {
       style={{
         fontFamily: t.font,
         color: t.text,
-        background: t.bg,
+        // Signed out: a quiet branded backdrop behind the sign-in card.
+        background:
+          auth && !signedIn
+            ? t.mode === 'dark'
+              ? 'linear-gradient(160deg, #0b1a33 0%, #0f1115 65%)'
+              : 'linear-gradient(160deg, #e6f1ff 0%, #f4f5f8 60%)'
+            : t.bg,
         boxSizing: 'border-box',
         padding: '20px 20px 16px',
         display: 'flex',
@@ -151,28 +158,31 @@ export function App(): JSX.Element {
         gap: 16,
       }}
     >
-      <header style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
-        <h1 style={{ margin: 0, fontSize: 17, fontWeight: 650, letterSpacing: -0.2 }}>
-          CloudPunch
-        </h1>
-        <span style={{ fontSize: 12, color: t.muted }}>
-          {signedIn && (auth.name ?? auth.username) && (
-            <>
-              {auth.name ?? auth.username}
-              {view?.status === 'clocked_out' && (
-                <>
-                  {' · '}
-                  <button type="button" onClick={signOut} style={linkButton(t)}>
-                    Sign out
-                  </button>
-                </>
-              )}
-              {' · '}
-            </>
-          )}
-          {formatClock(now)}
-        </span>
-      </header>
+      {/* Signed out, the sign-in card carries the brand; no header. */}
+      {signedIn && (
+        <header style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <h1 style={{ margin: 0, lineHeight: 0 }}>
+            <Logo height={28} />
+          </h1>
+          <span style={{ fontSize: 12, color: t.muted }}>
+            {signedIn && (auth.name ?? auth.username) && (
+              <>
+                {auth.name ?? auth.username}
+                {view?.status === 'clocked_out' && (
+                  <>
+                    {' · '}
+                    <button type="button" onClick={signOut} style={linkButton(t)}>
+                      Sign out
+                    </button>
+                  </>
+                )}
+                {' · '}
+              </>
+            )}
+            {formatClock(now)}
+          </span>
+        </header>
+      )}
 
       {closeAsked && (
         <CloseDialog
