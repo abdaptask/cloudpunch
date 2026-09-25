@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Desktop: "your day on a clock" home screen (2026-09-25)
+
+- **Requested by the project owner:** the home window had become a
+  long, generic list.
+- **The dial.** The centrepiece is an analog 12-hour clock face with
+  today's time drawn as coloured arcs at their real times (working,
+  calls, breaks, meetings), a hand at the current time, and an arc that
+  grows live. The last 12 hours fill exactly one turn, so arcs never
+  overlap; anything older is clipped. The geometry is in
+  `dialModel.ts`, pure and tested.
+- **The centre** shows the status in colour ("CLOCKED IN", "ON A TEAMS
+  CALL", …), the live timer and "since". When clocked out it shows
+  "worked today", with the day-aware hint below.
+- **Actions.** One green or red pill, and a single row of Bio break ·
+  Meal break · In a meeting. On a break or away, the two actions sit
+  side by side.
+- **Stats strip.** Worked · Calls · Breaks.
+- **Details.** The session list and full totals are behind a collapsed
+  "Details" toggle, since the dial is the summary.
+- The window is compact: tighter spacing and a smaller header.
+- **Error boundary.** A screen error now shows "Something went wrong ·
+  your time is still being tracked · Reload" instead of a blank window.
+- Tests: dial geometry, dial rendering, stats, Details, and the error
+  boundary (desktop 73).
 ### CI: stop cancelling runs on main (2026-09-25)
 
 - **Found by the project owner.** Since the Rust job arrived (#34),

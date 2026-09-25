@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { api, type StateView } from './api.js';
 import { ClockOutDialog } from './ClockOutDialog.js';
+import { DayDial } from './DayDial.js';
 import { CloseDialog, LongShiftBanner, rememberedKeepRunning } from './CloseDialog.js';
 import { TimelineView } from './TimelineView.js';
 import {
@@ -157,6 +158,7 @@ export function App(): JSX.Element {
   const [closeAsked, setCloseAsked] = useState(false);
   // Clock out asks first and offers a break instead (owner request).
   const [clockOutAsked, setClockOutAsked] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const askClockOut = (): void => setClockOutAsked(true);
 
   // The close button asks first, unless "keep running" was remembered
@@ -184,17 +186,17 @@ export function App(): JSX.Element {
               : 'linear-gradient(160deg, #e6f1ff 0%, #f4f5f8 60%)'
             : t.bg,
         boxSizing: 'border-box',
-        padding: '20px 20px 16px',
+        padding: '14px 16px 14px',
         display: 'flex',
         flexDirection: 'column',
-        gap: 16,
+        gap: 12,
       }}
     >
       {/* Signed out, the sign-in card carries the brand; no header. */}
       {signedIn && (
         <header style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <h1 style={{ margin: 0, lineHeight: 0 }}>
-            <Logo height={28} />
+            <Logo height={24} />
           </h1>
           <span style={{ fontSize: 12, color: t.muted }}>
             {signedIn && (auth.name ?? auth.username) && (
@@ -279,51 +281,72 @@ export function App(): JSX.Element {
         <>
           <section
             aria-label="current-status"
-            style={{
-              ...card(t),
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 4,
-            }}
+            style={{ ...card(t), padding: '14px 12px 12px', textAlign: 'center' }}
           >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span
-                aria-hidden
+            <DayDial segments={view?.timeline ?? []} now={now}>
+              <div
                 style={{
-                  width: 9,
-                  height: 9,
-                  borderRadius: 999,
-                  background: view ? statusColor(t, view) : t.border,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  fontSize: 11,
+                  fontWeight: 650,
+                  letterSpacing: 0.6,
+                  textTransform: 'uppercase',
+                  color: view ? statusColor(t, view) : t.muted,
                 }}
-              />
-              <span style={{ fontSize: 13, fontWeight: 600 }}>
-                {view ? statusLabel(view, now) : 'Loading…'}
-              </span>
-            </div>
-            {view?.sessionStartedAt != null ? (
-              <>
-                <div
-                  aria-label="session-timer"
+              >
+                <span
+                  aria-hidden
                   style={{
-                    fontSize: 38,
-                    fontWeight: 600,
-                    letterSpacing: -0.5,
-                    fontVariantNumeric: 'tabular-nums',
-                    marginTop: 4,
+                    width: 7,
+                    height: 7,
+                    borderRadius: 999,
+                    background: view ? statusColor(t, view) : t.border,
                   }}
-                >
-                  {formatTimer(now - view.sessionStartedAt)}
-                </div>
-                <div style={{ fontSize: 12, color: t.muted }}>
-                  since {formatClock(view.sessionStartedAt)}
-                </div>
-              </>
-            ) : (
-              view && (
-                <div style={{ fontSize: 13, color: t.muted, marginTop: 2 }}>
-                  {clockedOutHint(view, now)}
-                </div>
-              )
+                />
+                <span>{view ? statusLabel(view, now) : 'Loading…'}</span>
+              </div>
+              {view?.sessionStartedAt != null ? (
+                <>
+                  <div
+                    aria-label="session-timer"
+                    style={{
+                      fontSize: 30,
+                      fontWeight: 650,
+                      letterSpacing: -0.5,
+                      fontVariantNumeric: 'tabular-nums',
+                      lineHeight: 1.1,
+                    }}
+                  >
+                    {formatTimer(now - view.sessionStartedAt)}
+                  </div>
+                  <div style={{ fontSize: 11, color: t.muted }}>
+                    since {formatClock(view.sessionStartedAt)}
+                  </div>
+                </>
+              ) : (
+                view && (
+                  <>
+                    <div
+                      style={{
+                        fontSize: 26,
+                        fontWeight: 650,
+                        fontVariantNumeric: 'tabular-nums',
+                        lineHeight: 1.1,
+                      }}
+                    >
+                      {formatWorked(dayOf(view, now).worked)}
+                    </div>
+                    <div style={{ fontSize: 11, color: t.muted }}>worked today</div>
+                  </>
+                )
+              )}
+            </DayDial>
+            {view?.status === 'clocked_out' && (
+              <div style={{ fontSize: 12, color: t.muted, marginTop: 6, lineHeight: 1.4 }}>
+                {clockedOutHint(view, now)}
+              </div>
             )}
           </section>
 
@@ -348,7 +371,7 @@ export function App(): JSX.Element {
           {view && (
             <section
               aria-label="actions"
-              style={{ display: 'flex', flexDirection: 'column', gap: 10 }}
+              style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
             >
               <Actions view={view} run={run} onClockOut={askClockOut} />
             </section>
@@ -360,14 +383,39 @@ export function App(): JSX.Element {
             </p>
           )}
 
-          {view && (
-            <section aria-label="today" style={card(t)}>
-              <h2 style={sectionTitle(t)}>Today</h2>
-              <TimelineView segments={view.timeline} now={now} />
-            </section>
+          {view && view.timeline.length > 0 && <DayStats view={view} now={now} />}
+
+          {view && view.timeline.length > 0 && (
+            <button
+              type="button"
+              aria-expanded={detailsOpen}
+              onClick={() => setDetailsOpen((o) => !o)}
+              style={{
+                ...linkButton(t),
+                alignSelf: 'center',
+                fontSize: 12,
+                color: t.muted,
+                display: 'flex',
+                alignItems: 'center',
+                gap: 4,
+              }}
+            >
+              {detailsOpen ? 'Hide details' : 'Details: sessions and totals'}
+              <span aria-hidden style={{ fontSize: 9 }}>
+                {detailsOpen ? '▲' : '▼'}
+              </span>
+            </button>
           )}
 
-          {view && view.timeline.length > 0 && <Footer view={view} now={now} />}
+          {view && detailsOpen && (
+            <>
+              <section aria-label="today" style={card(t)}>
+                <h2 style={sectionTitle(t)}>Sessions today</h2>
+                <TimelineView segments={view.timeline} now={now} />
+              </section>
+              {view.timeline.length > 0 && <Footer view={view} now={now} />}
+            </>
+          )}
         </>
       )}
     </main>
@@ -385,7 +433,10 @@ function Actions({
   onClockOut: () => void;
 }): JSX.Element {
   const chips = (children: ReactNode): JSX.Element => (
-    <div style={{ display: 'flex', gap: 8 }}>{children}</div>
+    <div style={{ display: 'flex', gap: 6 }}>{children}</div>
+  );
+  const pair = (children: ReactNode): JSX.Element => (
+    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>{children}</div>
   );
   switch (view.status) {
     case 'clocked_out':
@@ -409,15 +460,14 @@ function Actions({
               <Button variant="chip" onClick={() => run(() => api.startBreak('meal'))}>
                 Meal break
               </Button>
+              {/* Not offered during a call: it's already tracked (ADR-0009 §2). */}
+              {view.status === 'active' && (
+                <Button variant="chip" onClick={() => run(() => api.markAway('meeting'))}>
+                  In a meeting
+                </Button>
+              )}
             </>,
           )}
-          {/* Not offered during a call: it's already tracked (ADR-0009 §2). */}
-          {view.status === 'active' &&
-            chips(
-              <Button variant="chip" onClick={() => run(() => api.markAway('meeting'))}>
-                In a meeting
-              </Button>,
-            )}
         </>
       );
     case 'idle_pending':
@@ -427,7 +477,7 @@ function Actions({
         </Button>
       );
     case 'on_break':
-      return (
+      return pair(
         <>
           <Button variant="primary" onClick={() => run(api.endBreak)}>
             End break
@@ -435,10 +485,10 @@ function Actions({
           <Button variant="stopOutline" onClick={onClockOut}>
             Clock out
           </Button>
-        </>
+        </>,
       );
     case 'away':
-      return (
+      return pair(
         <>
           <Button variant="primary" onClick={() => run(api.markBack)}>
             I&apos;m back
@@ -446,9 +496,76 @@ function Actions({
           <Button variant="stopOutline" onClick={onClockOut}>
             Clock out
           </Button>
-        </>
+        </>,
       );
   }
+}
+
+/** Compact figure for the stats strip: "0m", "<1m", "25m", "6h 12m". */
+function statTime(ms: number): string {
+  if (ms <= 0) return '0m';
+  if (ms < 60_000) return '<1m';
+  return formatWorked(ms);
+}
+
+/** Worked · Calls · Breaks at a glance (details hold the full totals). */
+function DayStats({ view, now }: { view: StateView; now: number }): JSX.Element {
+  const t = useTheme();
+  const byKind = totalsByKind(view.timeline, now);
+  const sum = (pred: (k: SegmentKind) => boolean): number =>
+    KIND_ORDER.filter(pred).reduce((a, k) => a + (byKind[k] ?? 0), 0);
+  const stats: [string, number, string][] = [
+    ['Worked', sum((k) => groupOf(k) === 'working'), t.kind.working],
+    ['Calls', sum((k) => k.startsWith('call_')), t.kind.call_teams],
+    ['Breaks', sum((k) => groupOf(k) === 'break'), t.kind.meal_break],
+  ];
+  return (
+    <section
+      aria-label="day-stats"
+      style={{
+        ...card(t),
+        padding: '10px 6px',
+        display: 'grid',
+        gridTemplateColumns: 'repeat(3, 1fr)',
+      }}
+    >
+      {stats.map(([label, ms, colour], i) => (
+        <div
+          key={label}
+          style={{
+            textAlign: 'center',
+            borderLeft: i === 0 ? 'none' : `1px solid ${t.border}`,
+          }}
+        >
+          <div
+            style={{
+              fontSize: 15,
+              fontWeight: 650,
+              fontVariantNumeric: 'tabular-nums',
+            }}
+          >
+            {statTime(ms)}
+          </div>
+          <div
+            style={{
+              fontSize: 11,
+              color: t.muted,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 5,
+            }}
+          >
+            <span
+              aria-hidden
+              style={{ width: 7, height: 7, borderRadius: 2, background: colour }}
+            />
+            {label}
+          </div>
+        </div>
+      ))}
+    </section>
+  );
 }
 
 function Footer({ view, now }: { view: StateView; now: number }): JSX.Element {
