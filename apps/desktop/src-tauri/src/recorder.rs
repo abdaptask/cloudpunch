@@ -38,7 +38,7 @@ use ed25519_dalek::SigningKey;
 use thiserror::Error;
 
 use crate::enroll::{Identity, APP_VERSION};
-use crate::event::encode::{encode, encode_parts, EventMeta, SessionContext, Zone};
+use crate::event::encode::{encode, encode_parts, wire_payload, EventMeta, SessionContext, Zone};
 use crate::event::ulid::UlidGenerator;
 use crate::keystore::{KeystoreError, SecretStore, Secrets};
 use crate::machine::sink::{describe, EventSink, SinkError};
@@ -152,6 +152,9 @@ struct Shared {
     online: Option<Arc<AtomicBool>>,
     /// This app run. An `open_session` row from another run is stale.
     run_id: String,
+    /// Version of the policy the core runs under, stamped on each
+    /// `USER_CLOCK_IN` (ADR-0015 §6). None: the compiled-in defaults.
+    policy_version: Option<String>,
 }
 
 impl Shared {
@@ -183,6 +186,7 @@ impl Recorder {
                 mode: Mode::Unarmed,
                 online: None,
                 run_id: uuid::Uuid::new_v4().to_string(),
+                policy_version: None,
             })),
         }
     }
@@ -209,6 +213,27 @@ impl Recorder {
             Err(e) => eprintln!("[cloudpunch] session recovery failed: {e}"),
         }
         shared.mode = Mode::Armed(Box::new(target));
+    }
+
+    /// The policy version the next clock-in runs under.
+    pub fn set_policy_version(&self, version: Option<String>) {
+        self.lock().policy_version = version;
+    }
+
+    /// Cache the fetched policy in the user's outbox (offline launches).
+    pub fn save_policy(&self, version: &str, document: &str) -> Result<(), OutboxError> {
+        match &self.lock().mode {
+            Mode::Armed(t) => t.outbox.save_policy(&t.identity.oid, version, document),
+            _ => Ok(()),
+        }
+    }
+
+    /// The cached policy for the armed user: `(version, JSON text)`.
+    pub fn load_policy(&self) -> Result<Option<(String, String)>, OutboxError> {
+        match &self.lock().mode {
+            Mode::Armed(t) => t.outbox.load_policy(&t.identity.oid),
+            _ => Ok(None),
+        }
     }
 
     /// Heartbeat for the session in progress (called every minute).
@@ -354,8 +379,27 @@ impl EventSink for OutboxSink {
             monotonic_ns: i64::try_from(self.anchor.elapsed().as_nanos()).unwrap_or(i64::MAX),
             offline_captured: !online,
         };
-        let encoded = encode(&session.ctx, meta, event, &(self.zone)(at), &target.key)
-            .map_err(|e| SinkError(format!("encode: {e}")))?;
+        let zone = (self.zone)(at);
+        let encoded = match (event, shared.policy_version.as_deref()) {
+            // The session names the policy it runs under (ADR-0015 §6).
+            (CoreEvent::UserClockIn, Some(version)) => {
+                let mut payload = wire_payload(event, &zone);
+                if let Some(obj) = payload.as_object_mut() {
+                    obj.insert("policy_version".into(), version.into());
+                }
+                encode_parts(
+                    &session.ctx,
+                    meta,
+                    event.event_type(),
+                    "user",
+                    &payload,
+                    &zone,
+                    &target.key,
+                )
+            }
+            _ => encode(&session.ctx, meta, event, &zone, &target.key),
+        }
+        .map_err(|e| SinkError(format!("encode: {e}")))?;
         target
             .outbox
             .enqueue(&EnqueueInput {
@@ -792,5 +836,55 @@ mod tests {
         let types: Vec<_> = rows(&r).into_iter().map(|e| e.event_type).collect();
         assert_eq!(types, ["USER_CLOCK_IN"]);
         assert!(open_row(&r).is_some());
+    }
+
+    #[test]
+    fn clock_in_names_the_policy_version_once_one_is_in_force() {
+        let (r, mut sink) = armed();
+        sink.record(&CoreEvent::UserClockIn, t(0)).unwrap();
+        sink.record(&CoreEvent::UserClockOut, t(60)).unwrap();
+        r.set_policy_version(Some("sha256-abc".into()));
+        sink.record(&CoreEvent::UserClockIn, t(120)).unwrap();
+
+        let rows = rows(&r);
+        let payloads: Vec<Value> = rows
+            .iter()
+            .filter(|e| e.event_type == "USER_CLOCK_IN")
+            .map(|e| serde_json::from_slice::<Value>(&e.event_body).unwrap()["payload"].clone())
+            .collect();
+        assert!(
+            payloads.contains(&serde_json::json!({})),
+            "defaults: unchanged payload"
+        );
+        assert!(payloads.contains(&serde_json::json!({ "policy_version": "sha256-abc" })));
+        for e in &rows {
+            let ctx = SessionContext {
+                device_id: e.device_id.clone(),
+                employee_id: e.employee_id.clone(),
+                session_id: e.session_id.clone(),
+                correlation_id: e.correlation_id.clone(),
+                app_version: APP_VERSION.into(),
+            };
+            let body: Value = serde_json::from_slice(&e.event_body).unwrap();
+            assert!(
+                verify_body(&ctx, &body, &key()),
+                "{} verifies",
+                e.event_type
+            );
+        }
+    }
+
+    #[test]
+    fn the_policy_cache_follows_the_armed_user() {
+        let r = Recorder::new();
+        assert_eq!(r.load_policy().unwrap(), None);
+        r.save_policy("v", "{}").unwrap(); // not armed: ignored
+        r.arm(Target::in_memory(identity(), key()));
+        assert_eq!(r.load_policy().unwrap(), None);
+        r.save_policy("sha256-1", r#"{"idle":{}}"#).unwrap();
+        assert_eq!(
+            r.load_policy().unwrap(),
+            Some(("sha256-1".into(), r#"{"idle":{}}"#.into()))
+        );
     }
 }

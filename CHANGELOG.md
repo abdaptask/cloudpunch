@@ -7,6 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Desktop: policy fetch, cache and apply (ADR-0015, PR C) (2026-09-25)
+
+- **New `policy.rs`.**
+  - Parses the settings the agent uses from `GET /v1/me/policy`;
+    anything missing or unreadable takes the schema default.
+  - Maps them onto `CoreConfig`, `ReminderConfig` and the call-app
+    rules.
+  - Fetches with `If-None-Match`, splitting errors into retry-later and
+    refused.
+  - A test pins that the default policy maps to exactly the old
+    compiled-in behaviour.
+- **Fetch loop** (one per signed-in user):
+  - the cached policy is applied at once;
+  - a fetch runs immediately, then every 15 min (60 s after a failure);
+  - it starts with the sync loop and ends on sign-out, which reverts
+    to the defaults.
+- **Offline cache.** Outbox v5 adds `policy_cache`, the last policy
+  fetched for each user, stored in the encrypted outbox.
+- **When changes apply (ADR-0015 §6).**
+  - Reminders and quiet hours change immediately.
+  - Idle, grace, prompt and note rules and the call-app list are
+    adopted only while clocked out: at once, or as soon as the current
+    session ends. Only the newest pending policy is kept.
+  - `Core::set_config` refuses while clocked in.
+- **`USER_CLOCK_IN` carries `payload.policy_version`** once a fetched
+  policy is in force. With the defaults the payload is unchanged, so
+  the golden fixture still matches.
+- **Call-app rules** are now settable (`call_type::Rules`); the
+  compiled-in lists are the fallback.
+- ADR-0015 gets implementation notes on the idle watcher and on the
+  "other" away tag.
+- **Verified by the owner on 2026-09-25 against the dev VM.** The
+  defaults version was applied and stamped on clock-in. A temporary
+  per-employee override (since removed) produced a new version, which
+  was fetched, cached and applied, and appeared on the next
+  `USER_CLOCK_IN`. A break whose start and end went in separate
+  batches was accepted (confirms #27).
+
 ### Policy admin API (ADR-0015, PR B) (2026-09-25)
 
 - **Routes.** `GET`, `PUT` and `DELETE` on:

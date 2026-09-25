@@ -37,6 +37,7 @@ pub mod event;
 pub mod keystore;
 pub mod machine;
 pub mod outbox;
+pub mod policy;
 pub mod recorder;
 pub mod reminders;
 pub mod sync;

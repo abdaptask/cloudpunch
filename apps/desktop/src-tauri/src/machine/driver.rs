@@ -51,6 +51,10 @@ impl<S: EventSink> Driver<S> {
         &self.core
     }
 
+    pub fn core_mut(&mut self) -> &mut Core {
+        &mut self.core
+    }
+
     pub fn backlog_len(&self) -> usize {
         self.backlog.len()
     }

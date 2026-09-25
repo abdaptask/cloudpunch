@@ -143,9 +143,9 @@ impl IdleTrigger {
 pub const NOTE_MAX_CHARS: usize = 500;
 
 /// Policy knobs the core needs. Defaults are
-/// `docs/policy/idle-policy-defaults.md`; real values come from the
-/// policy endpoint once it exists.
-#[derive(Debug, Clone)]
+/// `docs/policy/idle-policy-defaults.md`; the fetched policy replaces
+/// them at the next clock-in (`policy.rs`, ADR-0015 §6).
+#[derive(Debug, Clone, PartialEq)]
 pub struct CoreConfig {
     /// `idle.threshold_seconds`.
     pub idle_threshold: Duration,
@@ -384,6 +384,16 @@ impl Core {
 
     pub fn config(&self) -> &CoreConfig {
         &self.cfg
+    }
+
+    /// Adopt a new policy (ADR-0015 §6). Only while clocked out, so a
+    /// session runs under one policy from start to finish.
+    pub fn set_config(&mut self, cfg: CoreConfig) -> Result<(), Rejected> {
+        if self.state != CoreState::ClockedOut {
+            return Err(Rejected::InvalidTransition);
+        }
+        self.cfg = cfg;
+        Ok(())
     }
 
     pub fn handle(&mut self, input: Input, now: SystemTime) -> Result<Vec<Effect>, Rejected> {

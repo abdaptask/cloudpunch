@@ -31,7 +31,7 @@ pub const CIPHER_KEY_LEN: usize = 32;
 /// Current schema version. Bump when adding a migration to
 /// [`migrate`]. The DB's `PRAGMA user_version` tracks the applied
 /// version; migrations run only for the delta.
-const SCHEMA_VERSION: i64 = 4;
+const SCHEMA_VERSION: i64 = 5;
 
 const SCHEMA_V1: &str = r#"
 CREATE TABLE IF NOT EXISTS outbox (
@@ -99,6 +99,18 @@ CREATE TABLE IF NOT EXISTS open_session (
 );
 "#;
 
+/// v5 (ADR-0015 §5): the last policy fetched for each user, so an
+/// offline launch keeps the policy in force instead of the defaults.
+/// The document is stored as fetched (JSON text).
+const SCHEMA_V5: &str = r#"
+CREATE TABLE IF NOT EXISTS policy_cache (
+    oid         TEXT    PRIMARY KEY,
+    version     TEXT    NOT NULL,
+    document    TEXT    NOT NULL,
+    fetched_at  INTEGER NOT NULL
+);
+"#;
+
 fn migrate(conn: &Connection) -> Result<(), rusqlite::Error> {
     let current: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
     if current < 1 {
@@ -112,6 +124,9 @@ fn migrate(conn: &Connection) -> Result<(), rusqlite::Error> {
     }
     if current < 4 {
         conn.execute_batch(SCHEMA_V4)?;
+    }
+    if current < 5 {
+        conn.execute_batch(SCHEMA_V5)?;
     }
     if current < SCHEMA_VERSION {
         conn.pragma_update(None, "user_version", SCHEMA_VERSION)?;
@@ -474,6 +489,33 @@ impl Outbox {
                         last_alive_at: system_time_from_secs(r.get::<_, i64>(8)?),
                     })
                 },
+            )
+            .optional()
+            .map_err(OutboxError::from)
+    }
+
+    /// Remember the policy last fetched for `oid` (version + JSON text).
+    pub fn save_policy(&self, oid: &str, version: &str, document: &str) -> Result<(), OutboxError> {
+        let now = unix_seconds(SystemTime::now())?;
+        self.conn.execute(
+            "INSERT INTO policy_cache (oid, version, document, fetched_at)
+             VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT (oid) DO UPDATE SET
+                 version = excluded.version,
+                 document = excluded.document,
+                 fetched_at = excluded.fetched_at",
+            params![oid, version, document, now],
+        )?;
+        Ok(())
+    }
+
+    /// The cached policy for `oid`: `(version, JSON text)`.
+    pub fn load_policy(&self, oid: &str) -> Result<Option<(String, String)>, OutboxError> {
+        self.conn
+            .query_row(
+                "SELECT version, document FROM policy_cache WHERE oid = ?1",
+                params![oid],
+                |r| Ok((r.get(0)?, r.get(1)?)),
             )
             .optional()
             .map_err(OutboxError::from)
@@ -898,5 +940,23 @@ mod v4_tests {
 
         o.clear_open_session("a").unwrap();
         assert_eq!(o.load_open_session("a").unwrap(), None);
+    }
+}
+
+#[cfg(test)]
+mod v5_tests {
+    use super::*;
+
+    #[test]
+    fn policy_cache_round_trips_and_replaces() {
+        let o = Outbox::open_in_memory(&[2u8; CIPHER_KEY_LEN]).unwrap();
+        assert_eq!(o.load_policy("a").unwrap(), None);
+        o.save_policy("a", "sha256-1", r#"{"idle":{}}"#).unwrap();
+        o.save_policy("a", "sha256-2", r#"{"reminders":{}}"#).unwrap();
+        assert_eq!(
+            o.load_policy("a").unwrap(),
+            Some(("sha256-2".to_string(), r#"{"reminders":{}}"#.to_string()))
+        );
+        assert_eq!(o.load_policy("b").unwrap(), None);
     }
 }

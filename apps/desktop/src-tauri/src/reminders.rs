@@ -9,7 +9,7 @@ use std::time::{Duration, SystemTime};
 
 use crate::machine::{BreakKind, CoreState};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ReminderConfig {
     /// `reminders.on_clock_minutes`.
     pub on_clock_every: Duration,
