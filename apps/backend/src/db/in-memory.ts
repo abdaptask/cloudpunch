@@ -10,6 +10,8 @@ import type {
   EmployeeRepo,
   InsertEventResult,
   OpenSessionInput,
+  DepartmentRepo,
+  PolicyChange,
   PolicyOverride,
   PolicyRepo,
   PolicyScope,
@@ -38,8 +40,12 @@ export class InMemoryDb implements DbRepositories {
   readonly timeSessions: TimeSessionRepo;
   readonly timeEvents: TimeEventRepo;
   readonly policies: PolicyRepo;
+  readonly departments: DepartmentRepo;
 
   private readonly policyByScope = new Map<string, PolicyOverride>();
+  private readonly departmentIds = new Set<string>();
+  /** audit_log rows written by policy changes, for tests. */
+  readonly audit: InMemoryAuditRow[] = [];
   private readonly employeeById = new Map<string, Employee>();
   private readonly employeeByOid = new Map<string, string>(); // oid -> employeeId
   private readonly userById = new Map<string, AppUser>();
@@ -52,6 +58,31 @@ export class InMemoryDb implements DbRepositories {
   constructor() {
     this.policies = {
       find: async (scope, scopeId) => this.policyByScope.get(policyKey(scope, scopeId)) ?? null,
+      put: async (change, document) => {
+        const key = policyKey(change.scope, change.scopeId);
+        const previous = this.policyByScope.get(key) ?? null;
+        this.policyByScope.set(key, {
+          scope: change.scope,
+          scopeId: change.scopeId,
+          document: structuredClone(document),
+          reason: change.reason,
+          updatedByUserId: change.actorUserId,
+          updatedAt: change.at,
+        });
+        this.audit.push(auditRow(change, 'policy_set', previous?.document ?? null, document));
+        return previous;
+      },
+      remove: async (change) => {
+        const key = policyKey(change.scope, change.scopeId);
+        const previous = this.policyByScope.get(key) ?? null;
+        if (!previous) return null;
+        this.policyByScope.delete(key);
+        this.audit.push(auditRow(change, 'policy_clear', previous.document, null));
+        return previous;
+      },
+    };
+    this.departments = {
+      exists: async (id) => this.departmentIds.has(id),
     };
     this.employees = {
       findById: async (id) => this.employeeById.get(id) ?? null,
@@ -129,6 +160,11 @@ export class InMemoryDb implements DbRepositories {
   // ---------------------------------------------------------------
   // Seed helpers — used by tests to set up a starting state
   // ---------------------------------------------------------------
+
+  seedDepartment(id: string): this {
+    this.departmentIds.add(id);
+    return this;
+  }
 
   seedPolicy(o: PolicyOverride): this {
     this.policyByScope.set(policyKey(o.scope, o.scopeId), o);
@@ -338,4 +374,34 @@ function byLastSeenDesc(a: Device, b: Device): number {
 
 function policyKey(scope: PolicyScope, scopeId: string | null): string {
   return `${scope}:${scopeId ?? ''}`;
+}
+
+export interface InMemoryAuditRow {
+  actorUserId: string;
+  entityType: 'policy_override';
+  entityId: string | null;
+  action: 'policy_set' | 'policy_clear';
+  previousValue: Record<string, unknown> | null;
+  newValue: Record<string, unknown> | null;
+  reason: string | null;
+  correlationId: string;
+}
+
+/** The audit_log row for a policy change (policy doc §14). */
+function auditRow(
+  change: PolicyChange,
+  action: InMemoryAuditRow['action'],
+  previous: Record<string, unknown> | null,
+  next: Record<string, unknown> | null,
+): InMemoryAuditRow {
+  return {
+    actorUserId: change.actorUserId,
+    entityType: 'policy_override',
+    entityId: change.scopeId,
+    action,
+    previousValue: previous ? { scope: change.scope, document: previous } : null,
+    newValue: next ? { scope: change.scope, document: structuredClone(next) } : null,
+    reason: change.reason,
+    correlationId: change.correlationId,
+  };
 }

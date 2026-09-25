@@ -230,9 +230,35 @@ export interface PolicyOverride {
   updatedAt: Date;
 }
 
+/** Who changed a policy, and why (written to audit_log with it). */
+export interface PolicyChange {
+  scope: PolicyScope;
+  scopeId: string | null;
+  reason: string | null;
+  actorUserId: string;
+  correlationId: string;
+  at: Date;
+}
+
 export interface PolicyRepo {
   /** The override stored for one scope, if any. */
   find(scope: PolicyScope, scopeId: string | null): Promise<PolicyOverride | null>;
+  /**
+   * Insert or replace the override for `change`'s scope and write the
+   * `audit_log` row (action `policy_set`) in one transaction. Returns
+   * the override that was replaced, if any.
+   */
+  put(change: PolicyChange, document: Record<string, unknown>): Promise<PolicyOverride | null>;
+  /**
+   * Remove the override and write the audit row (`policy_clear`) in one
+   * transaction. Returns what was removed; null (and no audit row) if
+   * there was nothing.
+   */
+  remove(change: PolicyChange): Promise<PolicyOverride | null>;
+}
+
+export interface DepartmentRepo {
+  exists(id: string): Promise<boolean>;
 }
 
 export interface DbRepositories {
@@ -242,4 +268,5 @@ export interface DbRepositories {
   timeSessions: TimeSessionRepo;
   timeEvents: TimeEventRepo;
   policies: PolicyRepo;
+  departments: DepartmentRepo;
 }

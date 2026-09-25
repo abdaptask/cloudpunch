@@ -82,6 +82,16 @@ describe('ROLE_CAPABILITIES', () => {
     }
   });
 
+  it('policy writes: Administrator everywhere, HR on team/employee scope only', () => {
+    expect(hasCapability([AppRole.Administrator], Capability.AdminPolicyWrite)).toBe(true);
+    expect(hasCapability([AppRole.HR], Capability.HrPolicyWrite)).toBe(true);
+    expect(hasCapability([AppRole.HR], Capability.AdminPolicyWrite)).toBe(false);
+    for (const role of [AppRole.Employee, AppRole.Manager, AppRole.Payroll, AppRole.Auditor]) {
+      expect(hasCapability([role], Capability.HrPolicyWrite)).toBe(false);
+      expect(hasCapability([role], Capability.AdminPolicyWrite)).toBe(false);
+    }
+  });
+
   it('only Administrator and Auditor can list devices', () => {
     expect(hasCapability([AppRole.Administrator], Capability.AdminDeviceRead)).toBe(true);
     expect(hasCapability([AppRole.Auditor], Capability.AdminDeviceRead)).toBe(true);
