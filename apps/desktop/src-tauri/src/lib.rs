@@ -49,7 +49,7 @@ use std::sync::Arc;
 
 use agent::Agent;
 use machine::{CallType, CoreConfig, Input};
-use tauri::Emitter;
+use tauri::{Emitter, Manager};
 use watchers::supervisor::Supervisor;
 
 /// RAII guard around a running [`Supervisor`] and its drain thread.
@@ -200,6 +200,16 @@ pub fn run() {
 
     let setup_agent = agent.clone();
     tauri::Builder::default()
+        // First, so a second launch exits before setup() — before it
+        // signs in, arms a recorder, or starts a sync loop — and brings
+        // the running copy's window forward instead.
+        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            if let Some(w) = app.get_webview_window("main") {
+                let _ = w.unminimize();
+                let _ = w.show();
+                let _ = w.set_focus();
+            }
+        }))
         .plugin(tauri_plugin_notification::init())
         .manage(agent)
         .manage(auth)

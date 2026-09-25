@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Desktop: one running copy (2026-09-25)
+
+- Found during the crash-recovery test: nothing stopped a second copy
+  of the app. Two copies meant two tray icons, two sync loops on one
+  outbox, and duplicate reminders.
+- `tauri-plugin-single-instance` 2.4 (approved by the project owner) is
+  registered first. A second launch exits before `setup()`, so it
+  never signs in, arms a recorder, or syncs. The running copy's window
+  is unminimized, shown and focused instead.
+- Lockfile change: only the plugin crate (2.4.5); its dependencies were
+  already in the tree.
+
 ### Crash recovery for sessions left open (ADR-0003 §10) (2026-09-25)
 
 - **Bug fixed.** A crash or force-quit while clocked in left the
