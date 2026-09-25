@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### ADR-0016: day history (2026-09-25)
+
+- Accepted; the decisions were set by the project owner.
+- **A session belongs to the date it was clocked in, in that computer's
+  own time zone**, and is never split at midnight. Computers in US
+  Eastern and India time file shifts on the right day, independent of
+  server or viewer.
+- **Times are shown on the clock where the work happened**
+  (`client_ts`), labelled when the zone differs from the viewer's.
+  `server_ts` is kept for audit and drift checks.
+- **API:** `GET /v1/me/days/{date}` (sessions, segments of the kinds the
+  desktop already draws, totals) and `GET /v1/me/days?from&to` (daily
+  totals). Self only.
+- **Look-back:** 30 days. Today stays on the local journal for now.
+- Docs only; implementation follows.
+
 ### Desktop: clock-out check, smarter clocked-out text, clock-in nudge (2026-09-25)
 
 Three requests from the project owner (ADR-0013 §7).
