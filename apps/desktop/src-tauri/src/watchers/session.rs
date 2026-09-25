@@ -37,9 +37,9 @@ use windows::Win32::System::RemoteDesktop::{
 };
 use windows::Win32::System::Threading::GetCurrentThreadId;
 use windows::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetMessageW,
-    RegisterClassExW, TranslateMessage, HWND_MESSAGE, MSG, WINDOW_EX_STYLE, WM_QUIT,
-    WM_WTSSESSION_CHANGE, WNDCLASSEXW, WNDCLASS_STYLES, WS_OVERLAPPED,
+    CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetMessageW, RegisterClassExW,
+    TranslateMessage, HWND_MESSAGE, MSG, WINDOW_EX_STYLE, WM_QUIT, WM_WTSSESSION_CHANGE,
+    WNDCLASSEXW, WNDCLASS_STYLES, WS_OVERLAPPED,
 };
 
 use super::{OsSignal, Watcher, WatcherHandle};

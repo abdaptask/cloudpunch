@@ -238,10 +238,7 @@ mod tests {
     #[test]
     fn strings_escape_and_utf8() {
         assert_eq!(to_utf8(&canonicalize(&json!("")).unwrap()), "\"\"");
-        assert_eq!(
-            to_utf8(&canonicalize(&json!("hello")).unwrap()),
-            "\"hello\""
-        );
+        assert_eq!(to_utf8(&canonicalize(&json!("hello")).unwrap()), "\"hello\"");
         assert_eq!(
             to_utf8(&canonicalize(&json!("a\"b\\c")).unwrap()),
             "\"a\\\"b\\\\c\""

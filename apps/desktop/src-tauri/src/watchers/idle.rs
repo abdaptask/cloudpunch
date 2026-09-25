@@ -88,7 +88,9 @@ pub struct WindowsLastInput;
 impl LastInputSource for WindowsLastInput {
     fn ms_since_last_input(&self) -> u32 {
         use windows::Win32::System::SystemInformation::GetTickCount;
-        use windows::Win32::UI::Input::KeyboardAndMouse::{GetLastInputInfo, LASTINPUTINFO};
+        use windows::Win32::UI::Input::KeyboardAndMouse::{
+            GetLastInputInfo, LASTINPUTINFO,
+        };
 
         let mut info = LASTINPUTINFO {
             cbSize: std::mem::size_of::<LASTINPUTINFO>() as u32,

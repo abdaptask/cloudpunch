@@ -116,20 +116,19 @@ impl Watcher for PowerWatcher {
                 // wraps *mut c_void too, so this cast is a matter
                 // of nominal type only.
                 let recipient = HANDLE(hwnd.0);
-                let hpower = match unsafe {
-                    RegisterSuspendResumeNotification(recipient, DEVICE_NOTIFY_WINDOW_HANDLE)
-                } {
-                    Ok(h) => h,
-                    Err(e) => {
-                        unsafe {
-                            let _ = DestroyWindow(hwnd);
+                let hpower =
+                    match unsafe { RegisterSuspendResumeNotification(recipient, DEVICE_NOTIFY_WINDOW_HANDLE) } {
+                        Ok(h) => h,
+                        Err(e) => {
+                            unsafe {
+                                let _ = DestroyWindow(hwnd);
+                            }
+                            let _ = ready_tx
+                                .send(Err(format!("RegisterSuspendResumeNotification: {e}")));
+                            SENDER.with(|s| *s.borrow_mut() = None);
+                            return;
                         }
-                        let _ =
-                            ready_tx.send(Err(format!("RegisterSuspendResumeNotification: {e}")));
-                        SENDER.with(|s| *s.borrow_mut() = None);
-                        return;
-                    }
-                };
+                    };
                 HPOWER.with(|c| c.set(hpower.0));
 
                 let tid = unsafe { GetCurrentThreadId() };
@@ -138,8 +137,9 @@ impl Watcher for PowerWatcher {
                 unsafe { pump_messages() };
 
                 unsafe {
-                    let _ =
-                        UnregisterSuspendResumeNotification(HPOWERNOTIFY(HPOWER.with(|c| c.get())));
+                    let _ = UnregisterSuspendResumeNotification(HPOWERNOTIFY(
+                        HPOWER.with(|c| c.get()),
+                    ));
                     let _ = DestroyWindow(hwnd);
                 }
                 HPOWER.with(|c| c.set(0));

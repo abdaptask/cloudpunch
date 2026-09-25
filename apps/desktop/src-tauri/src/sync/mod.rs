@@ -123,8 +123,8 @@ impl SyncBootstrap {
     /// `None` as "sync loop stays off, log why".
     pub fn from_env() -> Result<Self, String> {
         use std::env::{var, var_os};
-        let backend_url = var("CLOUDPUNCH_BACKEND_URL")
-            .map_err(|_| "CLOUDPUNCH_BACKEND_URL unset".to_string())?;
+        let backend_url =
+            var("CLOUDPUNCH_BACKEND_URL").map_err(|_| "CLOUDPUNCH_BACKEND_URL unset".to_string())?;
         let bearer_token = var("CLOUDPUNCH_BEARER_TOKEN")
             .map_err(|_| "CLOUDPUNCH_BEARER_TOKEN unset".to_string())?;
         let device_id =
@@ -268,7 +268,8 @@ fn apply_response(
                         let _ = outbox.mark_sent(&r.event_ulid);
                     }
                     PerEventOutcome::Rejected { code, message } => {
-                        let _ = outbox.mark_poisoned(&r.event_ulid, &format!("{code}: {message}"));
+                        let _ = outbox
+                            .mark_poisoned(&r.event_ulid, &format!("{code}: {message}"));
                     }
                 }
             }
@@ -419,12 +420,8 @@ mod tests {
     #[test]
     fn accepted_response_removes_rows_from_outbox() {
         let outbox = Outbox::open_in_memory(&make_key()).unwrap();
-        outbox
-            .enqueue(&mk_event("01J8Q00000000000000000000A", 1, "s1"))
-            .unwrap();
-        outbox
-            .enqueue(&mk_event("01J8Q00000000000000000000B", 2, "s1"))
-            .unwrap();
+        outbox.enqueue(&mk_event("01J8Q00000000000000000000A", 1, "s1")).unwrap();
+        outbox.enqueue(&mk_event("01J8Q00000000000000000000B", 2, "s1")).unwrap();
 
         let client = MockClient::new(all_accepted);
         run_tick(&outbox, &client, &cfg());
@@ -436,9 +433,7 @@ mod tests {
     #[test]
     fn duplicate_noop_is_treated_as_accepted() {
         let outbox = Outbox::open_in_memory(&make_key()).unwrap();
-        outbox
-            .enqueue(&mk_event("01J8Q00000000000000000000A", 1, "s1"))
-            .unwrap();
+        outbox.enqueue(&mk_event("01J8Q00000000000000000000A", 1, "s1")).unwrap();
 
         let client = MockClient::new(|env| SendBatchResponse::Accepted {
             results: env
@@ -457,12 +452,8 @@ mod tests {
     #[test]
     fn per_event_rejected_poisons_only_that_ulid() {
         let outbox = Outbox::open_in_memory(&make_key()).unwrap();
-        outbox
-            .enqueue(&mk_event("01J8Q00000000000000000000A", 1, "s1"))
-            .unwrap();
-        outbox
-            .enqueue(&mk_event("01J8Q00000000000000000000B", 2, "s1"))
-            .unwrap();
+        outbox.enqueue(&mk_event("01J8Q00000000000000000000A", 1, "s1")).unwrap();
+        outbox.enqueue(&mk_event("01J8Q00000000000000000000B", 2, "s1")).unwrap();
 
         let client = MockClient::new(|env| SendBatchResponse::Accepted {
             results: env
@@ -506,12 +497,8 @@ mod tests {
     #[test]
     fn validation_failed_poisons_the_whole_batch() {
         let outbox = Outbox::open_in_memory(&make_key()).unwrap();
-        outbox
-            .enqueue(&mk_event("01J8Q00000000000000000000A", 1, "s1"))
-            .unwrap();
-        outbox
-            .enqueue(&mk_event("01J8Q00000000000000000000B", 2, "s1"))
-            .unwrap();
+        outbox.enqueue(&mk_event("01J8Q00000000000000000000A", 1, "s1")).unwrap();
+        outbox.enqueue(&mk_event("01J8Q00000000000000000000B", 2, "s1")).unwrap();
 
         let client = MockClient::new(|_| SendBatchResponse::ValidationFailed {
             message: "device_id must be uuid".to_string(),
@@ -523,9 +510,7 @@ mod tests {
     #[test]
     fn device_invalid_poisons_batch_with_prefixed_reason() {
         let outbox = Outbox::open_in_memory(&make_key()).unwrap();
-        outbox
-            .enqueue(&mk_event("01J8Q00000000000000000000A", 1, "s1"))
-            .unwrap();
+        outbox.enqueue(&mk_event("01J8Q00000000000000000000A", 1, "s1")).unwrap();
 
         let client = MockClient::new(|_| SendBatchResponse::DeviceInvalid {
             reason: "device_revoked".into(),
@@ -546,9 +531,7 @@ mod tests {
     #[test]
     fn auth_denied_schedules_long_retry_without_poisoning() {
         let outbox = Outbox::open_in_memory(&make_key()).unwrap();
-        outbox
-            .enqueue(&mk_event("01J8Q00000000000000000000A", 1, "s1"))
-            .unwrap();
+        outbox.enqueue(&mk_event("01J8Q00000000000000000000A", 1, "s1")).unwrap();
 
         let client = MockClient::new(|_| SendBatchResponse::AuthDenied {
             reason: "no_user_for_oid".into(),
@@ -568,9 +551,7 @@ mod tests {
     #[test]
     fn multi_device_conflict_schedules_5_minute_retry() {
         let outbox = Outbox::open_in_memory(&make_key()).unwrap();
-        outbox
-            .enqueue(&mk_event("01J8Q00000000000000000000A", 1, "s1"))
-            .unwrap();
+        outbox.enqueue(&mk_event("01J8Q00000000000000000000A", 1, "s1")).unwrap();
 
         let client = MockClient::new(|_| SendBatchResponse::MultiDeviceConflict {
             existing_session_id: "existing-sess".into(),
@@ -588,9 +569,7 @@ mod tests {
     #[test]
     fn transient_response_applies_backoff_ladder() {
         let outbox = Outbox::open_in_memory(&make_key()).unwrap();
-        outbox
-            .enqueue(&mk_event("01J8Q00000000000000000000A", 1, "s1"))
-            .unwrap();
+        outbox.enqueue(&mk_event("01J8Q00000000000000000000A", 1, "s1")).unwrap();
 
         let client = MockClient::new(|_| SendBatchResponse::Transient("500 upstream".into()));
 
@@ -619,15 +598,9 @@ mod tests {
     fn one_http_call_per_session_when_events_span_multiple_sessions() {
         let outbox = Outbox::open_in_memory(&make_key()).unwrap();
         // Interleaved so drain returns them mixed.
-        outbox
-            .enqueue(&mk_event("01J8Q00000000000000000000A", 1, "s1"))
-            .unwrap();
-        outbox
-            .enqueue(&mk_event("01J8Q00000000000000000000B", 1, "s2"))
-            .unwrap();
-        outbox
-            .enqueue(&mk_event("01J8Q00000000000000000000C", 2, "s1"))
-            .unwrap();
+        outbox.enqueue(&mk_event("01J8Q00000000000000000000A", 1, "s1")).unwrap();
+        outbox.enqueue(&mk_event("01J8Q00000000000000000000B", 1, "s2")).unwrap();
+        outbox.enqueue(&mk_event("01J8Q00000000000000000000C", 2, "s1")).unwrap();
 
         let client = MockClient::new(all_accepted);
         run_tick(&outbox, &client, &cfg());
@@ -648,12 +621,8 @@ mod tests {
     #[test]
     fn syncloop_drains_and_shuts_down_cleanly() {
         let outbox = Outbox::open_in_memory(&make_key()).unwrap();
-        outbox
-            .enqueue(&mk_event("01J8Q00000000000000000000A", 1, "s1"))
-            .unwrap();
-        outbox
-            .enqueue(&mk_event("01J8Q00000000000000000000B", 2, "s1"))
-            .unwrap();
+        outbox.enqueue(&mk_event("01J8Q00000000000000000000A", 1, "s1")).unwrap();
+        outbox.enqueue(&mk_event("01J8Q00000000000000000000B", 2, "s1")).unwrap();
 
         let client = MockClient::new(all_accepted);
         let calls = client.calls();
@@ -676,9 +645,7 @@ mod tests {
     #[test]
     fn syncloop_skips_when_offline_and_resumes_when_online_flips() {
         let outbox = Outbox::open_in_memory(&make_key()).unwrap();
-        outbox
-            .enqueue(&mk_event("01J8Q00000000000000000000A", 1, "s1"))
-            .unwrap();
+        outbox.enqueue(&mk_event("01J8Q00000000000000000000A", 1, "s1")).unwrap();
 
         let client = MockClient::new(all_accepted);
         let calls = client.calls();

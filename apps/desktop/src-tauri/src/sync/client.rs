@@ -125,11 +125,7 @@ impl BackendClient for MockClient {
             session_id: envelope.session_id.clone(),
             correlation_id: envelope.correlation_id.clone(),
             take_over: envelope.take_over,
-            event_ulids: envelope
-                .events
-                .iter()
-                .map(|e| e.event_ulid.clone())
-                .collect(),
+            event_ulids: envelope.events.iter().map(|e| e.event_ulid.clone()).collect(),
         });
         (self.handler)(envelope)
     }
