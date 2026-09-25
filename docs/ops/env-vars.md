@@ -173,6 +173,33 @@ Developers running the backend locally need:
 - `CLOUDPUNCH_ENV=dev`
 - `NODE_ENV=development`
 
+### 5.1 Until AWS exists: the dev VM (2b.4)
+
+The dev database is Postgres on the internal VM (`cloudpunch-abd`),
+reached through an SSH tunnel. A git-ignored `apps/backend/.env.local`
+holds:
+
+| Variable | Secret? | Notes |
+|---|---|---|
+| `POSTGRES_URL` | yes | Migrator role: `pnpm migrate`, `pnpm seed:dev`. |
+| `POSTGRES_APP_URL` | yes | App role, used by the API. **Honoured only when `CLOUDPUNCH_ENV=dev`** (the one exception to "no secrets in env"; `server.ts` ignores it elsewhere). |
+| `CLOUDPUNCH_ENV` | no | `dev` |
+| `HOST` / `PORT` | no | `127.0.0.1` / `8080`. Loopback only. |
+| `ENTRA_TENANT_ID`, `ENTRA_API_CLIENT_ID`, `ENTRA_API_APPLICATION_ID_URI` | no | Registered values in §2.1. Without them every data route returns 401. |
+
+To run the desktop app against it:
+
+1. Open the tunnel: `ssh -N -L 55432:localhost:5432 aptask@172.16.46.54`.
+2. Seed your identity once:
+   `pnpm -F @cloudpunch/backend seed:dev -- --oid <your Entra object id> --email <you>@aptask.com --given <first> --family <last>`.
+   This creates an active `local_admin` employee and links your
+   `app_user` to it. It is idempotent.
+3. Start the API: `pnpm -F @cloudpunch/backend dev:local`.
+4. Start the desktop app with
+   `$env:CLOUDPUNCH_BACKEND_URL = "http://127.0.0.1:8080"`, then
+   `pnpm -F @cloudpunch/desktop dev`. The desktop log prints
+   "device enrolled" after sign-in.
+
 No real production secret should ever be pulled to a developer
 machine. If a developer needs a value that only exists in prod (e.g.,
 to reproduce an issue), the on-call engineer produces a redacted

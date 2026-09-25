@@ -11,9 +11,11 @@
     "test:watch": "vitest",
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "dev": "tsx watch src/server.ts",
+    "dev:local": "tsx watch --env-file=.env.local src/server.ts",
     "start": "node --enable-source-maps dist/server.js",
     "build": "tsc -p tsconfig.build.json",
-    "migrate": "tsx scripts/migrate.ts"
+    "migrate": "tsx scripts/migrate.ts",
+    "seed:dev": "tsx --env-file=.env.local scripts/seed-dev-user.ts"
   },
   "dependencies": {
     "@cloudpunch/event-schema": "workspace:*",

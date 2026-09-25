@@ -283,7 +283,9 @@ pub fn run() {
                             restore_auth.clone(),
                             restore_enrollment,
                         ),
-                        Ok(false) => {}
+                        Ok(false) => eprintln!(
+                            "[cloudpunch] silent sign-in: no saved session (none stored, or it was rejected)"
+                        ),
                         Err(e) => eprintln!("[cloudpunch] silent sign-in failed: {}", e.code()),
                     }
                     let _ = handle.emit(commands::AUTH_EVENT, restore_auth.status());

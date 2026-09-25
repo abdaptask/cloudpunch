@@ -137,6 +137,7 @@ pub fn start_enrollment(app: &AppHandle, auth: Arc<Auth>, enrollment: Arc<Enroll
         .name("cp-enroll".into())
         .spawn(move || {
             let Some(hostname) = enroll::hostname() else {
+                eprintln!("[cloudpunch] enrollment blocked: hostname");
                 enrollment.record(generation, &Err(EnrollError::Hostname));
                 emit();
                 return;

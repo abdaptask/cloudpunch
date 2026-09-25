@@ -1,6 +1,26 @@
-import { loadEnv } from './config/env.js';
+import type postgres from 'postgres';
+import { loadEnv, type Env } from './config/env.js';
+import type { Logger } from 'pino';
 import { createLogger } from './logging/logger.js';
 import { buildApp } from './app.js';
+import { createPostgresClient, PostgresDb } from './db/postgres/index.js';
+
+/**
+ * The dev database, when `POSTGRES_APP_URL` is set and this is the dev
+ * environment. Anywhere else the URL is ignored (with a warning): real
+ * environments read DB credentials from Secrets Manager (ADR-0007 §2),
+ * which is not wired yet, so they start without the data routes.
+ */
+function devDatabase(env: Env, logger: Logger): { sql: postgres.Sql; repos: PostgresDb } | null {
+  if (!env.POSTGRES_APP_URL) return null;
+  if (env.CLOUDPUNCH_ENV !== 'dev') {
+    logger.warn({ env: env.CLOUDPUNCH_ENV }, 'POSTGRES_APP_URL ignored outside CLOUDPUNCH_ENV=dev');
+    return null;
+  }
+  const sql = createPostgresClient(env.POSTGRES_APP_URL);
+  logger.info('using dev Postgres from POSTGRES_APP_URL');
+  return { sql, repos: new PostgresDb(sql) };
+}
 
 async function main(): Promise<void> {
   const env = loadEnv();
@@ -12,7 +32,9 @@ async function main(): Promise<void> {
     env: env.CLOUDPUNCH_ENV,
   });
 
-  const app = await buildApp({ env, logger });
+  const db = devDatabase(env, logger);
+  const app = await buildApp({ env, logger, db: db?.repos });
+  if (db) app.addHook('onClose', async () => db.sql.end());
 
   const shutdown = async (signal: string): Promise<void> => {
     logger.info({ signal }, 'shutdown initiated');
