@@ -27,6 +27,8 @@ export interface Theme {
   stopHover: string;
   warnBg: string;
   warnText: string;
+  /** Dial face: working (green), on a break (amber), clocked out (grey). */
+  tint: Record<'working' | 'break' | 'off', string>;
   font: string;
 }
 
@@ -63,6 +65,7 @@ export const light: Theme = {
   stopHover: '#a61b1b',
   warnBg: '#fff4e0',
   warnText: '#7a4a00',
+  tint: { working: '#e7f6ec', break: '#fff3dc', off: '#f1f2f5' },
   font,
 };
 
@@ -97,6 +100,7 @@ export const dark: Theme = {
   stopHover: '#b91c1c',
   warnBg: '#3a2a10',
   warnText: '#ffd28a',
+  tint: { working: '#12281b', break: '#2e2410', off: '#1b1e25' },
   font,
 };
 

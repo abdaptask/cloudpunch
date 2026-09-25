@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+import type { DayResult } from './dayHistory.js';
 import type { PromptResponse } from './IdlePrompt.js';
 import type { Segment } from './timelineModel.js';
 
@@ -95,4 +96,9 @@ export const api = {
     listen<null>(CLOSE_REQUESTED_EVENT, () => cb()),
   /** Long-shift banner: "Still working" (ADR-0013 §5). */
   ackLongShift: (): Promise<StateView> => invoke<StateView>('ack_long_shift'),
+  /**
+   * A past working day (ADR-0016). Rejects with `offline` (nothing
+   * cached), `not_configured`, `not_signed_in`, or the backend's code.
+   */
+  getDay: (date: string): Promise<DayResult> => invoke<DayResult>('get_day', { date }),
 };

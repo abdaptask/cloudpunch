@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Desktop: past days on the dial, and a status-coloured face (2026-09-25)
+
+The desktop half of past-days history (ADR-0016), plus a request from
+the project owner.
+
+- **‹ Today ›** above the dial steps back through the previous 30
+  days. A past day shows on the dial with the total worked and its
+  first and last times ("09:00 – 17:00"). The stats strip and Details
+  show that day's sessions and totals. Tap the day name to go back to
+  today. Clocking in and out still works from any day.
+- **Times on the recording computer's clock.** A day recorded in IST
+  reads in IST on an EST laptop, with a note naming the zone. A night
+  shift from 6:30 pm to 3:30 am shows as one day. Days that include time
+  from another computer say so.
+- **Offline.** A day already loaded this run still shows, marked
+  "Offline · showing what was loaded earlier". Otherwise the screen
+  explains that past days need a connection. Nothing is stored on disk,
+  and the copy is cleared at sign-out.
+- **Dial face tint:** soft green while clocked in (calls and meetings
+  too), amber on a break or at the idle prompt, grey when clocked out.
+- New Tauri command `get_day` (`days.rs`: fetch with the user's access
+  token, per-user memory cache). New `Recorder::device_id`. The
+  `timelineModel` helpers take an optional day start, so a past day is
+  never cut at midnight.
+
 ### Backend: day history API (ADR-0016) (2026-09-25)
 
 The backend half of past-days history. The desktop screen comes in a

@@ -32,6 +32,7 @@ pub mod agent;
 pub mod auth;
 pub mod call_type;
 pub mod commands;
+pub mod days;
 pub mod enroll;
 pub mod event;
 pub mod keystore;
@@ -217,6 +218,7 @@ pub fn run() {
         .manage(enrollment)
         .manage(recorder)
         .manage(sync::live::LiveSync::default())
+        .manage(days::DayCache::default())
         .invoke_handler(tauri::generate_handler![
             commands::get_state,
             commands::hide_to_tray,
@@ -236,6 +238,7 @@ pub fn run() {
             commands::mark_away,
             commands::mark_back,
             commands::respond_to_prompt,
+            commands::get_day,
         ])
         .setup(move |app| {
             setup_agent.attach(agent::TauriUi::new(app.handle().clone()));

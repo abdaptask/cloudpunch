@@ -2,6 +2,17 @@ import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 
 import { api, type StateView } from './api.js';
 import { ClockOutDialog } from './ClockOutDialog.js';
 import { DayDial } from './DayDial.js';
+import {
+  dayEnd,
+  dayLabel,
+  daySegments,
+  localDateOf,
+  LOOKBACK_DAYS,
+  recordedElsewhere,
+  shiftDate,
+  tintFor,
+  zoneNote,
+} from './dayHistory.js';
 import { CloseDialog, LongShiftBanner, rememberedKeepRunning } from './CloseDialog.js';
 import { TimelineView } from './TimelineView.js';
 import {
@@ -15,6 +26,7 @@ import {
   totals,
   totalsByKind,
   WORKING_PART_LABEL,
+  type Segment,
   type SegmentKind,
 } from './timelineModel.js';
 import { Button } from './ui/Button.js';
@@ -23,6 +35,7 @@ import { useTheme, type Theme } from './ui/theme.js';
 import { SignIn } from './SignIn.js';
 import { useAgentState } from './useAgentState.js';
 import { useAuth } from './useAuth.js';
+import { useDay } from './useDay.js';
 import { useEnrollment } from './useEnrollment.js';
 import { useFitWindow } from './useFitWindow.js';
 import { useNow } from './useNow.js';
@@ -161,6 +174,22 @@ export function App(): JSX.Element {
   const [detailsOpen, setDetailsOpen] = useState(false);
   const askClockOut = (): void => setClockOutAsked(true);
 
+  // Past days (ADR-0016): null shows today, live.
+  const [viewDate, setViewDate] = useState<string | null>(null);
+  const todayDate = localDateOf(now);
+  const pastDate = viewDate !== null && viewDate < todayDate ? viewDate : null;
+  const past = useDay(signedIn ? pastDate : null);
+  const pastDay = past.status === 'ready' ? past.result : null;
+  const pastSegs: Segment[] = pastDay ? daySegments(pastDay.day) : [];
+  const pastEnd = dayEnd(pastSegs);
+  useEffect(() => {
+    if (!signedIn) setViewDate(null);
+  }, [signedIn]);
+  // What the stats and details show: today live, or the past day whole.
+  const shownSegs = pastDate ? pastSegs : (view?.timeline ?? []);
+  const shownNow = pastDate ? (pastEnd ?? now) : now;
+  const shownSince = pastDate ? -Infinity : undefined;
+
   // The close button asks first, unless "keep running" was remembered
   // (ADR-0013 §1). The tray's Quit while clocked in lands here too.
   useEffect(() => {
@@ -281,76 +310,95 @@ export function App(): JSX.Element {
         <>
           <section
             aria-label="current-status"
-            style={{ ...card(t), padding: '14px 12px 12px', textAlign: 'center' }}
+            style={{ ...card(t), padding: '8px 12px 12px', textAlign: 'center' }}
           >
-            <DayDial segments={view?.timeline ?? []} now={now}>
-              <div
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 6,
-                  fontSize: 11,
-                  fontWeight: 650,
-                  letterSpacing: 0.6,
-                  textTransform: 'uppercase',
-                  color: view ? statusColor(t, view) : t.muted,
-                }}
+            <DayNav
+              date={pastDate ?? todayDate}
+              today={todayDate}
+              onChange={(d) => setViewDate(d >= todayDate ? null : d)}
+            />
+            {pastDate ? (
+              <PastDial
+                state={past}
+                segments={pastSegs}
+                end={pastEnd}
+                date={pastDate}
+                today={todayDate}
+              />
+            ) : (
+              <DayDial
+                segments={view?.timeline ?? []}
+                now={now}
+                tint={view ? t.tint[tintFor(view.status)] : undefined}
               >
-                <span
-                  aria-hidden
+                <div
                   style={{
-                    width: 7,
-                    height: 7,
-                    borderRadius: 999,
-                    background: view ? statusColor(t, view) : t.border,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    fontSize: 11,
+                    fontWeight: 650,
+                    letterSpacing: 0.6,
+                    textTransform: 'uppercase',
+                    color: view ? statusColor(t, view) : t.muted,
                   }}
-                />
-                <span>{view ? statusLabel(view, now) : 'Loading…'}</span>
-              </div>
-              {view?.sessionStartedAt != null ? (
-                <>
-                  <div
-                    aria-label="session-timer"
+                >
+                  <span
+                    aria-hidden
                     style={{
-                      fontSize: 30,
-                      fontWeight: 650,
-                      letterSpacing: -0.5,
-                      fontVariantNumeric: 'tabular-nums',
-                      lineHeight: 1.1,
+                      width: 7,
+                      height: 7,
+                      borderRadius: 999,
+                      background: view ? statusColor(t, view) : t.border,
                     }}
-                  >
-                    {formatTimer(now - view.sessionStartedAt)}
-                  </div>
-                  <div style={{ fontSize: 11, color: t.muted }}>
-                    since {formatClock(view.sessionStartedAt)}
-                  </div>
-                </>
-              ) : (
-                view && (
+                  />
+                  <span>{view ? statusLabel(view, now) : 'Loading…'}</span>
+                </div>
+                {view?.sessionStartedAt != null ? (
                   <>
                     <div
+                      aria-label="session-timer"
                       style={{
-                        fontSize: 26,
+                        fontSize: 30,
                         fontWeight: 650,
+                        letterSpacing: -0.5,
                         fontVariantNumeric: 'tabular-nums',
                         lineHeight: 1.1,
                       }}
                     >
-                      {formatWorked(dayOf(view, now).worked)}
+                      {formatTimer(now - view.sessionStartedAt)}
                     </div>
-                    <div style={{ fontSize: 11, color: t.muted }}>worked today</div>
+                    <div style={{ fontSize: 11, color: t.muted }}>
+                      since {formatClock(view.sessionStartedAt)}
+                    </div>
                   </>
-                )
-              )}
-            </DayDial>
-            {view?.status === 'clocked_out' && (
+                ) : (
+                  view && (
+                    <>
+                      <div
+                        style={{
+                          fontSize: 26,
+                          fontWeight: 650,
+                          fontVariantNumeric: 'tabular-nums',
+                          lineHeight: 1.1,
+                        }}
+                      >
+                        {formatWorked(dayOf(view, now).worked)}
+                      </div>
+                      <div style={{ fontSize: 11, color: t.muted }}>worked today</div>
+                    </>
+                  )
+                )}
+              </DayDial>
+            )}
+            {!pastDate && view?.status === 'clocked_out' && (
               <div style={{ fontSize: 12, color: t.muted, marginTop: 6, lineHeight: 1.4 }}>
                 {clockedOutHint(view, now)}
               </div>
             )}
           </section>
 
-          {view?.status === 'clocked_out' && view.autoClockedOutAt !== null && (
+          {!pastDate && view?.status === 'clocked_out' && view.autoClockedOutAt !== null && (
             <p
               role="status"
               style={{
@@ -383,9 +431,11 @@ export function App(): JSX.Element {
             </p>
           )}
 
-          {view && view.timeline.length > 0 && <DayStats view={view} now={now} />}
+          {shownSegs.length > 0 && (
+            <DayStats segments={shownSegs} now={shownNow} since={shownSince} />
+          )}
 
-          {view && view.timeline.length > 0 && (
+          {shownSegs.length > 0 && (
             <button
               type="button"
               aria-expanded={detailsOpen}
@@ -409,11 +459,20 @@ export function App(): JSX.Element {
 
           {view && detailsOpen && (
             <>
-              <section aria-label="today" style={card(t)}>
-                <h2 style={sectionTitle(t)}>Sessions today</h2>
-                <TimelineView segments={view.timeline} now={now} />
+              <section aria-label={pastDate ? 'past-day' : 'today'} style={card(t)}>
+                <h2 style={sectionTitle(t)}>
+                  {pastDate ? `Sessions · ${dayLabel(pastDate, todayDate)}` : 'Sessions today'}
+                </h2>
+                <TimelineView
+                  segments={shownSegs}
+                  now={shownNow}
+                  since={shownSince}
+                  emptyText={pastDate ? 'Nothing was tracked on this day.' : undefined}
+                />
               </section>
-              {view.timeline.length > 0 && <Footer view={view} now={now} />}
+              {shownSegs.length > 0 && (
+                <Footer segments={shownSegs} now={shownNow} since={shownSince} past={!!pastDate} />
+              )}
             </>
           )}
         </>
@@ -509,9 +568,17 @@ function statTime(ms: number): string {
 }
 
 /** Worked · Calls · Breaks at a glance (details hold the full totals). */
-function DayStats({ view, now }: { view: StateView; now: number }): JSX.Element {
+function DayStats({
+  segments,
+  now,
+  since,
+}: {
+  segments: readonly Segment[];
+  now: number;
+  since?: number | undefined;
+}): JSX.Element {
   const t = useTheme();
-  const byKind = totalsByKind(view.timeline, now);
+  const byKind = totalsByKind(segments, now, since);
   const sum = (pred: (k: SegmentKind) => boolean): number =>
     KIND_ORDER.filter(pred).reduce((a, k) => a + (byKind[k] ?? 0), 0);
   const stats: [string, number, string][] = [
@@ -568,9 +635,20 @@ function DayStats({ view, now }: { view: StateView; now: number }): JSX.Element 
   );
 }
 
-function Footer({ view, now }: { view: StateView; now: number }): JSX.Element {
+function Footer({
+  segments,
+  now,
+  since,
+  past,
+}: {
+  segments: readonly Segment[];
+  now: number;
+  since?: number | undefined;
+  /** A past day: rebuilt by the backend from what it received. */
+  past: boolean;
+}): JSX.Element {
   const t = useTheme();
-  const byKind = totalsByKind(view.timeline, now);
+  const byKind = totalsByKind(segments, now, since);
   const present = KIND_ORDER.filter((k) => (byKind[k] ?? 0) > 0);
   const workingParts = present.filter((k) => groupOf(k) === 'working');
   const otherRows = present.filter((k) => groupOf(k) !== 'working');
@@ -584,7 +662,7 @@ function Footer({ view, now }: { view: StateView; now: number }): JSX.Element {
   return (
     <footer aria-label="totals" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
       <section style={card(t)}>
-        <h2 style={sectionTitle(t)}>Today&apos;s totals</h2>
+        <h2 style={sectionTitle(t)}>{past ? 'Totals' : 'Today\u2019s totals'}</h2>
         <dl style={{ margin: 0, display: 'flex', flexDirection: 'column', gap: 8 }}>
           <div style={totalRow}>
             <dt style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
@@ -636,8 +714,10 @@ function Footer({ view, now }: { view: StateView; now: number }): JSX.Element {
         </dl>
       </section>
       <p style={{ margin: 0, fontSize: 11, lineHeight: 1.4, color: t.muted }}>
-        Tracked on this device, to the second. Paid hours come from your approved timesheet, which
-        applies break and prompt rules.
+        {past
+          ? 'As received by CloudPunch from your computers.'
+          : 'Tracked on this device, to the second.'}{' '}
+        Paid hours come from your approved timesheet, which applies break and prompt rules.
       </p>
     </footer>
   );
@@ -654,6 +734,163 @@ const totalValue: CSSProperties = {
   fontSize: 13,
   fontVariantNumeric: 'tabular-nums',
 };
+
+/** ‹ Today › — step through today and the previous 30 days (ADR-0016). */
+function DayNav({
+  date,
+  today,
+  onChange,
+}: {
+  date: string;
+  today: string;
+  onChange: (date: string) => void;
+}): JSX.Element {
+  const t = useTheme();
+  const oldest = shiftDate(today, -LOOKBACK_DAYS);
+  const arrow = (disabled: boolean): CSSProperties => ({
+    width: 28,
+    height: 28,
+    borderRadius: 999,
+    border: 'none',
+    background: 'none',
+    color: disabled ? t.border : t.muted,
+    fontSize: 18,
+    lineHeight: 1,
+    cursor: disabled ? 'default' : 'pointer',
+  });
+  return (
+    <div
+      aria-label="day-navigation"
+      style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}
+    >
+      <button
+        type="button"
+        aria-label="Previous day"
+        disabled={date <= oldest}
+        onClick={() => onChange(shiftDate(date, -1))}
+        style={arrow(date <= oldest)}
+      >
+        ‹
+      </button>
+      {date === today ? (
+        <span aria-label="day-shown" style={{ fontSize: 12, fontWeight: 600, color: t.muted }}>
+          Today
+        </span>
+      ) : (
+        <button
+          type="button"
+          aria-label="day-shown"
+          title="Back to today"
+          onClick={() => onChange(today)}
+          style={{ ...linkButton(t), fontSize: 12, fontWeight: 600, color: t.text }}
+        >
+          {dayLabel(date, today)}
+        </button>
+      )}
+      <button
+        type="button"
+        aria-label="Next day"
+        disabled={date >= today}
+        onClick={() => onChange(shiftDate(date, 1))}
+        style={arrow(date >= today)}
+      >
+        ›
+      </button>
+    </div>
+  );
+}
+
+const PAST_ERROR: Record<string, string> = {
+  offline: "Can't reach CloudPunch right now. Past days show when you're online.",
+  not_configured: "Past days aren't available in this build.",
+  no_employee: "Your account isn't linked to an employee record. Contact HR.",
+};
+
+/** A past working day on the dial, with where and when it was recorded. */
+function PastDial({
+  state,
+  segments,
+  end,
+  date,
+  today,
+}: {
+  state: ReturnType<typeof useDay>;
+  segments: readonly Segment[];
+  end: number | null;
+  date: string;
+  today: string;
+}): JSX.Element {
+  const t = useTheme();
+  const result = state.status === 'ready' ? state.result : null;
+  const worked = end === null ? 0 : totals(segments, end, -Infinity).working;
+  const first = segments.length > 0 ? Math.min(...segments.map((s) => s.startedAt)) : null;
+  const notes: string[] = [];
+  if (result) {
+    const zone = zoneNote(result.day, -new Date().getTimezoneOffset());
+    if (zone) notes.push(zone);
+    if (recordedElsewhere(result.day, result.thisDevice)) {
+      notes.push('Includes time from another computer');
+    }
+    if (result.stale) notes.push('Offline · showing what was loaded earlier');
+  }
+  const message =
+    state.status === 'error'
+      ? (PAST_ERROR[state.code] ?? `Couldn't load this day (${state.code}).`)
+      : null;
+  return (
+    <>
+      <DayDial
+        segments={segments}
+        now={end ?? Date.parse(`${date}T12:00:00`)}
+        hand={false}
+        tint={t.tint.off}
+        label={dayLabel(date, today)}
+      >
+        <div
+          style={{
+            fontSize: 11,
+            fontWeight: 650,
+            letterSpacing: 0.6,
+            textTransform: 'uppercase',
+            color: t.muted,
+          }}
+        >
+          {state.status === 'loading' ? 'Loading…' : 'Worked'}
+        </div>
+        {result && (
+          <>
+            <div
+              aria-label="past-worked"
+              style={{
+                fontSize: 26,
+                fontWeight: 650,
+                fontVariantNumeric: 'tabular-nums',
+                lineHeight: 1.1,
+              }}
+            >
+              {segments.length > 0 ? formatWorked(worked) : '0m'}
+            </div>
+            <div style={{ fontSize: 11, color: t.muted }}>
+              {first !== null && end !== null
+                ? `${formatClock(first)} – ${formatClock(end)}`
+                : 'Nothing tracked'}
+            </div>
+          </>
+        )}
+      </DayDial>
+      {message && (
+        <div role="status" style={{ fontSize: 12, color: t.muted, marginTop: 6, lineHeight: 1.4 }}>
+          {message}
+        </div>
+      )}
+      {notes.map((n) => (
+        <div key={n} style={{ fontSize: 11, color: t.muted, marginTop: 4, lineHeight: 1.4 }}>
+          {n}
+        </div>
+      ))}
+    </>
+  );
+}
 
 /** "9 hours" / "11 hours". */
 function formatHours(ms: number): string {

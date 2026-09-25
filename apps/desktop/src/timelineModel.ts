@@ -88,10 +88,15 @@ export function startOfLocalDay(now: number): number {
 
 /**
  * Segments overlapping today (local time), clipped to midnight, with
- * open segments ended at `now`.
+ * open segments ended at `now`. `since` replaces midnight (a past
+ * working day passes -Infinity: it is never split at midnight).
  */
-export function today(segments: readonly Segment[], now: number): ClosedSegment[] {
-  const midnight = startOfLocalDay(now);
+export function today(
+  segments: readonly Segment[],
+  now: number,
+  since: number = startOfLocalDay(now),
+): ClosedSegment[] {
+  const midnight = since;
   return segments
     .map((s): ClosedSegment => ({ ...s, endedAt: s.endedAt ?? now }))
     .filter((s) => s.endedAt > midnight)
@@ -101,9 +106,9 @@ export function today(segments: readonly Segment[], now: number): ClosedSegment[
 
 export type Totals = Record<SegmentGroup, number>;
 
-export function totals(segments: readonly Segment[], now: number): Totals {
+export function totals(segments: readonly Segment[], now: number, since?: number): Totals {
   const out: Totals = { working: 0, break: 0, prompt: 0 };
-  for (const s of today(segments, now)) {
+  for (const s of today(segments, now, since)) {
     out[groupOf(s.kind)] += s.endedAt - s.startedAt;
   }
   return out;
@@ -119,10 +124,14 @@ export interface SessionGroup {
 }
 
 /** Today's rows grouped by session, oldest first. */
-export function sessionsToday(segments: readonly Segment[], now: number): SessionGroup[] {
+export function sessionsToday(
+  segments: readonly Segment[],
+  now: number,
+  since?: number,
+): SessionGroup[] {
   const openSession = segments.find((s) => s.endedAt === null)?.session;
   const groups = new Map<number, SessionGroup>();
-  for (const row of today(segments, now)) {
+  for (const row of today(segments, now, since)) {
     const g = groups.get(row.session);
     if (g) {
       g.rows.push(row);
@@ -159,9 +168,10 @@ export const KIND_ORDER: readonly SegmentKind[] = [
 export function totalsByKind(
   segments: readonly Segment[],
   now: number,
+  since?: number,
 ): Partial<Record<SegmentKind, number>> {
   const out: Partial<Record<SegmentKind, number>> = {};
-  for (const s of today(segments, now)) {
+  for (const s of today(segments, now, since)) {
     out[s.kind] = (out[s.kind] ?? 0) + (s.endedAt - s.startedAt);
   }
   return out;
