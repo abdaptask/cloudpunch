@@ -376,6 +376,28 @@ API failure as a health telemetry event, never as an anomaly.
   session in local SQLite, emits `SESSION_RECOVERED` event, and enters
   `CLOCKING_OUT` with `reason=system_shutdown_reconstructed`. Timestamp is
   the last known heartbeat time. Manager review required.
+
+  *Implementation note (2026-09-25, approved by the project owner):*
+  - **The heartbeat.** While clocked in, the agent keeps the session in
+    progress in its encrypted outbox (`open_session`), tagged with the
+    app run's id. A local heartbeat refreshes it every 60 s and is never
+    sent.
+  - **The recovery event.** When the next run arms its recorder and
+    finds another run's row, it signs `SESSION_RECOVERED`
+    (`origin=reconstructed`, `reconstruction_reason=session_recovered`,
+    `last_heartbeat_at`, `recovered_at`) into that session at the next
+    sequence number.
+  - **The server close.** The server closes the session as
+    `system_shutdown_reconstructed` at `last_heartbeat_at`, clamped to
+    `[opened_at, now]`, with `reconstructed=true`. The crashed session
+    therefore counts as worked until the last heartbeat, at most about
+    a minute after the crash, pending the manager's confirmation.
+  - **Same-device safety net.** If a new `USER_CLOCK_IN` arrives while
+    an older session is still open on the **same device**, for example
+    because the recovery event was lost, the server closes the old one
+    the same way at its last event time instead of answering
+    `multi_device_conflict`. One device cannot be in two sessions. A
+    different device still gets the §8 conflict.
 - **Termination in greytHR while clocked in** (once greytHR is enabled):
   next backend heartbeat check terminates the session with
   `reason=greythr_termination_forced`, records last heartbeat as

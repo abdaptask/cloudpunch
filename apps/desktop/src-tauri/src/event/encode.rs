@@ -161,23 +161,44 @@ pub fn encode(
     key: &SigningKey,
 ) -> Result<EncodedEvent, EncodeError> {
     let payload = wire_payload(event, zone);
+    encode_parts(
+        ctx,
+        meta,
+        event.event_type(),
+        origin(event),
+        &payload,
+        zone,
+        key,
+    )
+}
+
+/// Encode and sign an event the agent writes itself rather than the
+/// core emitting it (e.g. `SESSION_RECOVERED`, ADR-0003 §10).
+pub fn encode_parts(
+    ctx: &SessionContext,
+    meta: EventMeta<'_>,
+    event_type: &'static str,
+    origin: &'static str,
+    payload: &Value,
+    zone: &Zone,
+    key: &SigningKey,
+) -> Result<EncodedEvent, EncodeError> {
     let client_ts = zone.rfc3339(meta.at);
     let offset = zone.offset_minutes();
     let tz = zone.iana.as_str();
-    let origin = origin(event);
     let signed = SignedEventFields {
         app_version: &ctx.app_version,
         client_ts: &client_ts,
         correlation_id: &ctx.correlation_id,
         device_id: &ctx.device_id,
         employee_id: &ctx.employee_id,
-        event_type: event.event_type(),
+        event_type,
         event_ulid: meta.event_ulid,
         monotonic_ns: meta.monotonic_ns,
         offline_captured: meta.offline_captured,
         origin,
         parent_event_ulid: None,
-        payload: &payload,
+        payload,
         sequence_number: meta.sequence_number,
         session_id: &ctx.session_id,
         tz_iana: tz,
@@ -186,7 +207,7 @@ pub fn encode(
     let signature = sign_bytes(key, &canonicalize_signed_fields(&signed)?);
     let body = serde_json::to_vec(&json!({
         "event_ulid": meta.event_ulid,
-        "event_type": event.event_type(),
+        "event_type": event_type,
         "sequence_number": meta.sequence_number,
         "client_ts": client_ts,
         "monotonic_ns": meta.monotonic_ns,
@@ -201,7 +222,7 @@ pub fn encode(
     }))?;
     Ok(EncodedEvent {
         event_ulid: meta.event_ulid.to_string(),
-        event_type: event.event_type(),
+        event_type,
         sequence_number: meta.sequence_number,
         body,
         signature,

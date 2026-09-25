@@ -31,7 +31,7 @@ pub const CIPHER_KEY_LEN: usize = 32;
 /// Current schema version. Bump when adding a migration to
 /// [`migrate`]. The DB's `PRAGMA user_version` tracks the applied
 /// version; migrations run only for the delta.
-const SCHEMA_VERSION: i64 = 3;
+const SCHEMA_VERSION: i64 = 4;
 
 const SCHEMA_V1: &str = r#"
 CREATE TABLE IF NOT EXISTS outbox (
@@ -80,6 +80,25 @@ CREATE TABLE IF NOT EXISTS identity (
 );
 "#;
 
+/// v4 (crash recovery, ADR-0003 §10): the session in progress, so the
+/// next launch can tell a crashed session from a finished one. Local
+/// only; never sent. `run_id` names the app run that owns it, and
+/// `last_alive_at` is a heartbeat refreshed every minute while clocked
+/// in — the recovered session closes there.
+const SCHEMA_V4: &str = r#"
+CREATE TABLE IF NOT EXISTS open_session (
+    oid             TEXT    PRIMARY KEY,
+    run_id          TEXT    NOT NULL,
+    session_id      TEXT    NOT NULL,
+    correlation_id  TEXT    NOT NULL,
+    device_id       TEXT    NOT NULL,
+    employee_id     TEXT    NOT NULL,
+    next_seq        INTEGER NOT NULL,
+    payroll_state   TEXT    NOT NULL,
+    last_alive_at   INTEGER NOT NULL
+);
+"#;
+
 fn migrate(conn: &Connection) -> Result<(), rusqlite::Error> {
     let current: i64 = conn.query_row("PRAGMA user_version", [], |r| r.get(0))?;
     if current < 1 {
@@ -90,6 +109,9 @@ fn migrate(conn: &Connection) -> Result<(), rusqlite::Error> {
     }
     if current < 3 {
         conn.execute_batch(SCHEMA_V3)?;
+    }
+    if current < 4 {
+        conn.execute_batch(SCHEMA_V4)?;
     }
     if current < SCHEMA_VERSION {
         conn.pragma_update(None, "user_version", SCHEMA_VERSION)?;
@@ -149,6 +171,21 @@ pub struct CachedIdentity {
     pub oid: String,
     pub device_id: String,
     pub employee_id: String,
+}
+
+/// The session in progress for one user (v4, crash recovery).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OpenSession {
+    pub oid: String,
+    pub run_id: String,
+    pub session_id: String,
+    pub correlation_id: String,
+    pub device_id: String,
+    pub employee_id: String,
+    pub next_seq: i64,
+    /// Payroll state wire name (`ACTIVE`, `ON_BREAK`, ...).
+    pub payroll_state: String,
+    pub last_alive_at: SystemTime,
 }
 
 pub struct Outbox {
@@ -369,6 +406,84 @@ impl Outbox {
             )
             .optional()
             .map_err(OutboxError::from)
+    }
+
+    /// Record (or update) the session in progress for `s.oid`.
+    pub fn save_open_session(&self, s: &OpenSession) -> Result<(), OutboxError> {
+        let alive = unix_seconds(s.last_alive_at)?;
+        self.conn.execute(
+            "INSERT INTO open_session (oid, run_id, session_id, correlation_id,
+                 device_id, employee_id, next_seq, payroll_state, last_alive_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+             ON CONFLICT (oid) DO UPDATE SET
+                 run_id = excluded.run_id,
+                 session_id = excluded.session_id,
+                 correlation_id = excluded.correlation_id,
+                 device_id = excluded.device_id,
+                 employee_id = excluded.employee_id,
+                 next_seq = excluded.next_seq,
+                 payroll_state = excluded.payroll_state,
+                 last_alive_at = excluded.last_alive_at",
+            params![
+                s.oid,
+                s.run_id,
+                s.session_id,
+                s.correlation_id,
+                s.device_id,
+                s.employee_id,
+                s.next_seq,
+                s.payroll_state,
+                alive,
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// Heartbeat: move `last_alive_at` for `oid`'s session in progress,
+    /// if this run owns it. Returns whether a row was updated.
+    pub fn touch_open_session(
+        &self,
+        oid: &str,
+        run_id: &str,
+        at: SystemTime,
+    ) -> Result<bool, OutboxError> {
+        let n = self.conn.execute(
+            "UPDATE open_session SET last_alive_at = ?3 WHERE oid = ?1 AND run_id = ?2",
+            params![oid, run_id, unix_seconds(at)?],
+        )?;
+        Ok(n > 0)
+    }
+
+    pub fn load_open_session(&self, oid: &str) -> Result<Option<OpenSession>, OutboxError> {
+        self.conn
+            .query_row(
+                "SELECT oid, run_id, session_id, correlation_id, device_id, employee_id,
+                        next_seq, payroll_state, last_alive_at
+                 FROM open_session WHERE oid = ?1",
+                params![oid],
+                |r| {
+                    Ok(OpenSession {
+                        oid: r.get(0)?,
+                        run_id: r.get(1)?,
+                        session_id: r.get(2)?,
+                        correlation_id: r.get(3)?,
+                        device_id: r.get(4)?,
+                        employee_id: r.get(5)?,
+                        next_seq: r.get(6)?,
+                        payroll_state: r.get(7)?,
+                        last_alive_at: system_time_from_secs(r.get::<_, i64>(8)?),
+                    })
+                },
+            )
+            .optional()
+            .map_err(OutboxError::from)
+    }
+
+    /// The session ended (or was recovered): forget it.
+    pub fn clear_open_session(&self, oid: &str) -> Result<(), OutboxError> {
+        self.conn
+            .execute("DELETE FROM open_session WHERE oid = ?1", params![oid])?;
+        Ok(())
     }
 
     /// Rows marked poisoned.
@@ -739,8 +854,49 @@ mod v3_tests {
             .conn
             .query_row("PRAGMA user_version", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(v, 3);
+        assert_eq!(v, SCHEMA_VERSION);
         // And the identity table exists.
         assert_eq!(o.load_identity("x").unwrap(), None);
+    }
+}
+
+#[cfg(test)]
+mod v4_tests {
+    use super::*;
+    use std::time::Duration;
+
+    fn open(run: &str, seq: i64, alive: u64) -> OpenSession {
+        OpenSession {
+            oid: "a".into(),
+            run_id: run.into(),
+            session_id: "s".into(),
+            correlation_id: "c".into(),
+            device_id: "d".into(),
+            employee_id: "e".into(),
+            next_seq: seq,
+            payroll_state: "ACTIVE".into(),
+            last_alive_at: UNIX_EPOCH + Duration::from_secs(alive),
+        }
+    }
+
+    #[test]
+    fn open_session_round_trips_updates_and_clears() {
+        let o = Outbox::open_in_memory(&[1u8; CIPHER_KEY_LEN]).unwrap();
+        assert_eq!(o.load_open_session("a").unwrap(), None);
+        o.save_open_session(&open("run1", 2, 100)).unwrap();
+        o.save_open_session(&open("run1", 3, 100)).unwrap();
+        assert_eq!(o.load_open_session("a").unwrap(), Some(open("run1", 3, 100)));
+
+        // Only the owning run's heartbeat moves it.
+        assert!(!o
+            .touch_open_session("a", "run2", UNIX_EPOCH + Duration::from_secs(999))
+            .unwrap());
+        assert!(o
+            .touch_open_session("a", "run1", UNIX_EPOCH + Duration::from_secs(160))
+            .unwrap());
+        assert_eq!(o.load_open_session("a").unwrap(), Some(open("run1", 3, 160)));
+
+        o.clear_open_session("a").unwrap();
+        assert_eq!(o.load_open_session("a").unwrap(), None);
     }
 }

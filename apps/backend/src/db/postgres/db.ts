@@ -290,11 +290,15 @@ export class PostgresDb implements DbRepositories {
         if (!row) throw new Error('session insert returned no rows');
         return map(row);
       },
-      close: async (id, closedAt, closedReason) => {
+      close: async (id, closedAt, closedReason, reconstructed = false) => {
+        // Only an open session changes; closing again is a no-op.
         const rows = await this.sql<TimeSessionRow[]>`
           UPDATE time_session
           SET closed_at = COALESCE(closed_at, ${closedAt}),
-              closed_reason = COALESCE(closed_reason, ${closedReason})
+              closed_reason = COALESCE(closed_reason, ${closedReason}),
+              reconstructed = CASE WHEN closed_at IS NULL
+                                   THEN reconstructed OR ${reconstructed}
+                                   ELSE reconstructed END
           WHERE id = ${id}
           RETURNING id, employee_id, device_id, opened_at, closed_at, closed_reason, reconstructed
         `;

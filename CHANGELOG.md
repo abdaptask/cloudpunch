@@ -7,6 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Crash recovery for sessions left open (ADR-0003 §10) (2026-09-25)
+
+- **Bug fixed.** A crash or force-quit while clocked in left the
+  server session open. The next clock-in then got
+  `multi_device_conflict` on the same computer and retried
+  indefinitely, so the whole next shift never synced and sign-out
+  stayed blocked.
+- **Desktop.**
+  - Outbox v4 adds `open_session`: the session in progress, tagged
+    with the app run's id, with a local heartbeat every 60 s.
+  - When the recorder is armed and finds a session left by an earlier
+    run, it signs `SESSION_RECOVERED` (`origin=reconstructed`,
+    `last_heartbeat_at`, `recovered_at`) into it.
+  - The encoder gains `encode_parts` for events the agent writes
+    itself. The golden fixture is unchanged.
+- **Backend.**
+  - `SESSION_RECOVERED` closes the session as
+    `system_shutdown_reconstructed` at the heartbeat (clamped to
+    `[opened_at, now]`) with `reconstructed=true`.
+  - Same-device safety net: a new clock-in closes a stale open session
+    on the same device the same way, at its last event time, instead
+    of a conflict. Another device still gets `multi_device_conflict`.
+  - `TimeSessionRepo.close` takes a `reconstructed` flag.
+- **Tests.**
+  - Ingest: recovery closes at the heartbeat; the same-device safety
+    net; the idle auto-clock-out closes as `idle_auto_clock_out` (this
+    was untested); the conflict and take-over tests now use a real
+    second device.
+  - Recorder: the open-session record, recovery on arming, no recovery
+    of the live session.
+  - Outbox: the v4 table.
+- ADR-0003 §10 gets an implementation note (approved by the project
+  owner).
+- **Verified by the owner on 2026-09-25:** after a forced crash while
+  clocked in, the next launch recovered the session. The server closed
+  it at the last heartbeat (15:44:27, not the 15:45:26 restart) as
+  `system_shutdown_reconstructed`, with `reconstructed=true`.
+- New log lines for sign-out and for a saved sign-in rejected by
+  Microsoft.
+
 ### Desktop: live sync (2b.4 F3c, PR 2 of 2) (2026-09-25)
 
 - **Batches follow ADR-0014.** Each envelope now carries the
