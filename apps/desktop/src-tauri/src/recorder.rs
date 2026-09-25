@@ -243,6 +243,15 @@ impl Recorder {
         }
     }
 
+    /// This computer's device id, once armed (day history labels days
+    /// recorded elsewhere, ADR-0016).
+    pub fn device_id(&self) -> Option<String> {
+        match &self.lock().mode {
+            Mode::Armed(t) => Some(t.identity.device_id.clone()),
+            _ => None,
+        }
+    }
+
     /// Journal today's timeline (display only) in the user's outbox.
     pub fn save_day(&self, segments_json: &str) {
         let shared = self.lock();

@@ -18,10 +18,20 @@ const STROKE = 14;
 export function DayDial({
   segments,
   now,
+  tint,
+  hand = true,
+  label = 'Today',
   children,
 }: {
   segments: readonly Segment[];
+  /** End of the 12-hour window: now, or the end of a past day. */
   now: number;
+  /** Face colour inside the ring (status tint). */
+  tint?: string | undefined;
+  /** Draw the "now" hand (not on past days). */
+  hand?: boolean;
+  /** Day name for screen readers. */
+  label?: string;
   children: ReactNode;
 }): JSX.Element {
   const t = useTheme();
@@ -45,10 +55,21 @@ export function DayDial({
         role="img"
         aria-label={
           kinds.length === 0
-            ? 'Today on a clock: nothing tracked yet'
-            : `Today on a clock: ${kinds.map((k) => KIND_LABEL[k]).join(', ')}`
+            ? `${label} on a clock: nothing tracked${hand ? ' yet' : ''}`
+            : `${label} on a clock: ${kinds.map((k) => KIND_LABEL[k]).join(', ')}`
         }
       >
+        {tint && (
+          <circle
+            aria-label="dial-face"
+            data-tint={tint}
+            cx={C}
+            cy={C}
+            r={R - STROKE / 2}
+            fill={tint}
+            style={{ transition: 'fill 400ms ease' }}
+          />
+        )}
         {/* Track and hour ticks. */}
         <circle cx={C} cy={C} r={R} fill="none" stroke={t.surfaceAlt} strokeWidth={STROKE} />
         {Array.from({ length: 12 }, (_, i) => {
@@ -102,17 +123,21 @@ export function DayDial({
         ))}
 
         {/* Now. */}
-        <line
-          x1={hx0}
-          y1={hy0}
-          x2={hx}
-          y2={hy}
-          stroke={t.text}
-          strokeWidth={2}
-          strokeLinecap="round"
-          opacity={0.75}
-        />
-        <circle cx={hx} cy={hy} r={3} fill={t.text} opacity={0.75} />
+        {hand && (
+          <>
+            <line
+              x1={hx0}
+              y1={hy0}
+              x2={hx}
+              y2={hy}
+              stroke={t.text}
+              strokeWidth={2}
+              strokeLinecap="round"
+              opacity={0.75}
+            />
+            <circle cx={hx} cy={hy} r={3} fill={t.text} opacity={0.75} />
+          </>
+        )}
       </svg>
       <div
         style={{

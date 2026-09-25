@@ -18,23 +18,24 @@ import { useTheme } from './ui/theme.js';
 export function TimelineView({
   segments,
   now,
+  since,
+  emptyText = 'Nothing tracked yet today. Clock in to start.',
 }: {
   segments: readonly Segment[];
   now: number;
+  /** Start of the day shown; defaults to local midnight. */
+  since?: number | undefined;
+  emptyText?: string | undefined;
 }): JSX.Element {
   const t = useTheme();
-  const rows = today(segments, now);
-  const groups = sessionsToday(segments, now);
+  const rows = today(segments, now, since);
+  const groups = sessionsToday(segments, now, since);
   const latest = groups[groups.length - 1]?.session;
   /** User toggles; unset sessions default to "latest is open". */
   const [expanded, setExpanded] = useState<Record<number, boolean>>({});
 
   if (rows.length === 0) {
-    return (
-      <p style={{ margin: 0, fontSize: 13, color: t.muted }}>
-        Nothing tracked yet today. Clock in to start.
-      </p>
-    );
+    return <p style={{ margin: 0, fontSize: 13, color: t.muted }}>{emptyText}</p>;
   }
 
   const first = Math.min(...rows.map((s) => s.startedAt));

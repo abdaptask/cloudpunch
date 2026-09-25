@@ -3,6 +3,8 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AuthStatus, EnrollmentStatus, StateView } from './api.js';
 import { App } from './App.js';
+import { localDateOf, shiftDate, type DayResult } from './dayHistory.js';
+import { light } from './ui/theme.js';
 
 const mocks = vi.hoisted(() => ({
   getState: vi.fn<() => Promise<StateView>>(),
@@ -26,6 +28,7 @@ const mocks = vi.hoisted(() => ({
   ackLongShift: vi.fn<() => Promise<StateView>>(),
   enrollmentStatus: vi.fn<() => Promise<EnrollmentStatus>>(),
   onEnrollment: vi.fn<(cb: (s: EnrollmentStatus) => void) => Promise<() => void>>(),
+  getDay: vi.fn<(date: string) => Promise<DayResult>>(),
 }));
 
 const SIGNED_IN: AuthStatus = { signedIn: true, name: 'Test User', username: 'test@aptask.com' };
@@ -661,5 +664,129 @@ describe('day dial (owner request: your day on a clock)', () => {
     expect(stats).toHaveTextContent('1h 00mWorked');
     expect(stats).toHaveTextContent('10mCalls');
     expect(stats).toHaveTextContent('0mBreaks');
+  });
+});
+
+describe('dial face tint (owner request)', () => {
+  const tintOf = async (): Promise<string | null> =>
+    (await screen.findByLabelText('dial-face')).getAttribute('data-tint');
+
+  it('green while clocked in, amber on a break, grey when clocked out', async () => {
+    mocks.getState.mockResolvedValue(view({ status: 'active', sessionStartedAt: Date.now() }));
+    const { unmount } = render(<App />);
+    expect(await tintOf()).toBe(light.tint.working);
+    act(() => pushState(view({ status: 'on_break', breakKind: 'bio', sessionStartedAt: 1 })));
+    expect(await tintOf()).toBe(light.tint.break);
+    act(() => pushState(view()));
+    expect(await tintOf()).toBe(light.tint.off);
+    unmount();
+  });
+});
+
+describe('past days (ADR-0016)', () => {
+  /** ISO with this computer's own offset, as the backend returns it. */
+  function iso(date: string, hhmm: string): string {
+    const local = new Date(`${date}T${hhmm}:00`);
+    const off = -local.getTimezoneOffset();
+    const abs = Math.abs(off);
+    const pad = (n: number): string => String(n).padStart(2, '0');
+    return `${date}T${hhmm}:00.000${off < 0 ? '-' : '+'}${pad(Math.floor(abs / 60))}:${pad(abs % 60)}`;
+  }
+  const today = localDateOf(Date.now());
+  const yesterday = shiftDate(today, -1);
+  function result(over: Partial<DayResult> = {}, device = 'this-pc', tz = 'Local/Zone'): DayResult {
+    return {
+      day: {
+        date: yesterday,
+        sessions: [
+          {
+            session_id: 's1',
+            device_id: device,
+            tz_iana: tz,
+            clock_in: iso(yesterday, '09:00'),
+            clock_out: iso(yesterday, '17:00'),
+            close_reason: 'user_clock_out',
+            reconstructed: false,
+            open: false,
+            segments: [
+              {
+                kind: 'working',
+                started_at: iso(yesterday, '09:00'),
+                ended_at: iso(yesterday, '12:30'),
+              },
+              {
+                kind: 'meal_break',
+                started_at: iso(yesterday, '12:30'),
+                ended_at: iso(yesterday, '13:00'),
+              },
+              {
+                kind: 'working',
+                started_at: iso(yesterday, '13:00'),
+                ended_at: iso(yesterday, '17:00'),
+              },
+            ],
+          },
+        ],
+      },
+      thisDevice: 'this-pc',
+      stale: false,
+      ...over,
+    };
+  }
+
+  it('steps back to yesterday and shows that day on the dial, then returns to today', async () => {
+    mocks.getDay.mockResolvedValue(result());
+    const user = userEvent.setup();
+    render(<App />);
+    const nav = await screen.findByLabelText('day-navigation');
+    expect(within(nav).getByRole('button', { name: 'Next day' })).toBeDisabled();
+    await user.click(within(nav).getByRole('button', { name: 'Previous day' }));
+    expect(mocks.getDay).toHaveBeenCalledWith(yesterday);
+    expect(await screen.findByLabelText('past-worked')).toHaveTextContent('7h 30m');
+    const status = screen.getByRole('region', { name: 'current-status' });
+    expect(status).toHaveTextContent('09:00 – 17:00');
+    expect(
+      within(status).getByRole('img', { name: /Yesterday on a clock: Working, Meal break/ }),
+    ).toBeInTheDocument();
+    // No live timer or clocked-out hint on a past day.
+    expect(within(status).queryByLabelText('session-timer')).not.toBeInTheDocument();
+    expect(status).not.toHaveTextContent('Ready to start?');
+    expect(screen.getByRole('region', { name: 'day-stats' })).toHaveTextContent('30mBreaks');
+    // Clocking in still works from here.
+    expect(screen.getByRole('button', { name: 'Clock in' })).toBeInTheDocument();
+
+    await user.click(within(nav).getByRole('button', { name: 'Next day' }));
+    expect(await screen.findByRole('img', { name: /Today on a clock/ })).toBeInTheDocument();
+    expect(within(nav).getByLabelText('day-shown')).toHaveTextContent('Today');
+  });
+
+  it('says where the day was recorded when it was another computer or zone', async () => {
+    mocks.getDay.mockResolvedValue(result({ stale: true }, 'laptop-2', 'Asia/Kolkata'));
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole('button', { name: 'Previous day' }));
+    const status = screen.getByRole('region', { name: 'current-status' });
+    expect(
+      await within(status).findByText('Includes time from another computer'),
+    ).toBeInTheDocument();
+    expect(status).toHaveTextContent('Offline · showing what was loaded earlier');
+  });
+
+  it('offline with nothing loaded explains instead', async () => {
+    mocks.getDay.mockRejectedValue('offline');
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole('button', { name: 'Previous day' }));
+    expect(await screen.findByText(/Past days show when you're online/)).toBeInTheDocument();
+  });
+
+  it('goes back at most 30 days', async () => {
+    mocks.getDay.mockResolvedValue(result());
+    const user = userEvent.setup();
+    render(<App />);
+    const prev = await screen.findByRole('button', { name: 'Previous day' });
+    for (let i = 0; i < 30; i += 1) await user.click(prev);
+    expect(prev).toBeDisabled();
+    expect(mocks.getDay).toHaveBeenLastCalledWith(shiftDate(today, -30));
   });
 });

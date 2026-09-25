@@ -15,6 +15,7 @@ use tauri::{AppHandle, Emitter, LogicalSize, Manager, State, WebviewWindow};
 
 use crate::agent::{parse_away_tag, parse_break_kind, rejection_code, Agent, StateView};
 use crate::auth::{open_system_browser, AuthError, AuthManager, AuthStatus};
+use crate::days::{self, DayCache, DayError};
 use crate::enroll::{self, EnrollError, Enroller, Enrollment, EnrollmentStatus};
 use crate::keystore::{OsStore, Secrets};
 use crate::machine::{CoreState, Input, PromptResponse};
@@ -473,6 +474,7 @@ fn sign_out_blocking(
 
     let oid = auth.oid();
     app.state::<LiveSync>().stop();
+    app.state::<DayCache>().clear();
     recorder.disarm();
     // The next user starts from the defaults until their policy arrives,
     // with an empty day on screen.
@@ -500,6 +502,79 @@ fn sign_out_blocking(
     let mut status = auth.status();
     status.unsent_kept = (unsent > 0).then_some(unsent);
     Ok(status)
+}
+
+/// One past working day for the home screen (ADR-0016).
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DayResult {
+    /// The backend's `GET /v1/me/days/{date}` body, unchanged.
+    day: serde_json::Value,
+    /// This computer's device id, to label sessions recorded elsewhere.
+    this_device: Option<String>,
+    /// The backend couldn't be reached; this is the copy fetched earlier.
+    stale: bool,
+}
+
+/// Fetch the signed-in user's working day `date` (`YYYY-MM-DD`). Falls
+/// back to the copy fetched earlier this run when offline; with none,
+/// fails with `offline`.
+#[tauri::command]
+pub async fn get_day(
+    auth: State<'_, Arc<Auth>>,
+    recorder: State<'_, Recorder>,
+    cache: State<'_, DayCache>,
+    date: String,
+) -> Result<DayResult, String> {
+    if !days::valid_date(&date) {
+        return Err("invalid_argument".to_string());
+    }
+    let base_url =
+        std::env::var(enroll::BACKEND_URL_ENV).map_err(|_| "not_configured".to_string())?;
+    let oid = auth.oid().ok_or_else(|| "not_signed_in".to_string())?;
+    let this_device = recorder.device_id();
+    let auth = auth.inner().clone();
+    let (fetch_oid, fetch_date) = (oid.clone(), date.clone());
+    let fetched = tauri::async_runtime::spawn_blocking(move || {
+        let token = match auth.access_token(SystemTime::now()) {
+            Ok(t) => t,
+            Err(AuthError::NotSignedIn) => return Err(DayError::Refused("not_signed_in".into())),
+            Err(e) => return Err(DayError::Unavailable(format!("token {}", e.code()))),
+        };
+        // Signed out or switched user while waiting: don't answer for them.
+        if auth.oid().as_deref() != Some(fetch_oid.as_str()) {
+            return Err(DayError::Refused("not_signed_in".into()));
+        }
+        let http = reqwest::blocking::Client::builder()
+            .timeout(Duration::from_secs(15))
+            .build()
+            .map_err(|e| DayError::Unavailable(e.to_string()))?;
+        days::fetch(&http, &base_url, &token, &fetch_date)
+    })
+    .await
+    .map_err(|_| "internal".to_string())?;
+    match fetched {
+        Ok(day) => {
+            cache.put(&oid, &date, day.clone());
+            Ok(DayResult {
+                day,
+                this_device,
+                stale: false,
+            })
+        }
+        Err(DayError::Unavailable(e)) => {
+            eprintln!("[cloudpunch] day {date} not fetched: {e}");
+            cache
+                .get(&oid, &date)
+                .map(|day| DayResult {
+                    day,
+                    this_device,
+                    stale: true,
+                })
+                .ok_or_else(|| "offline".to_string())
+        }
+        Err(DayError::Refused(code)) => Err(code),
+    }
 }
 
 /// Close dialog: "Keep running in tray" (ADR-0013 §1).
