@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Policy storage and read API (ADR-0015, PR A) (2026-09-25)
+
+- **Migration 0003** adds `policy_override`: one partial policy
+  document per scope (global, department, employee). A reason is
+  required for employee scope. Not yet applied to the dev DB.
+- **`src/policy/`.**
+  - Schema defaults are read from the `default` keywords in
+    `idle-policy.schema.json`.
+  - Overrides are deep-merged per leaf (objects merge; arrays, scalars
+    and `null` replace) and validated with `ajv` 8 in strict mode.
+  - The version is `sha256-<hex>` of the canonical JSON.
+  - An invalid stored override is an error (`policy_invalid`), never a
+    silent fallback to defaults.
+- **`GET /v1/me/policy`** returns `{version, policy}` with
+  `ETag`/`If-None-Match` → `304`. It returns 404 `no_employee` for
+  accounts without an employee record.
+- **Schema.** Adds `idle.call_type_apps` and `idle.call_type_ignored`
+  (ADR-0015 §8, ADR-0012 follow-up), both documented in the policy doc.
+  `@cloudpunch/policy-schema` now exports the schema file.
+- **Data.** `Employee.departmentId` is now read (the team scope).
+- **Docs.** `docs/ops/env-vars.md` §2.3 is marked superseded; the SSM
+  policy paths were never wired.
+- Found along the way: `pnpm -F @cloudpunch/backend build` fails on
+  main (`declarationMap` without `declaration` in the tsconfig). This
+  is not caused by this PR and is tracked under the CI item.
+- **Dependency:** `ajv` ^8.17.1, approved. 8.20.0 was already in the
+  lockfile through another package.
+
 ### Fix: event payloads read back camelCased from Postgres (2026-09-25)
 
 - **The bug.** The Postgres client used `transform: postgres.camel`,

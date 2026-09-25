@@ -10,6 +10,9 @@ import type {
   EmployeeRepo,
   InsertEventResult,
   OpenSessionInput,
+  PolicyOverride,
+  PolicyRepo,
+  PolicyScope,
   SessionCloseReason,
   TimeEventInput,
   TimeEventRecord,
@@ -34,7 +37,9 @@ export class InMemoryDb implements DbRepositories {
   readonly devices: DeviceRepo;
   readonly timeSessions: TimeSessionRepo;
   readonly timeEvents: TimeEventRepo;
+  readonly policies: PolicyRepo;
 
+  private readonly policyByScope = new Map<string, PolicyOverride>();
   private readonly employeeById = new Map<string, Employee>();
   private readonly employeeByOid = new Map<string, string>(); // oid -> employeeId
   private readonly userById = new Map<string, AppUser>();
@@ -45,6 +50,9 @@ export class InMemoryDb implements DbRepositories {
   private readonly seqByEventKey = new Map<string, string>(); // `${sessionId}:${seq}` -> eventUlid
 
   constructor() {
+    this.policies = {
+      find: async (scope, scopeId) => this.policyByScope.get(policyKey(scope, scopeId)) ?? null,
+    };
     this.employees = {
       findById: async (id) => this.employeeById.get(id) ?? null,
       findByEntraObjectId: async (oid) => {
@@ -121,6 +129,11 @@ export class InMemoryDb implements DbRepositories {
   // ---------------------------------------------------------------
   // Seed helpers — used by tests to set up a starting state
   // ---------------------------------------------------------------
+
+  seedPolicy(o: PolicyOverride): this {
+    this.policyByScope.set(policyKey(o.scope, o.scopeId), o);
+    return this;
+  }
 
   seedEmployee(e: Employee): this {
     this.employeeById.set(e.id, e);
@@ -321,4 +334,8 @@ export class SessionOpenConflictError extends Error {
 function byLastSeenDesc(a: Device, b: Device): number {
   const seen = (b.lastSeenAt?.getTime() ?? -1) - (a.lastSeenAt?.getTime() ?? -1);
   return seen !== 0 ? seen : b.enrolledAt.getTime() - a.enrolledAt.getTime();
+}
+
+function policyKey(scope: PolicyScope, scopeId: string | null): string {
+  return `${scope}:${scopeId ?? ''}`;
 }

@@ -14,6 +14,8 @@ import type {
   EventOrigin,
   InsertEventResult,
   OpenSessionInput,
+  PolicyRepo,
+  PolicyScope,
   SessionCloseReason,
   TimeEventInput,
   TimeEventRecord,
@@ -38,6 +40,7 @@ export class PostgresDb implements DbRepositories {
   readonly devices: DeviceRepo;
   readonly timeSessions: TimeSessionRepo;
   readonly timeEvents: TimeEventRepo;
+  readonly policies: PolicyRepo;
 
   constructor(private readonly sql: postgres.Sql) {
     this.employees = this.buildEmployeeRepo();
@@ -45,6 +48,35 @@ export class PostgresDb implements DbRepositories {
     this.devices = this.buildDeviceRepo();
     this.timeSessions = this.buildTimeSessionRepo();
     this.timeEvents = this.buildTimeEventRepo();
+    this.policies = this.buildPolicyRepo();
+  }
+
+  // -------------------------------------------------------------------
+  // policy overrides (ADR-0015)
+  // -------------------------------------------------------------------
+
+  private buildPolicyRepo(): PolicyRepo {
+    return {
+      find: async (scope, scopeId) => {
+        const rows = await this.sql<PolicyOverrideRow[]>`
+          SELECT scope, scope_id, document, reason, updated_by_user_id, updated_at
+          FROM policy_override
+          WHERE scope = ${scope} AND scope_id IS NOT DISTINCT FROM ${scopeId}
+          LIMIT 1
+        `;
+        const row = rows[0];
+        return row
+          ? {
+              scope: row.scope,
+              scopeId: row.scopeId,
+              document: row.document,
+              reason: row.reason,
+              updatedByUserId: row.updatedByUserId,
+              updatedAt: row.updatedAt,
+            }
+          : null;
+      },
+    };
   }
 
   // -------------------------------------------------------------------
@@ -54,6 +86,7 @@ export class PostgresDb implements DbRepositories {
   private buildEmployeeRepo(): EmployeeRepo {
     const map = (row: EmployeeRow): Employee => ({
       id: row.id,
+      departmentId: row.departmentId,
       source: row.source,
       greythrEmployeeId: row.greythrEmployeeId,
       employeeNumber: row.employeeNumber,
@@ -70,7 +103,7 @@ export class PostgresDb implements DbRepositories {
           SELECT
             e.id, e.source, e.greythr_employee_id, e.employee_number,
             e.given_name, e.family_name, e.display_name, e.status,
-            u.work_email
+            e.department_id, u.work_email
           FROM employee e
           LEFT JOIN app_user u ON u.employee_id = e.id
           WHERE e.id = ${id}
@@ -84,7 +117,7 @@ export class PostgresDb implements DbRepositories {
           SELECT
             e.id, e.source, e.greythr_employee_id, e.employee_number,
             e.given_name, e.family_name, e.display_name, e.status,
-            u.work_email
+            e.department_id, u.work_email
           FROM employee e
           JOIN app_user u ON u.employee_id = e.id
           WHERE u.entra_object_id = ${oid}
@@ -463,6 +496,15 @@ export class PostgresDb implements DbRepositories {
 // Row shapes — camelCase (via postgres.camel transform)
 // ---------------------------------------------------------------------
 
+interface PolicyOverrideRow {
+  scope: PolicyScope;
+  scopeId: string | null;
+  document: Record<string, unknown>;
+  reason: string | null;
+  updatedByUserId: string;
+  updatedAt: Date;
+}
+
 interface EmployeeRow {
   id: string;
   source: 'local_admin' | 'greythr';
@@ -473,6 +515,7 @@ interface EmployeeRow {
   displayName: string | null;
   status: EmploymentStatus;
   workEmail: string | null;
+  departmentId: string | null;
 }
 
 interface AppUserRow {

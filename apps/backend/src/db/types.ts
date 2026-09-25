@@ -34,6 +34,8 @@ export interface Employee {
   displayName: string | null;
   workEmail: string;
   status: EmploymentStatus;
+  /** Team scope for policy (ADR-0015). Absent means no department. */
+  departmentId?: string | null;
 }
 
 export interface AppUser {
@@ -214,10 +216,30 @@ export interface TimeEventRepo {
   findBySessionOrderedBySequence(sessionId: string): Promise<readonly TimeEventRecord[]>;
 }
 
+/** ADR-0015 §1. */
+export type PolicyScope = 'global' | 'department' | 'employee';
+
+/** A partial policy document stored for one scope. */
+export interface PolicyOverride {
+  scope: PolicyScope;
+  /** Null for `global`; a department or employee id otherwise. */
+  scopeId: string | null;
+  document: Record<string, unknown>;
+  reason: string | null;
+  updatedByUserId: string;
+  updatedAt: Date;
+}
+
+export interface PolicyRepo {
+  /** The override stored for one scope, if any. */
+  find(scope: PolicyScope, scopeId: string | null): Promise<PolicyOverride | null>;
+}
+
 export interface DbRepositories {
   employees: EmployeeRepo;
   users: AppUserRepo;
   devices: DeviceRepo;
   timeSessions: TimeSessionRepo;
   timeEvents: TimeEventRepo;
+  policies: PolicyRepo;
 }

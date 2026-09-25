@@ -7,5 +7,8 @@
   "files": [
     "*.schema.json",
     "README.md"
-  ]
+  ],
+  "exports": {
+    "./idle-policy.schema.json": "./idle-policy.schema.json"
+  }
 }

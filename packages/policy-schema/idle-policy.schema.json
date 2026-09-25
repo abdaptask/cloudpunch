@@ -48,6 +48,43 @@
             "working_away",
             "end_shift"
           ]
+        },
+        "call_type_apps": {
+          "type": "array",
+          "description": "Processes whose microphone use counts as a call, and the category recorded (ADR-0012, ADR-0015 §8). Configuration only: the process name is never recorded, only the category.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "process": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64,
+                "pattern": "^[A-Za-z0-9 ._-]+$"
+              },
+              "call_type": { "type": "string", "enum": ["teams", "zoom", "other"] }
+            },
+            "required": ["process", "call_type"],
+            "additionalProperties": false
+          },
+          "maxItems": 50,
+          "default": [
+            { "process": "ms-teams.exe", "call_type": "teams" },
+            { "process": "teams.exe", "call_type": "teams" },
+            { "process": "zoom.exe", "call_type": "zoom" }
+          ]
+        },
+        "call_type_ignored": {
+          "type": "array",
+          "description": "Processes never treated as a call even while holding the microphone (ADR-0012).",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "pattern": "^[A-Za-z0-9 ._-]+$"
+          },
+          "uniqueItems": true,
+          "maxItems": 50,
+          "default": ["ace dialer.exe"]
         }
       },
       "additionalProperties": false
