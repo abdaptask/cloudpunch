@@ -32,7 +32,10 @@ use crate::machine::{
 };
 use crate::policy::PolicyDoc;
 use crate::recorder::{OutboxSink, Recorder};
-use crate::reminders::{self, Inputs as ReminderInputs, Reminder, ReminderConfig, ReminderState};
+use crate::reminders::{
+    self, Inputs as ReminderInputs, NudgeInputs, NudgeState, Reminder, ReminderConfig,
+    ReminderState,
+};
 use crate::timeline::{epoch_ms, SegmentView, Timeline};
 use crate::tray::{self, TrayStateSnapshot};
 
@@ -253,6 +256,8 @@ struct Inner {
     timeline: Timeline,
     reminder_cfg: ReminderConfig,
     reminders: ReminderState,
+    /// "Ready to clock in?" (ADR-0013 §7).
+    nudge: NudgeState,
     /// Long-shift banner showing until "Still working" or clock-out.
     long_shift: bool,
     /// Last minute the tray tooltip was refreshed.
@@ -289,9 +294,25 @@ impl Inner {
     }
 }
 
-/// Notification text for a reminder (ADR-0013 §2, §4, §5).
+/// Local midnight at or before `now` (for "worked today").
+fn local_midnight(now: SystemTime) -> SystemTime {
+    use chrono::{Local, TimeZone};
+    let local: chrono::DateTime<Local> = now.into();
+    local
+        .date_naive()
+        .and_hms_opt(0, 0, 0)
+        .and_then(|m| Local.from_local_datetime(&m).earliest())
+        .map(SystemTime::from)
+        .unwrap_or(now)
+}
+
+/// Notification text for a reminder (ADR-0013 §2, §4, §5, §7).
 fn reminder_text(r: &Reminder) -> (String, String) {
     match r {
+        Reminder::NotClockedIn => (
+            "Ready to clock in?".into(),
+            "You're signed in to CloudPunch but haven't clocked in yet today. Open CloudPunch to start your day.".into(),
+        ),
         Reminder::OnTheClock { elapsed } => (
             "You're on the clock".into(),
             format!(
@@ -340,6 +361,7 @@ impl<U: Ui> Agent<U> {
                 timeline: Timeline::new(),
                 reminder_cfg: ReminderConfig::default(),
                 reminders: ReminderState::default(),
+                nudge: NudgeState::default(),
                 long_shift: false,
                 tooltip_minute: None,
                 pending_policy: None,
@@ -400,6 +422,10 @@ impl<U: Ui> Agent<U> {
 
     fn handle_at(&self, input: Input, now: SystemTime) -> Result<StateView, Rejected> {
         let is_tick = matches!(input, Input::Tick { .. });
+        let last_input_at = match &input {
+            Input::Tick { last_input_at } => Some(*last_input_at),
+            _ => None,
+        };
         let is_clock_in = input == Input::ClockIn;
         let visible = self.ui.get().is_some_and(|u| u.main_visible());
 
@@ -459,6 +485,20 @@ impl<U: Ui> Agent<U> {
                     minute_of_day: reminders::local_minute_of_day(),
                 };
                 let cfg = inner.reminder_cfg.clone();
+                if let Some(last_input_at) = last_input_at {
+                    let nudge = NudgeInputs {
+                        now,
+                        ready: self.recorder.is_armed(),
+                        clocked_out: after == CoreState::ClockedOut,
+                        worked_today: inner.timeline.any_since(local_midnight(now)),
+                        last_input_at,
+                        window_visible: visible,
+                        minute_of_day: reminders::local_minute_of_day(),
+                    };
+                    if let Some(r) = reminders::clock_in_nudge(&cfg, nudge, &mut inner.nudge) {
+                        plan.notes.push(reminder_text(&r));
+                    }
+                }
                 for r in reminders::due(&cfg, inputs, &mut inner.reminders) {
                     if matches!(r, Reminder::LongShift { .. }) {
                         inner.long_shift = true;

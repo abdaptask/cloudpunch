@@ -86,6 +86,32 @@ is exactly what it's for.
   time-zone library is added for this.
 - Reminders are local only; nothing is recorded or sent to the server.
 
+### 7. Clock-in nudge and clock-out check (2026-09-25, owner request)
+
+**"Ready to clock in?"** People sign in and forget to clock in. A
+notification ("Ready to clock in? You're signed in to CloudPunch but
+haven't clocked in yet today.") fires when **all** of these hold:
+- signed in and enrolled (a clock-in would be recorded);
+- clocked out, with **nothing tracked yet today**. After a day's work
+  and clock-out it stays quiet, so it never nags about a finished day;
+- using the computer (input in the last 5 minutes);
+- outside quiet hours;
+- the window is not showing (when it is, its green Clock in button and
+  "Ready to start?" text already ask).
+
+The first nudge comes 1 minute after those conditions start holding
+(start-up settles first), then every
+`reminders.clock_in_nudge_minutes` (default 30; `null` disables).
+
+**Clock out asks first.** Clock out in the window (and in the long-shift
+banner) opens "Clock out now?".
+- **While working**, it offers **Take a bio break** and **Take a meal
+  break** as well as **Yes, clock out** and **Cancel**, because
+  "stepping away" is often meant.
+- **On a break or away**, it simply confirms.
+- The tray's Clock out and the close dialog's "Clock out & quit" are
+  already deliberate choices and don't ask again.
+
 ## Consequences
 
 ### Positive

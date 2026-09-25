@@ -251,6 +251,14 @@ window forward: "You've been clocked in for 9 hours — still working?"
 Delivered even in quiet hours — it exists to catch forgotten overnight
 clock-ins.
 
+**Setting:** `reminders.clock_in_nudge_minutes`
+**Default:** `30` · **Range:** 10 – 240, or `null` to disable
+**Effect:** Signed in, using the computer, but not clocked in yet today:
+a "Ready to clock in?" notification, the first about a minute after the
+computer is in use, then every this many minutes. There are no nudges
+once anything has been tracked today, in quiet hours, or while the
+CloudPunch window is showing. ADR-0013 §7.
+
 The break-cap nudges (§6, §7) use the same notifications and respect
 quiet hours.
 

@@ -104,6 +104,8 @@ pub struct Reminders {
     pub on_clock_minutes: u64,
     pub long_shift_hours: u64,
     pub long_shift_repeat_hours: u64,
+    /// `null` disables the nudge.
+    pub clock_in_nudge_minutes: Option<u64>,
 }
 
 // Schema defaults (packages/policy-schema/idle-policy.schema.json).
@@ -171,6 +173,7 @@ impl Default for Reminders {
             on_clock_minutes: 30,
             long_shift_hours: 9,
             long_shift_repeat_hours: 2,
+            clock_in_nudge_minutes: Some(30),
         }
     }
 }
@@ -241,6 +244,10 @@ impl PolicyDoc {
             quiet_start: minutes_of_day(&self.notifications.quiet_hours_start)
                 .unwrap_or(d.quiet_start),
             quiet_end: minutes_of_day(&self.notifications.quiet_hours_end).unwrap_or(d.quiet_end),
+            clock_in_nudge: self
+                .reminders
+                .clock_in_nudge_minutes
+                .map(|m| Duration::from_secs(m * 60)),
         }
     }
 

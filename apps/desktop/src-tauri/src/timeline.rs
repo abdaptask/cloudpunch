@@ -169,6 +169,15 @@ impl Timeline {
         &self.segments
     }
 
+    /// Whether any segment is still open or ended after `t` (e.g. local
+    /// midnight: "anything tracked today?").
+    pub fn any_since(&self, t: SystemTime) -> bool {
+        self.segments.iter().any(|s| match s.ended_at {
+            None => true,
+            Some(e) => e > t,
+        })
+    }
+
     /// Forget everything (sign-out: the next user starts clean).
     pub fn clear(&mut self) {
         *self = Self::default();
@@ -439,5 +448,16 @@ mod tests {
         for k in SegmentKind::ALL {
             assert_eq!(SegmentKind::from_wire(k.as_str()), Some(k));
         }
+    }
+
+    #[test]
+    fn any_since_sees_open_and_later_segments_only() {
+        let mut tl = Timeline::new();
+        assert!(!tl.any_since(at(0)));
+        tl.on_state(CoreState::Active, at(100));
+        assert!(tl.any_since(at(5000)), "open segment");
+        tl.on_state(CoreState::ClockedOut, at(200));
+        assert!(tl.any_since(at(150)));
+        assert!(!tl.any_since(at(300)), "ended before");
     }
 }
