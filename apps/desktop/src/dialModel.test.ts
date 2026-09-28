@@ -1,6 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import type { Segment } from './timelineModel.js';
-import { WINDOW_MS, arcPath, clockAngle, dialArcs, polar } from './dialModel.js';
+import {
+  LED_COUNT,
+  WINDOW_MS,
+  arcPath,
+  clockAngle,
+  dialArcs,
+  ledBand,
+  secondsLit,
+  polar,
+} from './dialModel.js';
 
 const at = (h: number, m = 0): number => new Date(2026, 8, 25, h, m, 0).getTime();
 const seg = (kind: Segment['kind'], from: number, to: number | null): Segment => ({
@@ -63,5 +72,29 @@ describe('arc geometry', () => {
     expect(arcPath(100, 100, 50, 0, 270)).toContain(' 0 1 1 ');
     // A full turn stays drawable.
     expect(arcPath(100, 100, 50, 0, 360)).not.toContain('NaN');
+  });
+});
+
+describe('seconds ring', () => {
+  it('lights one LED per second of the minute, the whole ring on the minute', () => {
+    expect(secondsLit(0)).toBe(0);
+    expect(secondsLit(999)).toBe(0);
+    expect(secondsLit(1_000)).toBe(1);
+    expect(secondsLit(59_999)).toBe(59);
+    expect(secondsLit(60_000)).toBe(LED_COUNT);
+    expect(secondsLit(61_000)).toBe(1);
+    expect(secondsLit(3_600_000 + 30_000)).toBe(30);
+    expect(secondsLit(Number.NaN)).toBe(0);
+  });
+
+  it('turns amber past 8 hours worked and red past 10', () => {
+    const H = 3_600_000;
+    expect([0, 7.99 * H, 8 * H, 9.99 * H, 10 * H].map(ledBand)).toEqual([
+      'normal',
+      'normal',
+      'over',
+      'over',
+      'red',
+    ]);
   });
 });

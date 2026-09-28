@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Desktop: car-dashboard dial (2026-09-28)
+
+Monday UI plan, PR 2, requested by the project owner.
+
+- **Dark glass gauge.** The dial is an instrument cluster, dark in both
+  themes. The status shows as an ambient glow: green while working,
+  amber on a break, grey when clocked out.
+- **Neon arcs.** Today's segments still sit at their real clock times,
+  drawn in glowing colours.
+- **Seconds ring (owner request).** 60 green LEDs round the rim. One
+  lights for each second of the running session, so the ring sweeps
+  once a minute in step with the timer, and the whole ring shows at
+  each minute mark. The sweep turns amber past 8h worked and red past
+  10h. It is dark when clocked out and on past days.
+- **Glowing needle** at now. It points in from the rim and never
+  crosses the readout. Past days have no needle.
+- **Seven-segment timer**, drawn in SVG (no font file). The text stays
+  readable to screen readers.
+- **Trip meter.** Worked / Calls / Breaks are now glowing readouts in a
+  dark panel.
+
 ### Desktop: pinned mini strip; minimise pins it (ADR-0017, 2026-09-28)
 
 Requested by the project owner ("stick the app to the desktop when
