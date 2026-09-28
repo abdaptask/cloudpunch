@@ -31,6 +31,11 @@ const mocks = vi.hoisted(() => ({
   onEnrollment: vi.fn<(cb: (s: EnrollmentStatus) => void) => Promise<() => void>>(),
   getDay: vi.fn<(date: string) => Promise<DayResult>>(),
   getDays: vi.fn<(from: string, to: string) => Promise<DaysResult>>(),
+  pinWindow: vi.fn<() => Promise<boolean>>(),
+  unpinWindow: vi.fn<() => Promise<boolean>>(),
+  pinStatus: vi.fn<() => Promise<boolean>>(),
+  onPinned: vi.fn<(cb: (pinned: boolean) => void) => Promise<() => void>>(),
+  startDragging: vi.fn<() => Promise<void>>(),
 }));
 
 const SIGNED_IN: AuthStatus = { signedIn: true, name: 'Test User', username: 'test@aptask.com' };
@@ -59,6 +64,7 @@ let pushState: (v: StateView) => void = () => undefined;
 let pushAuth: (s: AuthStatus) => void = () => undefined;
 let pressClose: () => void = () => undefined;
 let pushEnrollment: (s: EnrollmentStatus) => void = () => undefined;
+let pushPinned: (p: boolean) => void = () => undefined;
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -84,6 +90,14 @@ beforeEach(() => {
   mocks.hideToTray.mockResolvedValue(undefined);
   mocks.quitApp.mockResolvedValue(undefined);
   mocks.clockOutAndQuit.mockResolvedValue(undefined);
+  mocks.pinStatus.mockResolvedValue(false);
+  mocks.pinWindow.mockResolvedValue(true);
+  mocks.unpinWindow.mockResolvedValue(false);
+  mocks.startDragging.mockResolvedValue(undefined);
+  mocks.onPinned.mockImplementation((cb) => {
+    pushPinned = cb;
+    return Promise.resolve(() => undefined);
+  });
   window.localStorage.clear();
 });
 
@@ -928,5 +942,102 @@ describe('past days (ADR-0016)', () => {
       expect(cell(shiftDate(today, -30))).toHaveAttribute('aria-disabled', 'false');
       expect(document.querySelector(`[data-date="${shiftDate(today, -31)}"]`)).toBeNull();
     });
+  });
+});
+
+describe('pinned mini strip (ADR-0017)', () => {
+  it('the header pin shrinks to the strip; ⤢ goes back', async () => {
+    mocks.getState.mockResolvedValue(
+      view({ status: 'active', sessionStartedAt: Date.now() - 3_600_000 }),
+    );
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole('button', { name: 'Pin to desktop' }));
+    expect(mocks.pinWindow).toHaveBeenCalledOnce();
+    const strip = await screen.findByRole('region', { name: 'pinned-strip' });
+    expect(within(strip).getByLabelText('strip-timer')).toHaveTextContent(/01:00:0\d/);
+    expect(within(strip).getByLabelText('strip-status')).toHaveTextContent('Clocked in');
+    // Nothing of the full window, and no Clock out on the strip.
+    expect(screen.queryByRole('region', { name: 'current-status' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Clock out' })).not.toBeInTheDocument();
+
+    await user.click(within(strip).getByRole('button', { name: 'Unpin' }));
+    expect(mocks.unpinWindow).toHaveBeenCalledOnce();
+    expect(await screen.findByRole('region', { name: 'current-status' })).toBeInTheDocument();
+  });
+
+  it('follows the agent: minimising pins it; double-click unpins', async () => {
+    mocks.getState.mockResolvedValue(view());
+    const user = userEvent.setup();
+    render(<App />);
+    await screen.findByRole('button', { name: 'Clock in' });
+    act(() => pushPinned(true));
+    const strip = screen.getByRole('region', { name: 'pinned-strip' });
+    expect(strip).toHaveTextContent('Not clocked in · worked today');
+    await user.dblClick(within(strip).getByLabelText('strip-timer'));
+    expect(mocks.unpinWindow).toHaveBeenCalled();
+  });
+
+  it('one contextual action; hover offers the break choice', async () => {
+    mocks.getState.mockResolvedValue(
+      view({ status: 'active', sessionStartedAt: Date.now() - 60_000 }),
+    );
+    mocks.startBreak.mockResolvedValue(
+      view({ status: 'on_break', breakKind: 'meal', sessionStartedAt: Date.now() - 60_000 }),
+    );
+    mocks.pinStatus.mockResolvedValue(true);
+    const user = userEvent.setup();
+    render(<App />);
+    const strip = await screen.findByRole('region', { name: 'pinned-strip' });
+    await user.hover(strip);
+    expect(within(strip).getByLabelText('strip-totals')).toHaveTextContent('Today ·');
+    await user.click(within(strip).getByRole('button', { name: 'Meal break' }));
+    expect(mocks.startBreak).toHaveBeenCalledWith('meal');
+    expect(await within(strip).findByRole('button', { name: 'End break' })).toBeInTheDocument();
+  });
+
+  it('hover offers In a meeting while clocked in, but not during a call', async () => {
+    mocks.getState.mockResolvedValue(view({ status: 'active', sessionStartedAt: Date.now() }));
+    mocks.markAway.mockResolvedValue(
+      view({ status: 'away', awayReason: 'meeting', sessionStartedAt: Date.now() }),
+    );
+    mocks.pinStatus.mockResolvedValue(true);
+    const user = userEvent.setup();
+    render(<App />);
+    const strip = await screen.findByRole('region', { name: 'pinned-strip' });
+    await user.hover(strip);
+    await user.click(within(strip).getByRole('button', { name: 'In a meeting' }));
+    expect(mocks.markAway).toHaveBeenCalledWith('meeting');
+    expect(await within(strip).findByRole('button', { name: "I'm back" })).toBeInTheDocument();
+
+    act(() =>
+      pushState(view({ status: 'on_call', callType: 'teams', sessionStartedAt: Date.now() })),
+    );
+    expect(within(strip).getByRole('button', { name: 'Bio break' })).toBeInTheDocument();
+    expect(within(strip).queryByRole('button', { name: 'In a meeting' })).not.toBeInTheDocument();
+  });
+
+  it('dragging moves the window only after the mouse travels', async () => {
+    mocks.getState.mockResolvedValue(view());
+    mocks.pinStatus.mockResolvedValue(true);
+    render(<App />);
+    const strip = await screen.findByRole('region', { name: 'pinned-strip' });
+    const { fireEvent } = await import('@testing-library/react');
+    fireEvent.mouseDown(strip, { button: 0, screenX: 100, screenY: 100 });
+    fireEvent.mouseMove(strip, { buttons: 1, screenX: 101, screenY: 100 });
+    expect(mocks.startDragging).not.toHaveBeenCalled();
+    fireEvent.mouseMove(strip, { buttons: 1, screenX: 106, screenY: 100 });
+    expect(mocks.startDragging).toHaveBeenCalledOnce();
+  });
+
+  it('closing while pinned unpins so the question can be asked', async () => {
+    mocks.getState.mockResolvedValue(view({ status: 'active', sessionStartedAt: Date.now() }));
+    mocks.pinStatus.mockResolvedValue(true);
+    render(<App />);
+    await screen.findByRole('region', { name: 'pinned-strip' });
+    act(() => pressClose());
+    expect(mocks.unpinWindow).toHaveBeenCalled();
+    act(() => pushPinned(false));
+    expect(screen.getByRole('dialog', { name: 'close-dialog' })).toBeInTheDocument();
   });
 });
