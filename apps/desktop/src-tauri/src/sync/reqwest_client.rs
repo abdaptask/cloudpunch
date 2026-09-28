@@ -47,7 +47,7 @@ impl ReqwestBackendClient {
 
     /// A client that asks `token` for a bearer token on every batch.
     pub fn with_token_source(base_url: impl Into<String>, token: TokenSource) -> Self {
-        let http = Client::builder()
+        let http = crate::backend_http::client_builder()
             .timeout(Duration::from_secs(30))
             .build()
             .expect("reqwest Client::builder is infallible for this config");

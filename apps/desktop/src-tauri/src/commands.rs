@@ -16,6 +16,7 @@ use tauri::{AppHandle, Emitter, LogicalSize, Manager, State, WebviewWindow};
 use crate::admin;
 use crate::agent::{parse_away_tag, parse_break_kind, rejection_code, Agent, StateView};
 use crate::auth::{open_system_browser, AuthError, AuthManager, AuthStatus};
+use crate::backend_http;
 use crate::days::{self, DayCache, DayError};
 use crate::enroll::{self, EnrollError, Enroller, Enrollment, EnrollmentStatus};
 use crate::keystore::{OsStore, Secrets};
@@ -299,7 +300,7 @@ fn start_policy_sync(
                 Ok(None) => {}
                 Err(e) => eprintln!("[cloudpunch] policy cache unavailable: {e}"),
             }
-            let http = reqwest::blocking::Client::builder()
+            let http = backend_http::client_builder()
                 .timeout(Duration::from_secs(30))
                 .build()
                 .expect("reqwest Client::builder is infallible for this config");
@@ -376,10 +377,10 @@ pub fn start_enrollment(
             let _ = app.emit(ENROLLMENT_EVENT, enrollment.status());
         }
     };
-    let Ok(base_url) = std::env::var(enroll::BACKEND_URL_ENV) else {
+    let Some(base_url) = backend_http::base_url() else {
         eprintln!(
             "[cloudpunch] enrollment skipped: {} unset",
-            enroll::BACKEND_URL_ENV
+            backend_http::BACKEND_URL_ENV
         );
         enrollment.set_not_configured(generation);
         // Local development without a backend: log events only.
@@ -753,8 +754,7 @@ async fn fetch_as_user(
         + Send
         + 'static,
 ) -> Result<(String, Result<serde_json::Value, DayError>), String> {
-    let base_url =
-        std::env::var(enroll::BACKEND_URL_ENV).map_err(|_| "not_configured".to_string())?;
+    let base_url = backend_http::base_url().ok_or_else(|| "not_configured".to_string())?;
     let oid = auth.oid().ok_or_else(|| "not_signed_in".to_string())?;
     let auth = auth.inner().clone();
     let fetch_oid = oid.clone();
@@ -768,7 +768,7 @@ async fn fetch_as_user(
         if auth.oid().as_deref() != Some(fetch_oid.as_str()) {
             return Err(DayError::Refused("not_signed_in".into()));
         }
-        let http = reqwest::blocking::Client::builder()
+        let http = backend_http::client_builder()
             .timeout(Duration::from_secs(15))
             .build()
             .map_err(|e| DayError::Unavailable(e.to_string()))?;

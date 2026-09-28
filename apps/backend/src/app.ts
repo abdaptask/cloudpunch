@@ -29,7 +29,10 @@ export async function buildApp(opts: BuildAppOptions) {
   const app = Fastify({
     logger: opts.logger,
     disableRequestLogging: false,
-    trustProxy: opts.env.CLOUDPUNCH_ENV === 'prod',
+    // Pilot: Caddy on the same host terminates TLS (ADR-0019); trust only it.
+    trustProxy:
+      opts.env.CLOUDPUNCH_ENV === 'prod' ||
+      (opts.env.CLOUDPUNCH_ENV === 'pilot' ? '127.0.0.1' : false),
     bodyLimit: 1024 * 1024, // 1 MB — event batches are the largest bodies, and they cap at 100 events
   });
 
