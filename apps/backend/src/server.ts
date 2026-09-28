@@ -6,19 +6,23 @@ import { buildApp } from './app.js';
 import { createPostgresClient, PostgresDb } from './db/postgres/index.js';
 
 /**
- * The dev database, when `POSTGRES_APP_URL` is set and this is the dev
- * environment. Anywhere else the URL is ignored (with a warning): real
- * environments read DB credentials from Secrets Manager (ADR-0007 §2),
- * which is not wired yet, so they start without the data routes.
+ * The VM database, when `POSTGRES_APP_URL` is set and this is the dev
+ * or pilot environment (ADR-0019). Anywhere else the URL is ignored
+ * (with a warning): staging and prod read DB credentials from Secrets
+ * Manager (ADR-0007 §2), which is not wired yet, so they start without
+ * the data routes.
  */
 function devDatabase(env: Env, logger: Logger): { sql: postgres.Sql; repos: PostgresDb } | null {
   if (!env.POSTGRES_APP_URL) return null;
-  if (env.CLOUDPUNCH_ENV !== 'dev') {
-    logger.warn({ env: env.CLOUDPUNCH_ENV }, 'POSTGRES_APP_URL ignored outside CLOUDPUNCH_ENV=dev');
+  if (env.CLOUDPUNCH_ENV !== 'dev' && env.CLOUDPUNCH_ENV !== 'pilot') {
+    logger.warn(
+      { env: env.CLOUDPUNCH_ENV },
+      'POSTGRES_APP_URL ignored outside CLOUDPUNCH_ENV=dev|pilot',
+    );
     return null;
   }
   const sql = createPostgresClient(env.POSTGRES_APP_URL);
-  logger.info('using dev Postgres from POSTGRES_APP_URL');
+  logger.info({ env: env.CLOUDPUNCH_ENV }, 'using VM Postgres from POSTGRES_APP_URL');
   return { sql, repos: new PostgresDb(sql) };
 }
 

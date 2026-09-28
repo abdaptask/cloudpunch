@@ -31,6 +31,7 @@
 pub mod admin;
 pub mod agent;
 pub mod auth;
+pub mod backend_http;
 pub mod call_type;
 pub mod clock_in_prompt;
 pub mod commands;

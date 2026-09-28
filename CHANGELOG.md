@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Ops: pilot on the internal VM (ADR-0019, 2026-09-28)
+
+Owner decisions: live testers on the same VM, network admin opened 443,
+unsigned installer accepted.
+
+- **Backend.** New `CLOUDPUNCH_ENV=pilot`: it uses `POSTGRES_APP_URL`
+  from a root-owned env file and trusts only the local Caddy as proxy.
+- **VM:**
+  - `cloudpunch-api` systemd service (user `cloudpunch`, 127.0.0.1:8080,
+    hardened);
+  - Caddy HTTPS on 443 with its own private CA;
+  - `ufw` limits 443 to private and VPN ranges;
+  - nightly `pg_dump`, kept 14 days;
+  - Node 20 from the SHA-256-verified official tarball, pnpm 9.15.0.
+- **Desktop.** `backend_http`: the API address comes from the run-time
+  env, else a built-in value. A pilot build pins the VM's CA root
+  (`CLOUDPUNCH_BUILD_CA_PEM`) for API calls only, never for Microsoft
+  sign-in.
+- **Installer.** `tauri.pilot.conf.json` builds an unsigned per-user
+  NSIS installer.
+- `scripts/deploy-pilot.sh` redeploys HEAD with an automatic rollback;
+  the runbook is `docs/ops/pilot-vm.md`.
+
 ### Desktop: Settings for HR and Administrators (ADR-0018 §5, 2026-09-28)
 
 Owner request: HR / Admin set the idle and clock-in rules without

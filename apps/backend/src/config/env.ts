@@ -10,7 +10,8 @@ import { z } from 'zod';
  */
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'staging', 'production', 'test']).default('development'),
-  CLOUDPUNCH_ENV: z.enum(['dev', 'staging', 'prod', 'test']).default('dev'),
+  // `pilot`: the internal VM serving the first testers (ADR-0019).
+  CLOUDPUNCH_ENV: z.enum(['dev', 'pilot', 'staging', 'prod', 'test']).default('dev'),
   AWS_REGION: z.string().min(1).default('ap-south-1'),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
 
@@ -36,9 +37,10 @@ const envSchema = z.object({
 
   APP_VERSION: z.string().default('0.0.0-dev'),
 
-  // Dev-only exception to "no secrets in env": the dev VM's app-role
-  // connection string, from the git-ignored apps/backend/.env.local.
-  // Honoured only when CLOUDPUNCH_ENV=dev (see server.ts); staging and
+  // Exception to "no secrets in env" for the internal VM: the app-role
+  // connection string, from the git-ignored apps/backend/.env.local (dev)
+  // or a root-owned env file read by systemd (pilot, ADR-0019). Honoured
+  // only when CLOUDPUNCH_ENV is dev or pilot (see server.ts); staging and
   // prod get their DB credentials from Secrets Manager (ADR-0007 §2).
   POSTGRES_APP_URL: z.string().min(1).optional(),
 });

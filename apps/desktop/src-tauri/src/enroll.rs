@@ -37,7 +37,7 @@ use thiserror::Error;
 use crate::keystore::{KeystoreError, SecretStore, Secrets};
 
 /// Backend base URL, e.g. `https://api.cloudpunch.local` (dev: the VM).
-pub const BACKEND_URL_ENV: &str = "CLOUDPUNCH_BACKEND_URL";
+pub use crate::backend_http::BACKEND_URL_ENV;
 
 #[derive(Debug, Error)]
 pub enum EnrollError {
@@ -130,7 +130,7 @@ pub struct Enroller<S: SecretStore> {
 
 impl<S: SecretStore> Enroller<S> {
     pub fn new(store: S, base_url: &str, hostname: String) -> Self {
-        let http = Client::builder()
+        let http = crate::backend_http::client_builder()
             .timeout(Duration::from_secs(30))
             .build()
             .expect("reqwest Client::builder is infallible for this config");

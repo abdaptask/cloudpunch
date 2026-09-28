@@ -7,7 +7,7 @@
  * already linked to an employee is left alone.
  *
  * Dev only. Reads POSTGRES_URL (the migrator role) from the environment
- * and refuses to run unless CLOUDPUNCH_ENV is `dev` (or unset).
+ * and refuses to run unless CLOUDPUNCH_ENV is `dev`, `pilot` (or unset).
  * Never prints the connection string.
  */
 import postgres from 'postgres';
@@ -27,7 +27,8 @@ function arg(name: string): string {
 }
 
 const env = process.env['CLOUDPUNCH_ENV'] ?? 'dev';
-if (env !== 'dev') fail(`refusing to seed CLOUDPUNCH_ENV=${env}`);
+// dev and the pilot share the internal VM's database (ADR-0019).
+if (env !== 'dev' && env !== 'pilot') fail(`refusing to seed CLOUDPUNCH_ENV=${env}`);
 const url = process.env['POSTGRES_URL'];
 if (!url) fail('POSTGRES_URL env var required');
 
