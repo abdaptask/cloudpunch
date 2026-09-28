@@ -39,6 +39,8 @@ export interface StateView {
 
 /** The window's close button was pressed (ADR-0013 §1). */
 export const CLOSE_REQUESTED_EVENT = 'cp://close-requested';
+/** Mirrors `tray::BREAK_ON_CALL_EVENT`: a tray break during a call. */
+export const BREAK_ON_CALL_EVENT = 'cp://break-on-call';
 
 /** Emitted by the agent after every state change. */
 /** Mirrors `strip::PIN_EVENT`. */
@@ -101,6 +103,8 @@ export const api = {
   clockOutAndQuit: (): Promise<void> => invoke<void>('clock_out_and_quit'),
   onCloseRequested: (cb: () => void): Promise<UnlistenFn> =>
     listen<null>(CLOSE_REQUESTED_EVENT, () => cb()),
+  onBreakOnCall: (cb: (kind: 'bio' | 'meal') => void): Promise<UnlistenFn> =>
+    listen<'bio' | 'meal'>(BREAK_ON_CALL_EVENT, (e) => cb(e.payload)),
   /** Long-shift banner: "Still working" (ADR-0013 §5). */
   ackLongShift: (): Promise<StateView> => invoke<StateView>('ack_long_shift'),
   /**
