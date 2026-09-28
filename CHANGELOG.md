@@ -15,6 +15,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   static, with no scripts and no data, served with a strict CSP
   (`default-src 'none'`, `frame-ancestors 'none'`).
 - `/favicon.ico` answers 204.
+### Ops: pilot reachable from anywhere via Cloudflare Tunnel (ADR-0019 §8, 2026-09-28)
+
+- The testers work from home without a VPN. The VM now runs
+  `cloudflared` (tunnel **cloudpunch**), which publishes
+  **`https://cloudpunch.aptask.com`** → `http://localhost:8080`. It is
+  outbound-only, with Cloudflare's public certificate, and no inbound
+  port.
+- The pilot installer now points at `https://cloudpunch.aptask.com`
+  and no longer carries the private CA.
+- Checked from the public internet: `/livez` and `/readyz` 200;
+  signed-out API calls 401.
 
 ### People: assign CloudPunch roles in the app (ADR-0020, 2026-09-28)
 
