@@ -19,8 +19,8 @@ function hm(ms: number): string {
 
 /**
  * The pinned mini strip (ADR-0017): status light, live timer and one
- * contextual action, always on top. Hover shows today's totals and the
- * break choices. Drag anywhere to move it; double-click or ⤢ to go
+ * contextual action, always on top. Hover shows today's totals, the
+ * break choices and In a meeting. Drag anywhere to move it; double-click or ⤢ to go
  * back to the full window. Clock out is not offered here: it asks
  * first, in the full window.
  */
@@ -183,13 +183,19 @@ export function Strip({
             Today · {hm(worked)} worked · {hm(breaks)} breaks
           </div>
           {(view.status === 'active' || view.status === 'on_call') && (
-            <div style={{ display: 'flex', gap: 6 }}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
               <Button variant="chip" onClick={() => run(() => api.startBreak('bio'))}>
                 Bio break
               </Button>
               <Button variant="chip" onClick={() => run(() => api.startBreak('meal'))}>
                 Meal break
               </Button>
+              {/* Not offered during a call: it's already tracked (ADR-0009 §2). */}
+              {view.status === 'active' && (
+                <Button variant="chip" onClick={() => run(() => api.markAway('meeting'))}>
+                  In a meeting
+                </Button>
+              )}
             </div>
           )}
         </div>
