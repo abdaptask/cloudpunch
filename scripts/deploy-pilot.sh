@@ -35,7 +35,7 @@ sudo mv /opt/cloudpunch/app.new /opt/cloudpunch/app
 sudo chown -R root:root /opt/cloudpunch/app && sudo chmod -R a+rX,go-w /opt/cloudpunch/app
 sudo systemctl restart cloudpunch-api
 for _ in $(seq 1 20); do
-  if curl -fsS -o /dev/null http://127.0.0.1:8080/livez; then
+  if curl -fs -o /dev/null http://127.0.0.1:8080/livez; then
     echo "deploy-pilot: $REV is live"
     exit 0
   fi
