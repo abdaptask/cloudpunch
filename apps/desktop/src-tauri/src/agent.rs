@@ -74,6 +74,11 @@ pub struct StateView {
     pub idle_return: Option<IdleReturnView>,
     /// Why `auto_clocked_out_at` happened: `idle_cap` or `prompt`.
     pub auto_clock_out_reason: Option<&'static str>,
+    /// When the person signed in to the computer, if a clock-in may
+    /// start then (ADR-0018 §4). Only while clocked out.
+    pub signed_in_at: Option<u64>,
+    /// The daily clock-in popup is showing.
+    pub clock_in_prompt: bool,
     /// Policy's long day for the end-of-day summary, ms (ADR-0013 §8).
     pub long_day_ms: u64,
 }
@@ -91,6 +96,12 @@ impl StateView {
             since: epoch_ms(s.since),
             until: epoch_ms(s.until),
         });
+        self
+    }
+
+    pub fn with_clock_in_offer(mut self, offer: Option<SystemTime>, prompt: bool) -> Self {
+        self.signed_in_at = offer.map(epoch_ms);
+        self.clock_in_prompt = prompt;
         self
     }
 
@@ -158,6 +169,8 @@ pub fn view_of(
         idle_since,
         idle_return: None,
         auto_clock_out_reason: None,
+        signed_in_at: None,
+        clock_in_prompt: false,
     }
 }
 
@@ -182,6 +195,7 @@ pub fn rejection_code(r: &Rejected) -> &'static str {
         Rejected::OptionNotOffered => "option_not_offered",
         Rejected::NoteRequired => "note_required",
         Rejected::NoteTooLong => "note_too_long",
+        Rejected::StartOutOfRange => "start_out_of_range",
     }
 }
 
@@ -301,6 +315,10 @@ struct Inner {
     driver: Driver<OutboxSink>,
     auto_clocked_out_at: Option<SystemTime>,
     auto_clock_out_reason: Option<&'static str>,
+    /// Latest Windows logon / unlock / wake (ADR-0018 §4).
+    signed_in_at: Option<SystemTime>,
+    clock_in_prompt: bool,
+    prompt_state: crate::clock_in_prompt::PromptState,
     timeline: Timeline,
     reminder_cfg: ReminderConfig,
     reminders: ReminderState,
@@ -334,6 +352,21 @@ impl Inner {
         .with_long_day(self.reminder_cfg.long_day)
         .with_idle_return(self.driver.core().idle_return())
         .with_auto_clock_out_reason(self.auto_clock_out_reason)
+        .with_clock_in_offer(self.clock_in_offer(SystemTime::now()), self.clock_in_prompt)
+    }
+
+    /// The sign-in time a clock-in may start from, while clocked out.
+    fn clock_in_offer(&self, now: SystemTime) -> Option<SystemTime> {
+        if self.driver.state() != CoreState::ClockedOut {
+            return None;
+        }
+        let last_end = self
+            .timeline
+            .segments()
+            .iter()
+            .filter_map(|s| s.ended_at)
+            .max();
+        crate::clock_in_prompt::offer(self.signed_in_at, now, last_end)
     }
 
     fn tooltip(&self, snapshot: TrayStateSnapshot, now: SystemTime) -> String {
@@ -398,6 +431,9 @@ impl<U: Ui> Agent<U> {
                 driver: Driver::new(core, recorder.sink()),
                 auto_clocked_out_at: None,
                 auto_clock_out_reason: None,
+                signed_in_at: None,
+                clock_in_prompt: false,
+                prompt_state: Default::default(),
                 timeline: Timeline::new(),
                 reminder_cfg: ReminderConfig::default(),
                 reminders: ReminderState::default(),
@@ -456,6 +492,36 @@ impl<U: Ui> Agent<U> {
         self.lock().view()
     }
 
+    /// The person signed in to, unlocked or woke the computer at `at`.
+    pub fn note_signed_in(&self, at: SystemTime) {
+        let mut inner = self.lock();
+        if inner.signed_in_at.map_or(true, |prev| at > prev) {
+            inner.signed_in_at = Some(at);
+        }
+    }
+
+    /// Close the daily clock-in popup without clocking in.
+    pub fn dismiss_clock_in_prompt(&self) -> StateView {
+        let view = {
+            let mut inner = self.lock();
+            inner.clock_in_prompt = false;
+            inner.view()
+        };
+        if let Some(ui) = self.ui.get() {
+            ui.state_changed(&view, tray_snapshot(self.state(), None));
+        }
+        view
+    }
+
+    /// Clock in from the sign-in time, if it is still on offer.
+    pub fn clock_in_from_sign_in(&self) -> Result<StateView, Rejected> {
+        let offer = self
+            .lock()
+            .clock_in_offer(SystemTime::now())
+            .ok_or(Rejected::StartOutOfRange)?;
+        self.handle(Input::ClockInFrom(offer))
+    }
+
     pub fn handle(&self, input: Input) -> Result<StateView, Rejected> {
         self.handle_at(input, SystemTime::now())
     }
@@ -466,7 +532,12 @@ impl<U: Ui> Agent<U> {
             Input::Tick { last_input_at } => Some(*last_input_at),
             _ => None,
         };
-        let is_clock_in = input == Input::ClockIn;
+        let is_clock_in = matches!(input, Input::ClockIn | Input::ClockInFrom(_));
+        // A clock-in from the sign-in time starts the day's timeline there.
+        let started_from = match input {
+            Input::ClockInFrom(at) => Some(at),
+            _ => None,
+        };
         let visible = self.ui.get().is_some_and(|u| u.main_visible());
 
         let (view, plan, snapshot) = {
@@ -486,6 +557,9 @@ impl<U: Ui> Agent<U> {
                 // even if the laptop slept past it (ADR-0018).
                 let at = match after {
                     CoreState::Idle { since } => since,
+                    _ if started_from.is_some() && before == CoreState::ClockedOut => {
+                        started_from.unwrap_or(now)
+                    }
                     _ => outcome.last_emit_at.unwrap_or(now),
                 };
                 inner.timeline.record(after, call_after, at);
@@ -530,6 +604,7 @@ impl<U: Ui> Agent<U> {
             if is_clock_in {
                 inner.auto_clocked_out_at = None;
                 inner.auto_clock_out_reason = None;
+                inner.clock_in_prompt = false;
             }
             if after == CoreState::ClockedOut {
                 inner.long_shift = false;
@@ -545,6 +620,20 @@ impl<U: Ui> Agent<U> {
                 };
                 let cfg = inner.reminder_cfg.clone();
                 if let Some(last_input_at) = last_input_at {
+                    // The daily clock-in popup (ADR-0018 §4).
+                    let prompt = crate::clock_in_prompt::PromptInputs {
+                        now,
+                        ready: self.recorder.is_armed(),
+                        clocked_out: after == CoreState::ClockedOut,
+                        worked_today: inner.timeline.current_day_start(now).is_some(),
+                        last_input_at,
+                    };
+                    let prompt_cfg = cfg.clock_in_prompt;
+                    if crate::clock_in_prompt::due(&prompt_cfg, prompt, &mut inner.prompt_state) {
+                        inner.clock_in_prompt = true;
+                        plan.show_main = true;
+                        plan.broadcast = true;
+                    }
                     let nudge = NudgeInputs {
                         now,
                         ready: self.recorder.is_armed(),
@@ -1080,6 +1169,30 @@ mod tests {
             )
             .unwrap();
         assert!(view.idle_return.is_none());
+    }
+
+    #[test]
+    fn a_sign_in_is_offered_and_starts_the_timeline_there() {
+        let agent = Agent::<Arc<FakeUi>>::new(CoreConfig::default());
+        let now = SystemTime::now();
+        assert_eq!(agent.view().signed_in_at, None);
+        let signed_in = now - Duration::from_secs(25 * 60);
+        agent.note_signed_in(signed_in - Duration::from_secs(3600));
+        agent.note_signed_in(signed_in);
+        // An older one never replaces a newer one.
+        agent.note_signed_in(signed_in - Duration::from_secs(7200));
+        assert_eq!(agent.view().signed_in_at, Some(epoch_ms(signed_in)));
+
+        let view = agent.handle(Input::ClockInFrom(signed_in)).unwrap();
+        assert_eq!(view.status, "active");
+        assert_eq!(view.session_started_at, Some(epoch_ms(signed_in)));
+        assert_eq!(view.timeline[0].started_at, epoch_ms(signed_in));
+        // Clocked in: nothing on offer.
+        assert_eq!(view.signed_in_at, None);
+
+        // After this session ends, that sign-in is used up.
+        let view = agent.handle(Input::ClockOut).unwrap();
+        assert_eq!(view.signed_in_at, None);
     }
 
     #[test]

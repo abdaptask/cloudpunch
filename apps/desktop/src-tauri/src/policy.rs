@@ -110,6 +110,10 @@ pub struct Reminders {
     pub clock_in_nudge_minutes: Option<u64>,
     /// End-of-day summary threshold (ADR-0013 §8).
     pub long_day_hours: u64,
+    /// Daily clock-in popup, `HH:MM` in `clock_in_prompt_tz`; `null`
+    /// turns it off (ADR-0018 §4).
+    pub clock_in_prompt_at: Option<String>,
+    pub clock_in_prompt_tz: String,
 }
 
 // Schema defaults (packages/policy-schema/idle-policy.schema.json).
@@ -180,6 +184,8 @@ impl Default for Reminders {
             long_shift_repeat_hours: 2,
             clock_in_nudge_minutes: Some(30),
             long_day_hours: 8,
+            clock_in_prompt_at: Some("08:00".into()),
+            clock_in_prompt_tz: "America/New_York".into(),
         }
     }
 }
@@ -259,6 +265,10 @@ impl PolicyDoc {
                 .clock_in_nudge_minutes
                 .map(|m| Duration::from_secs(m * 60)),
             long_day: Duration::from_secs(self.reminders.long_day_hours * 3600),
+            clock_in_prompt: crate::clock_in_prompt::PromptConfig::from_policy(
+                self.reminders.clock_in_prompt_at.as_deref(),
+                &self.reminders.clock_in_prompt_tz,
+            ),
         }
     }
 

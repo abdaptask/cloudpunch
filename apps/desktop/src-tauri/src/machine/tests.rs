@@ -1120,3 +1120,49 @@ fn clock_out_right_after_idle_drops_the_question() {
     assert_eq!(core.state(), CoreState::ClockedOut);
     assert_eq!(core.idle_return(), None);
 }
+
+// ── ADR-0018 §4: clock in from the computer's sign-in time ───────────
+
+#[test]
+fn clock_in_from_sign_in_emits_the_start_and_keeps_the_click_time() {
+    let mut core = Core::new(cfg(), t(0));
+    let fx = core.handle(Input::ClockInFrom(t(1_000)), t(2_500)).unwrap();
+    assert_eq!(emitted(&fx), ["USER_CLOCK_IN"]);
+    assert_eq!(emitted_at(&fx, "USER_CLOCK_IN"), Some(t(2_500)));
+    match &fx[0] {
+        Effect::Emit {
+            event: CoreEvent::UserClockInFrom { started_at },
+            ..
+        } => assert_eq!(*started_at, t(1_000)),
+        other => panic!("unexpected {other:?}"),
+    }
+    assert_eq!(core.state(), CoreState::Active);
+    let payload = CoreEvent::UserClockInFrom {
+        started_at: t(1_000),
+    }
+    .transition_payload();
+    assert_eq!(payload["start_source"], "os_sign_in");
+}
+
+#[test]
+fn clock_in_from_sign_in_is_bounded() {
+    let mut core = Core::new(cfg(), t(0));
+    assert_eq!(
+        core.handle(Input::ClockInFrom(t(100)), t(50)),
+        Err(Rejected::StartOutOfRange),
+        "in the future"
+    );
+    assert_eq!(
+        core.handle(Input::ClockInFrom(t(0)), t(12 * 3600 + 1)),
+        Err(Rejected::StartOutOfRange),
+        "more than 12 hours back"
+    );
+    assert!(core
+        .handle(Input::ClockInFrom(t(1)), t(12 * 3600 + 1))
+        .is_ok());
+    assert_eq!(
+        core.handle(Input::ClockInFrom(t(2)), t(12 * 3600 + 2)),
+        Err(Rejected::InvalidTransition),
+        "already clocked in"
+    );
+}

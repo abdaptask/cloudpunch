@@ -70,6 +70,9 @@ tauri-plugin-single-instance = "2.4"
 # Both already in the tree.
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 iana-time-zone = "0.1"
+# The clock-in popup time is set in a policy zone (8:00 America/New_York by
+# default, ADR-0018 §4), which must follow that zone's daylight saving.
+chrono-tz = "0.10"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 windows = { version = "0.58", features = [

@@ -281,6 +281,9 @@ impl CoreState {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Input {
     ClockIn,
+    /// Clock in from when the person signed in to the computer
+    /// (ADR-0018 §4): no later than now, at most 12 hours before it.
+    ClockInFrom(SystemTime),
     ClockOut,
     StartBreak(BreakKind),
     EndBreak,
@@ -318,6 +321,10 @@ pub enum Input {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CoreEvent {
     UserClockIn,
+    /// `USER_CLOCK_IN` starting at the computer's sign-in time.
+    UserClockInFrom {
+        started_at: SystemTime,
+    },
     UserClockOut,
     UserStartBreak {
         kind: BreakKind,
@@ -363,7 +370,7 @@ pub enum CoreEvent {
 impl CoreEvent {
     pub fn event_type(&self) -> &'static str {
         match self {
-            CoreEvent::UserClockIn => "USER_CLOCK_IN",
+            CoreEvent::UserClockIn | CoreEvent::UserClockInFrom { .. } => "USER_CLOCK_IN",
             CoreEvent::UserClockOut => "USER_CLOCK_OUT",
             CoreEvent::UserStartBreak { .. } => "USER_START_BREAK",
             CoreEvent::UserEndBreak => "USER_END_BREAK",
@@ -395,6 +402,10 @@ impl CoreEvent {
             CoreEvent::MediaDeviceState { in_use, .. } => json!({ "in_use": in_use }),
             CoreEvent::UserMarkAway { reason, .. } => json!({ "away_reason": reason.as_str() }),
             CoreEvent::InputIdle5m { trigger } => json!({ "trigger": trigger.as_str() }),
+            CoreEvent::UserClockInFrom { started_at } => json!({
+                "start_source": "os_sign_in",
+                "started_at": utc_rfc3339(*started_at),
+            }),
             // UTC here; the wire encoder rewrites these in the local zone.
             CoreEvent::IdleStarted { since } | CoreEvent::IdleEnded { since } => {
                 json!({ "idle_since": utc_rfc3339(*since) })
@@ -443,6 +454,8 @@ pub enum Rejected {
     NoteRequired,
     /// Note longer than [`NOTE_MAX_CHARS`].
     NoteTooLong,
+    /// A clock-in start in the future or more than 12 hours back.
+    StartOutOfRange,
 }
 
 pub struct Core {
@@ -520,6 +533,23 @@ impl Core {
                 }
                 fx.push(Effect::Emit {
                     event: CoreEvent::UserClockIn,
+                    at: now,
+                });
+                self.enter_active(now, &mut fx);
+            }
+            Input::ClockInFrom(started_at) => {
+                if self.state != CoreState::ClockedOut {
+                    return Err(Rejected::InvalidTransition);
+                }
+                let back = now
+                    .duration_since(started_at)
+                    .map_err(|_| Rejected::StartOutOfRange)?;
+                if back > Duration::from_secs(12 * 3600) {
+                    return Err(Rejected::StartOutOfRange);
+                }
+                // client_ts stays the click; the payload carries the start.
+                fx.push(Effect::Emit {
+                    event: CoreEvent::UserClockInFrom { started_at },
                     at: now,
                 });
                 self.enter_active(now, &mut fx);

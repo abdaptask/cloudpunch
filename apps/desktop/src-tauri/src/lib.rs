@@ -31,6 +31,7 @@
 pub mod agent;
 pub mod auth;
 pub mod call_type;
+pub mod clock_in_prompt;
 pub mod commands;
 pub mod days;
 pub mod enroll;
@@ -103,6 +104,9 @@ pub fn start_watchers(agent: Arc<Agent>) -> WatchersGuard {
     let is_online = Arc::new(AtomicBool::new(true));
     let is_online_drain = is_online.clone();
 
+    if let Some(at) = clock_in_prompt::os_logon_time() {
+        agent.note_signed_in(at);
+    }
     let drain = std::thread::Builder::new()
         .name("cp-watcher-drain".into())
         .spawn(move || {
@@ -110,6 +114,10 @@ pub fn start_watchers(agent: Arc<Agent>) -> WatchersGuard {
                 match &signal {
                     OsSignal::NetworkReachabilityChanged { reachable, .. } => {
                         is_online_drain.store(*reachable, Ordering::Release);
+                    }
+                    // Arriving at the computer (ADR-0018 §4).
+                    OsSignal::SessionUnlocked { at } | OsSignal::Resumed { at } => {
+                        agent.note_signed_in(*at);
                     }
                     OsSignal::MediaInUseChanged {
                         mic,
@@ -241,6 +249,8 @@ pub fn run() {
             commands::mark_back,
             commands::respond_to_prompt,
             commands::explain_idle,
+            commands::clock_in_from_sign_in,
+            commands::dismiss_clock_in_prompt,
             commands::dismiss_idle_return,
             commands::get_day,
             commands::get_days,

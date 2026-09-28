@@ -147,6 +147,9 @@ pub fn wire_payload(event: &CoreEvent, zone: &Zone) -> Value {
         } => {
             payload.insert("note".into(), json!(note));
         }
+        CoreEvent::UserClockInFrom { started_at } => {
+            payload.insert("started_at".into(), json!(zone.rfc3339(*started_at)));
+        }
         // ADR-0018: idle times in the recording computer's zone.
         CoreEvent::IdleStarted { since } | CoreEvent::IdleEnded { since } => {
             payload.insert("idle_since".into(), json!(zone.rfc3339(*since)));

@@ -27,6 +27,8 @@ pub struct ReminderConfig {
     pub quiet_end: u16,
     /// "Ready to clock in?" cadence; None disables (ADR-0013 §7).
     pub clock_in_nudge: Option<Duration>,
+    /// `reminders.clock_in_prompt_at` / `_tz` (ADR-0018 §4).
+    pub clock_in_prompt: crate::clock_in_prompt::PromptConfig,
     /// `reminders.long_day_hours`: the end-of-day summary's long day
     /// (ADR-0013 §8). Display only; the webview decides what to show.
     pub long_day: Duration,
@@ -44,6 +46,7 @@ impl Default for ReminderConfig {
             quiet_end: 7 * 60,
             clock_in_nudge: Some(Duration::from_secs(30 * 60)),
             long_day: Duration::from_secs(8 * 3600),
+            clock_in_prompt: crate::clock_in_prompt::PromptConfig::default(),
         }
     }
 }

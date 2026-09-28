@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Desktop: daily clock-in popup, from the computer sign-in time (ADR-0018 §4, 2026-09-28)
+
+Owner request.
+
+- **At 8:00 New York time on weekdays** (`reminders.clock_in_prompt_at`
+  / `_tz`, default `08:00` / `America/New_York`; `null` turns it off),
+  the window comes forward with **"Time to clock in"**.
+  - It follows US daylight saving: 17:30 IST in summer, 18:30 IST in
+    winter.
+  - It opens only for someone who is at the computer, signed in, and
+    not clocked in yet in the current working day.
+  - It opens once a day, and later that day if they arrive after 8:00.
+- **Start from the computer sign-in.** The popup reads "You signed in to
+  your computer at 17:32. Start your day from then?" with **Clock in
+  from 17:32**, **Clock in now** and **Not now**.
+  - "Signed in" is the latest Windows logon, unlock or wake from sleep,
+    since most people never sign out.
+  - It is offered only if that time is 1 minute to 12 hours ago and
+    after the last session ended.
+  - The home screen also shows "or clock in from 17:32, when you signed
+    in" under Clock in.
+- **It is never an automatic clock-in.** `USER_CLOCK_IN` keeps the click
+  as `client_ts` and adds `start_source: os_sign_in` + `started_at`. The
+  backend (PR #52) opens the session at that time, within the same
+  12-hour bound, and past days mark it `started_from_sign_in` for the
+  manager.
+- New dependency: `chrono-tz` 0.10 (IANA zone data, owner-approved).
+
 ### Idle is logged instead of clocking out (ADR-0018, 2026-09-28)
 
 Owner request, decided before the pilot. **Needs migration 0004**,

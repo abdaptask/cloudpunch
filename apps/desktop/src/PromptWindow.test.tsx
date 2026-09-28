@@ -30,6 +30,8 @@ function pending(over: Partial<StateView> = {}): StateView {
     idleSince: null,
     idleReturn: null,
     autoClockOutReason: null,
+    signedInAt: null,
+    clockInPrompt: false,
     ...over,
   };
 }
