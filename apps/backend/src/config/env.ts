@@ -42,6 +42,10 @@ const envSchema = z.object({
 
   APP_VERSION: z.string().default('0.0.0-dev'),
 
+  // Published installers for the landing page's Download button
+  // (ADR-0019 §9); unset means no button.
+  DOWNLOADS_DIR: z.string().min(1).optional(),
+
   // Exception to "no secrets in env" for the internal VM: the app-role
   // connection string, from the git-ignored apps/backend/.env.local (dev)
   // or a root-owned env file read by systemd (pilot, ADR-0019). Honoured
