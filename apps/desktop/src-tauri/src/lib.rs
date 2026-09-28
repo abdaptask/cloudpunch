@@ -41,6 +41,7 @@ pub mod outbox;
 pub mod policy;
 pub mod recorder;
 pub mod reminders;
+pub mod strip;
 pub mod sync;
 pub mod timeline;
 pub mod tray;
@@ -219,6 +220,7 @@ pub fn run() {
         .manage(recorder)
         .manage(sync::live::LiveSync::default())
         .manage(days::DayCache::default())
+        .manage(strip::Pin::default())
         .invoke_handler(tauri::generate_handler![
             commands::get_state,
             commands::hide_to_tray,
@@ -240,6 +242,9 @@ pub fn run() {
             commands::respond_to_prompt,
             commands::get_day,
             commands::get_days,
+            commands::pin_window,
+            commands::unpin_window,
+            commands::pin_status,
         ])
         .setup(move |app| {
             setup_agent.attach(agent::TauriUi::new(app.handle().clone()));
@@ -268,6 +273,11 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
+            if window.label() == "main" {
+                if let Some(w) = window.app_handle().get_webview_window("main") {
+                    strip_window_event(&w, event);
+                }
+            }
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 match window.label() {
                     // Never close silently: the window asks "keep
@@ -287,4 +297,29 @@ pub fn run() {
         })
         .run(tauri::generate_context!())
         .expect("cloudpunch-desktop: error while running tauri application");
+}
+
+/// Minimise pins the strip instead (ADR-0017); a pinned strip that gets
+/// minimised (Show desktop, Win+M) comes straight back. Dragging the
+/// strip saves its spot.
+fn strip_window_event(window: &tauri::WebviewWindow, event: &tauri::WindowEvent) {
+    let pin = window.state::<strip::Pin>();
+    match event {
+        tauri::WindowEvent::Moved(pos) => pin.moved(window, *pos),
+        tauri::WindowEvent::Resized(_) if window.is_minimized().unwrap_or(false) => {
+            let signed_in = window.state::<Arc<commands::Auth>>().oid().is_some();
+            if !signed_in && !pin.is_pinned() {
+                return; // Signed out: an ordinary minimise.
+            }
+            // Not from inside the resize handler: queue it.
+            let w = window.clone();
+            let _ = window.run_on_main_thread(move || {
+                let _ = w.unminimize();
+                if let Err(e) = w.state::<strip::Pin>().pin(&w) {
+                    eprintln!("[cloudpunch] could not pin the strip: {e}");
+                }
+            });
+        }
+        _ => {}
+    }
 }

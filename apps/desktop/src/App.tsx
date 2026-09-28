@@ -35,12 +35,14 @@ import { Button } from './ui/Button.js';
 import { Logo } from './ui/Logo.js';
 import { useTheme, type Theme } from './ui/theme.js';
 import { SignIn } from './SignIn.js';
+import { Strip } from './Strip.js';
 import { useAgentState } from './useAgentState.js';
 import { useAuth } from './useAuth.js';
 import { useDay } from './useDay.js';
 import { useEnrollment } from './useEnrollment.js';
 import { useFitWindow } from './useFitWindow.js';
 import { useNow } from './useNow.js';
+import { usePinned } from './usePinned.js';
 
 /**
  * Home window (Timeline view). State lives in the Rust agent; this
@@ -175,6 +177,7 @@ export function App(): JSX.Element {
   const { auth, busy, error: authError, signIn, cancelSignIn, signOut } = useAuth();
   const signedIn = auth?.signedIn === true;
   const enrollment = useEnrollment();
+  const { pinned, pin, unpin } = usePinned();
   const enrollBlocked = signedIn && enrollment?.state === 'blocked';
   const [closeAsked, setCloseAsked] = useState(false);
   // Clock out asks first and offers a break instead (owner request).
@@ -208,37 +211,59 @@ export function App(): JSX.Element {
 
   // The close button asks first, unless "keep running" was remembered
   // (ADR-0013 §1). The tray's Quit while clocked in lands here too.
+  // Pinned, the question needs the full window: unpin first.
   useEffect(() => {
     const off = api.onCloseRequested(() => {
       if (rememberedKeepRunning()) void api.hideToTray();
-      else setCloseAsked(true);
+      else {
+        void api.unpinWindow().catch(() => undefined);
+        setCloseAsked(true);
+      }
     });
     return () => void off.then((fn) => fn());
   }, []);
   const clockedIn = view !== null && view.status !== 'clocked_out';
+  const showStrip = signedIn && pinned && view !== null;
+  const todayTotals = totals(todaySegs, now, todaySince);
 
   return (
     <main
       ref={mainRef}
-      style={{
-        fontFamily: t.font,
-        color: t.text,
-        // Signed out: a quiet branded backdrop behind the sign-in card.
-        background:
-          auth && !signedIn
-            ? t.mode === 'dark'
-              ? 'linear-gradient(160deg, #0b1a33 0%, #0f1115 65%)'
-              : 'linear-gradient(160deg, #e6f1ff 0%, #f4f5f8 60%)'
-            : t.bg,
-        boxSizing: 'border-box',
-        padding: '14px 16px 14px',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 12,
-      }}
+      style={
+        showStrip
+          ? { fontFamily: t.font, color: t.text, background: t.bg }
+          : {
+              fontFamily: t.font,
+              color: t.text,
+              // Signed out: a quiet branded backdrop behind the sign-in card.
+              background:
+                auth && !signedIn
+                  ? t.mode === 'dark'
+                    ? 'linear-gradient(160deg, #0b1a33 0%, #0f1115 65%)'
+                    : 'linear-gradient(160deg, #e6f1ff 0%, #f4f5f8 60%)'
+                  : t.bg,
+              boxSizing: 'border-box',
+              padding: '14px 16px 14px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 12,
+            }
+      }
     >
+      {showStrip && (
+        <Strip
+          view={view}
+          now={now}
+          label={statusLabel(view, now)}
+          color={statusColor(t, view)}
+          worked={todayTotals.working}
+          breaks={todayTotals.break}
+          run={run}
+          onUnpin={unpin}
+        />
+      )}
       {/* Signed out, the sign-in card carries the brand; no header. */}
-      {signedIn && (
+      {!showStrip && signedIn && (
         <header style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <h1 style={{ margin: 0, lineHeight: 0 }}>
             <Logo height={24} />
@@ -259,270 +284,322 @@ export function App(): JSX.Element {
               </>
             )}
             {formatClock(now)}
+            <PinButton onClick={pin} />
           </span>
         </header>
       )}
-
-      {closeAsked && (
-        <CloseDialog
-          clockedIn={clockedIn}
-          onKeepRunning={() => {
-            setCloseAsked(false);
-            void api.hideToTray();
-          }}
-          onQuit={() => {
-            setCloseAsked(false);
-            void (clockedIn ? api.clockOutAndQuit() : api.quitApp());
-          }}
-          onCancel={() => setCloseAsked(false)}
-        />
-      )}
-      {clockOutAsked && view && (
-        <ClockOutDialog
-          offerBreaks={view.status === 'active' || view.status === 'on_call'}
-          onClockOut={() => {
-            setClockOutAsked(false);
-            run(api.clockOut);
-          }}
-          onBreak={(kind) => {
-            setClockOutAsked(false);
-            run(() => api.startBreak(kind));
-          }}
-          onCancel={() => setClockOutAsked(false)}
-        />
-      )}
-      {signedIn && !pastDate && view?.longShift && view.sessionStartedAt !== null && (
-        <LongShiftBanner
-          hours={formatHours(now - view.sessionStartedAt)}
-          onStillWorking={() => run(api.ackLongShift)}
-          onClockOut={askClockOut}
-        />
-      )}
-      {!auth && <p style={{ margin: 0, fontSize: 13, color: t.muted }}>Loading…</p>}
-      {auth && !signedIn && (
-        <SignIn busy={busy} error={authError} onSignIn={signIn} onCancel={cancelSignIn} />
-      )}
-      {signedIn && authError === 'clock_out_first' && (
-        <p role="alert" style={{ margin: 0, fontSize: 13, color: t.danger }}>
-          Clock out before signing out.
-        </p>
-      )}
-      {auth && !signedIn && (auth.unsentKept ?? 0) > 0 && (
-        <p role="status" style={{ margin: 0, fontSize: 13, color: t.muted }}>
-          Signed out. {auth.unsentKept === 1 ? '1 event' : `${auth.unsentKept} events`} will be sent
-          the next time you sign in on this computer.
-        </p>
-      )}
-      {enrollBlocked && (
-        <p
-          role="alert"
-          aria-label="enrollment"
-          style={{ margin: 0, fontSize: 13, color: t.danger }}
-        >
-          {enrollText(enrollment.code)}
-        </p>
-      )}
-      {signedIn && (
+      {!showStrip && (
         <>
-          <section
-            aria-label="current-status"
-            style={{ ...card(t), padding: '8px 12px 12px', textAlign: 'center' }}
-          >
-            <DayNav
-              date={pastDate ?? todayDate}
-              today={todayDate}
-              pickerOpen={pickerOpen}
-              onTogglePicker={() => setPickerOpen((o) => !o)}
-              onChange={(d) => {
-                setPickerOpen(false);
-                showDate(d);
+          {closeAsked && (
+            <CloseDialog
+              clockedIn={clockedIn}
+              onKeepRunning={() => {
+                setCloseAsked(false);
+                void api.hideToTray();
               }}
+              onQuit={() => {
+                setCloseAsked(false);
+                void (clockedIn ? api.clockOutAndQuit() : api.quitApp());
+              }}
+              onCancel={() => setCloseAsked(false)}
             />
-            {pickerOpen ? (
-              <DayPicker
-                today={todayDate}
-                selected={pastDate ?? todayDate}
-                onPick={(d) => {
-                  // A tap opens the day with its sessions and totals (owner request).
-                  setPickerOpen(false);
-                  setDetailsOpen(true);
-                  showDate(d);
+          )}
+          {clockOutAsked && view && (
+            <ClockOutDialog
+              offerBreaks={view.status === 'active' || view.status === 'on_call'}
+              onClockOut={() => {
+                setClockOutAsked(false);
+                run(api.clockOut);
+              }}
+              onBreak={(kind) => {
+                setClockOutAsked(false);
+                run(() => api.startBreak(kind));
+              }}
+              onCancel={() => setClockOutAsked(false)}
+            />
+          )}
+          {signedIn && !pastDate && view?.longShift && view.sessionStartedAt !== null && (
+            <LongShiftBanner
+              hours={formatHours(now - view.sessionStartedAt)}
+              onStillWorking={() => run(api.ackLongShift)}
+              onClockOut={askClockOut}
+            />
+          )}
+          {!auth && <p style={{ margin: 0, fontSize: 13, color: t.muted }}>Loading…</p>}
+          {auth && !signedIn && (
+            <SignIn busy={busy} error={authError} onSignIn={signIn} onCancel={cancelSignIn} />
+          )}
+          {signedIn && authError === 'clock_out_first' && (
+            <p role="alert" style={{ margin: 0, fontSize: 13, color: t.danger }}>
+              Clock out before signing out.
+            </p>
+          )}
+          {auth && !signedIn && (auth.unsentKept ?? 0) > 0 && (
+            <p role="status" style={{ margin: 0, fontSize: 13, color: t.muted }}>
+              Signed out. {auth.unsentKept === 1 ? '1 event' : `${auth.unsentKept} events`} will be
+              sent the next time you sign in on this computer.
+            </p>
+          )}
+          {enrollBlocked && (
+            <p
+              role="alert"
+              aria-label="enrollment"
+              style={{ margin: 0, fontSize: 13, color: t.danger }}
+            >
+              {enrollText(enrollment.code)}
+            </p>
+          )}
+          {signedIn && (
+            <>
+              {/* Status and actions stay put; the details below scroll. */}
+              <div
+                style={{
+                  position: 'sticky',
+                  top: 0,
+                  zIndex: 1,
+                  background: t.bg,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 12,
+                  paddingBottom: 2,
                 }}
-                onClose={() => setPickerOpen(false)}
-              />
-            ) : pastDate ? (
-              <PastDial
-                state={past}
-                segments={pastSegs}
-                end={pastEnd}
-                date={pastDate}
-                today={todayDate}
-              />
-            ) : (
-              <DayDial
-                segments={todaySegs}
-                now={now}
-                tint={view ? t.tint[tintFor(view.status)] : undefined}
               >
-                <div
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 6,
-                    fontSize: 11,
-                    fontWeight: 650,
-                    letterSpacing: 0.6,
-                    textTransform: 'uppercase',
-                    color: view ? statusColor(t, view) : t.muted,
-                  }}
+                <section
+                  aria-label="current-status"
+                  style={{ ...card(t), padding: '8px 12px 12px', textAlign: 'center' }}
                 >
-                  <span
-                    aria-hidden
-                    style={{
-                      width: 7,
-                      height: 7,
-                      borderRadius: 999,
-                      background: view ? statusColor(t, view) : t.border,
+                  <DayNav
+                    date={pastDate ?? todayDate}
+                    today={todayDate}
+                    pickerOpen={pickerOpen}
+                    onTogglePicker={() => setPickerOpen((o) => !o)}
+                    onChange={(d) => {
+                      setPickerOpen(false);
+                      showDate(d);
                     }}
                   />
-                  <span>{view ? statusLabel(view, now) : 'Loading…'}</span>
-                </div>
-                {view?.sessionStartedAt != null ? (
-                  <>
-                    <div
-                      aria-label="session-timer"
-                      style={{
-                        fontSize: 30,
-                        fontWeight: 650,
-                        letterSpacing: -0.5,
-                        fontVariantNumeric: 'tabular-nums',
-                        lineHeight: 1.1,
+                  {pickerOpen ? (
+                    <DayPicker
+                      today={todayDate}
+                      selected={pastDate ?? todayDate}
+                      onPick={(d) => {
+                        // A tap opens the day with its sessions and totals (owner request).
+                        setPickerOpen(false);
+                        setDetailsOpen(true);
+                        showDate(d);
                       }}
+                      onClose={() => setPickerOpen(false)}
+                    />
+                  ) : pastDate ? (
+                    <PastDial
+                      state={past}
+                      segments={pastSegs}
+                      end={pastEnd}
+                      date={pastDate}
+                      today={todayDate}
+                    />
+                  ) : (
+                    <DayDial
+                      segments={todaySegs}
+                      now={now}
+                      tint={view ? t.tint[tintFor(view.status)] : undefined}
                     >
-                      {formatTimer(now - view.sessionStartedAt)}
-                    </div>
-                    <div style={{ fontSize: 11, color: t.muted }}>
-                      since {formatClock(view.sessionStartedAt)}
-                    </div>
-                  </>
-                ) : (
-                  view && (
-                    <>
                       <div
                         style={{
-                          fontSize: 26,
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 6,
+                          fontSize: 11,
                           fontWeight: 650,
-                          fontVariantNumeric: 'tabular-nums',
-                          lineHeight: 1.1,
+                          letterSpacing: 0.6,
+                          textTransform: 'uppercase',
+                          color: view ? statusColor(t, view) : t.muted,
                         }}
                       >
-                        {formatWorked(dayOf(view, now).worked)}
+                        <span
+                          aria-hidden
+                          style={{
+                            width: 7,
+                            height: 7,
+                            borderRadius: 999,
+                            background: view ? statusColor(t, view) : t.border,
+                          }}
+                        />
+                        <span>{view ? statusLabel(view, now) : 'Loading…'}</span>
                       </div>
-                      <div style={{ fontSize: 11, color: t.muted }}>worked today</div>
-                    </>
-                  )
+                      {view?.sessionStartedAt != null ? (
+                        <>
+                          <div
+                            aria-label="session-timer"
+                            style={{
+                              fontSize: 30,
+                              fontWeight: 650,
+                              letterSpacing: -0.5,
+                              fontVariantNumeric: 'tabular-nums',
+                              lineHeight: 1.1,
+                            }}
+                          >
+                            {formatTimer(now - view.sessionStartedAt)}
+                          </div>
+                          <div style={{ fontSize: 11, color: t.muted }}>
+                            since {formatClock(view.sessionStartedAt)}
+                          </div>
+                        </>
+                      ) : (
+                        view && (
+                          <>
+                            <div
+                              style={{
+                                fontSize: 26,
+                                fontWeight: 650,
+                                fontVariantNumeric: 'tabular-nums',
+                                lineHeight: 1.1,
+                              }}
+                            >
+                              {formatWorked(dayOf(view, now).worked)}
+                            </div>
+                            <div style={{ fontSize: 11, color: t.muted }}>worked today</div>
+                          </>
+                        )
+                      )}
+                    </DayDial>
+                  )}
+                  {!pastDate && !pickerOpen && view?.status === 'clocked_out' && (
+                    <div style={{ fontSize: 12, color: t.muted, marginTop: 6, lineHeight: 1.4 }}>
+                      {clockedOutHint(view, now)}
+                    </div>
+                  )}
+                </section>
+
+                {!pastDate && view?.status === 'clocked_out' && view.autoClockedOutAt !== null && (
+                  <p
+                    role="status"
+                    style={{
+                      margin: 0,
+                      padding: '10px 12px',
+                      borderRadius: 10,
+                      fontSize: 13,
+                      lineHeight: 1.4,
+                      background: t.warnBg,
+                      color: t.warnText,
+                    }}
+                  >
+                    You were clocked out at {formatClock(view.autoClockedOutAt)} because the idle
+                    prompt wasn&apos;t answered. Time up to when the prompt appeared is kept.
+                  </p>
                 )}
-              </DayDial>
-            )}
-            {!pastDate && !pickerOpen && view?.status === 'clocked_out' && (
-              <div style={{ fontSize: 12, color: t.muted, marginTop: 6, lineHeight: 1.4 }}>
-                {clockedOutHint(view, now)}
+
+                {view && (
+                  <section
+                    aria-label="actions"
+                    style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
+                  >
+                    {/* A past day is for looking back: no clock or break actions (owner request). */}
+                    {pastDate ? (
+                      <BackToToday
+                        view={view}
+                        now={now}
+                        onClick={() => {
+                          setPickerOpen(false);
+                          setViewDate(null);
+                        }}
+                      />
+                    ) : (
+                      <Actions view={view} run={run} onClockOut={askClockOut} />
+                    )}
+                  </section>
+                )}
               </div>
-            )}
-          </section>
 
-          {!pastDate && view?.status === 'clocked_out' && view.autoClockedOutAt !== null && (
-            <p
-              role="status"
-              style={{
-                margin: 0,
-                padding: '10px 12px',
-                borderRadius: 10,
-                fontSize: 13,
-                lineHeight: 1.4,
-                background: t.warnBg,
-                color: t.warnText,
-              }}
-            >
-              You were clocked out at {formatClock(view.autoClockedOutAt)} because the idle prompt
-              wasn&apos;t answered. Time up to when the prompt appeared is kept.
-            </p>
-          )}
-
-          {view && (
-            <section
-              aria-label="actions"
-              style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
-            >
-              {/* A past day is for looking back: no clock or break actions (owner request). */}
-              {pastDate ? (
-                <BackToToday
-                  view={view}
-                  now={now}
-                  onClick={() => {
-                    setPickerOpen(false);
-                    setViewDate(null);
-                  }}
-                />
-              ) : (
-                <Actions view={view} run={run} onClockOut={askClockOut} />
+              {error && !(enrollBlocked && error === enrollment.code) && (
+                <p role="alert" style={{ margin: 0, fontSize: 13, color: t.danger }}>
+                  {ERROR_TEXT[error] ?? `Something went wrong (${error}).`}
+                </p>
               )}
-            </section>
-          )}
 
-          {error && !(enrollBlocked && error === enrollment.code) && (
-            <p role="alert" style={{ margin: 0, fontSize: 13, color: t.danger }}>
-              {ERROR_TEXT[error] ?? `Something went wrong (${error}).`}
-            </p>
-          )}
-
-          {shownSegs.length > 0 && (
-            <DayStats segments={shownSegs} now={shownNow} since={shownSince} />
-          )}
-
-          {shownSegs.length > 0 && (
-            <button
-              type="button"
-              aria-expanded={detailsOpen}
-              onClick={() => setDetailsOpen((o) => !o)}
-              style={{
-                ...linkButton(t),
-                alignSelf: 'center',
-                fontSize: 12,
-                color: t.muted,
-                display: 'flex',
-                alignItems: 'center',
-                gap: 4,
-              }}
-            >
-              {detailsOpen ? 'Hide details' : 'Details: sessions and totals'}
-              <span aria-hidden style={{ fontSize: 9 }}>
-                {detailsOpen ? '▲' : '▼'}
-              </span>
-            </button>
-          )}
-
-          {view && detailsOpen && (
-            <>
-              <section aria-label={pastDate ? 'past-day' : 'today'} style={card(t)}>
-                <h2 style={sectionTitle(t)}>
-                  {pastDate ? `Sessions · ${dayLabel(pastDate, todayDate)}` : 'Sessions today'}
-                </h2>
-                <TimelineView
-                  segments={shownSegs}
-                  now={shownNow}
-                  since={shownSince}
-                  emptyText={pastDate ? 'Nothing was tracked on this day.' : undefined}
-                />
-              </section>
               {shownSegs.length > 0 && (
-                <Footer segments={shownSegs} now={shownNow} since={shownSince} past={!!pastDate} />
+                <DayStats segments={shownSegs} now={shownNow} since={shownSince} />
+              )}
+
+              {shownSegs.length > 0 && (
+                <button
+                  type="button"
+                  aria-expanded={detailsOpen}
+                  onClick={() => setDetailsOpen((o) => !o)}
+                  style={{
+                    ...linkButton(t),
+                    alignSelf: 'center',
+                    fontSize: 12,
+                    color: t.muted,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 4,
+                  }}
+                >
+                  {detailsOpen ? 'Hide details' : 'Details: sessions and totals'}
+                  <span aria-hidden style={{ fontSize: 9 }}>
+                    {detailsOpen ? '▲' : '▼'}
+                  </span>
+                </button>
+              )}
+
+              {view && detailsOpen && (
+                <>
+                  <section aria-label={pastDate ? 'past-day' : 'today'} style={card(t)}>
+                    <h2 style={sectionTitle(t)}>
+                      {pastDate ? `Sessions · ${dayLabel(pastDate, todayDate)}` : 'Sessions today'}
+                    </h2>
+                    <TimelineView
+                      segments={shownSegs}
+                      now={shownNow}
+                      since={shownSince}
+                      emptyText={pastDate ? 'Nothing was tracked on this day.' : undefined}
+                    />
+                  </section>
+                  {shownSegs.length > 0 && (
+                    <Footer
+                      segments={shownSegs}
+                      now={shownNow}
+                      since={shownSince}
+                      past={!!pastDate}
+                    />
+                  )}
+                </>
               )}
             </>
           )}
         </>
       )}
     </main>
+  );
+}
+
+/** Header button: pin the window as the mini strip (ADR-0017). */
+function PinButton({ onClick }: { onClick: () => void }): JSX.Element {
+  const t = useTheme();
+  return (
+    <button
+      type="button"
+      aria-label="Pin to desktop"
+      title="Pin to desktop: a small always-on-top strip (minimising does this too)"
+      onClick={onClick}
+      style={{
+        marginLeft: 8,
+        width: 24,
+        height: 24,
+        padding: 0,
+        border: 'none',
+        borderRadius: 6,
+        background: 'none',
+        color: t.muted,
+        cursor: 'pointer',
+        verticalAlign: 'middle',
+      }}
+    >
+      <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden fill="currentColor">
+        <path d="M10.5 1.5a.75.75 0 0 1 1.06 0l2.94 2.94a.75.75 0 0 1 0 1.06l-1.2 1.2a.75.75 0 0 1-.8.17l-.9-.35-2.3 2.3.4 2.03a.75.75 0 0 1-.2.68l-.9.9a.75.75 0 0 1-1.06 0L5.3 10.19l-3.02 3.02a.75.75 0 1 1-1.06-1.06L4.24 9.13 1.99 6.88a.75.75 0 0 1 0-1.06l.9-.9a.75.75 0 0 1 .68-.2l2.03.4 2.3-2.3-.35-.9a.75.75 0 0 1 .17-.8l1.2-1.2z" />
+      </svg>
+    </button>
   );
 }
 

@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Desktop: pinned mini strip; minimise pins it (ADR-0017, 2026-09-28)
+
+Requested by the project owner ("stick the app to the desktop when
+they minimise the window").
+
+- **Pin to desktop.** A pin button in the header shrinks the window to
+  a small always-on-top strip, top-right by default. The strip shows:
+  - the status light (amber pulse while the idle prompt waits or on a
+    long shift);
+  - the live timer;
+  - one action: Clock in, End break, I'm back, or Break → Bio / Meal.
+  - Hover adds today's worked and break totals. Clock out stays in the
+    full window, because it asks first.
+- **Minimising pins it** while signed in. A pinned strip that gets
+  minimised (Show desktop, Win+M) comes straight back.
+- **Unpin** with a double-click or ⤢. Sign-out unpins, and closing while
+  pinned unpins so the close dialog can ask.
+- **Drag to move.** The spot is remembered in `strip.json` (two
+  numbers) and dropped if that screen is gone. New permission:
+  `core:window:allow-start-dragging`, for the main window only.
+- **Small screens.** The full window now grows to about 70% of the
+  screen height (at least 560 px). Status and actions stay fixed, and
+  the details scroll.
+- macOS: the pin button works. Minimise-to-pin is not verified there
+  yet.
+
 ### Desktop: day picker, and no clock actions on past days (2026-09-28)
 
 Follow-up to ADR-0016, requested by the project owner.

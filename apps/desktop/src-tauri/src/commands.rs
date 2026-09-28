@@ -21,6 +21,7 @@ use crate::keystore::{OsStore, Secrets};
 use crate::machine::{CoreState, Input, PromptResponse};
 use crate::policy::{self, FetchError, FetchOutcome, PolicyDoc};
 use crate::recorder::{Recorder, Target};
+use crate::strip::{self, Pin};
 use crate::sync::live::LiveSync;
 use crate::sync::reqwest_client::TokenSource;
 
@@ -65,26 +66,67 @@ pub fn clamp_height(requested: f64, max: f64) -> f64 {
     requested.clamp(MIN_HEIGHT, max)
 }
 
+/// Pure: the tallest the full window may grow on a work area this
+/// tall — about 70% of it, never under 560 px (small screens), never
+/// past the work area. Beyond it the details scroll.
+pub fn max_height(work_area: f64) -> f64 {
+    (work_area * 0.7).max(560.0).min(work_area - 40.0)
+}
+
 /// Resize the main window to fit its content. The webview measures
 /// its own height and asks; the page gets no window permissions of its
-/// own (least privilege).
+/// own (least privilege). Pinned, the strip's width and limits apply.
 #[tauri::command]
-pub fn fit_window(window: WebviewWindow, height: f64) -> Result<(), String> {
+pub fn fit_window(window: WebviewWindow, pin: State<'_, Pin>, height: f64) -> Result<(), String> {
     if window.label() != "main" {
         return Err("invalid_argument".to_string());
     }
-    let max = window
-        .current_monitor()
-        .ok()
-        .flatten()
-        .map(|m| {
-            let scale = m.scale_factor();
-            f64::from(m.work_area().size.height) / scale - 40.0
-        })
-        .unwrap_or(900.0);
-    window
-        .set_size(LogicalSize::new(MAIN_WIDTH, clamp_height(height, max)))
-        .map_err(|e| e.to_string())
+    let size = if pin.is_pinned() {
+        LogicalSize::new(strip::STRIP_WIDTH, strip::clamp_strip_height(height))
+    } else {
+        let max = window
+            .current_monitor()
+            .ok()
+            .flatten()
+            .map(|m| max_height(f64::from(m.work_area().size.height) / m.scale_factor()))
+            .unwrap_or(900.0);
+        LogicalSize::new(MAIN_WIDTH, clamp_height(height, max))
+    };
+    window.set_size(size).map_err(|e| e.to_string())
+}
+
+/// Pin the main window as the mini strip (ADR-0017). Needs a signed-in
+/// user: signed out there is nothing to show on it.
+#[tauri::command]
+pub fn pin_window(
+    window: WebviewWindow,
+    pin: State<'_, Pin>,
+    auth: State<'_, Arc<Auth>>,
+) -> Result<bool, String> {
+    if window.label() != "main" {
+        return Err("invalid_argument".to_string());
+    }
+    if auth.oid().is_none() {
+        return Err("not_signed_in".to_string());
+    }
+    pin.pin(&window).map_err(|e| e.to_string())?;
+    Ok(true)
+}
+
+/// Back to the full window.
+#[tauri::command]
+pub fn unpin_window(window: WebviewWindow, pin: State<'_, Pin>) -> Result<bool, String> {
+    if window.label() != "main" {
+        return Err("invalid_argument".to_string());
+    }
+    pin.unpin(&window).map_err(|e| e.to_string())?;
+    Ok(false)
+}
+
+/// Whether the main window is the strip (after a webview reload).
+#[tauri::command]
+pub fn pin_status(pin: State<'_, Pin>) -> bool {
+    pin.is_pinned()
 }
 
 #[tauri::command]
@@ -475,6 +517,12 @@ fn sign_out_blocking(
     let oid = auth.oid();
     app.state::<LiveSync>().stop();
     app.state::<DayCache>().clear();
+    // The strip is for a signed-in user: back to the full window.
+    if let Some(w) = app.get_webview_window("main") {
+        if let Err(e) = app.state::<Pin>().unpin(&w) {
+            eprintln!("[cloudpunch] could not unpin at sign-out: {e}");
+        }
+    }
     recorder.disarm();
     // The next user starts from the defaults until their policy arrives,
     // with an empty day on screen.
@@ -728,6 +776,14 @@ mod tests {
         assert_eq!(clamp_height(500.0, 900.0), 500.0);
         assert_eq!(clamp_height(100.0, 900.0), MIN_HEIGHT);
         assert_eq!(clamp_height(2_000.0, 900.0), 900.0);
+    }
+
+    #[test]
+    fn max_height_is_about_70_percent_of_the_screen() {
+        assert_eq!(max_height(1040.0), 728.0);
+        // Small screens still get 560, but never past the work area.
+        assert_eq!(max_height(700.0), 560.0);
+        assert_eq!(max_height(560.0), 520.0);
     }
 
     #[test]
