@@ -39,8 +39,9 @@ they minimise the window").
     long shift);
   - the live timer;
   - one action: Clock in, End break, I'm back, or Break → Bio / Meal.
-  - Hover adds today's worked and break totals. Clock out stays in the
-    full window, because it asks first.
+  - Hover adds today's worked and break totals, and **In a meeting**
+    while clocked in (not during a detected call, as in the full
+    window). Clock out stays in the full window, because it asks first.
 - **Minimising pins it** while signed in. A pinned strip that gets
   minimised (Show desktop, Win+M) comes straight back.
 - **Unpin** with a double-click or ⤢. Sign-out unpins, and closing while

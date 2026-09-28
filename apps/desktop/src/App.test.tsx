@@ -1005,6 +1005,27 @@ describe('pinned mini strip (ADR-0017)', () => {
     expect(await within(strip).findByRole('button', { name: 'End break' })).toBeInTheDocument();
   });
 
+  it('hover offers In a meeting while clocked in, but not during a call', async () => {
+    mocks.getState.mockResolvedValue(view({ status: 'active', sessionStartedAt: Date.now() }));
+    mocks.markAway.mockResolvedValue(
+      view({ status: 'away', awayReason: 'meeting', sessionStartedAt: Date.now() }),
+    );
+    mocks.pinStatus.mockResolvedValue(true);
+    const user = userEvent.setup();
+    render(<App />);
+    const strip = await screen.findByRole('region', { name: 'pinned-strip' });
+    await user.hover(strip);
+    await user.click(within(strip).getByRole('button', { name: 'In a meeting' }));
+    expect(mocks.markAway).toHaveBeenCalledWith('meeting');
+    expect(await within(strip).findByRole('button', { name: "I'm back" })).toBeInTheDocument();
+
+    act(() =>
+      pushState(view({ status: 'on_call', callType: 'teams', sessionStartedAt: Date.now() })),
+    );
+    expect(within(strip).getByRole('button', { name: 'Bio break' })).toBeInTheDocument();
+    expect(within(strip).queryByRole('button', { name: 'In a meeting' })).not.toBeInTheDocument();
+  });
+
   it('dragging moves the window only after the mouse travels', async () => {
     mocks.getState.mockResolvedValue(view());
     mocks.pinStatus.mockResolvedValue(true);
