@@ -159,6 +159,35 @@ pub fn clock_in(
     run(&agent, Input::ClockIn)
 }
 
+/// Clock in from when the person signed in to the computer
+/// (ADR-0018 §4). Same gates as `clock_in`.
+#[tauri::command]
+pub fn clock_in_from_sign_in(
+    agent: State<'_, Arc<Agent>>,
+    auth: State<'_, Arc<Auth>>,
+    enrollment: State<'_, Arc<Enrollment>>,
+    recorder: State<'_, Recorder>,
+) -> CommandResult {
+    if auth.oid().is_none() {
+        return Err("not_signed_in".to_string());
+    }
+    if let Some(code) = enrollment.blocked() {
+        return Err(code.to_string());
+    }
+    if !recorder.can_record() {
+        return Err("not_enrolled".to_string());
+    }
+    agent
+        .clock_in_from_sign_in()
+        .map_err(|r| rejection_code(&r).to_string())
+}
+
+/// "Not now" on the daily clock-in popup.
+#[tauri::command]
+pub fn dismiss_clock_in_prompt(agent: State<'_, Arc<Agent>>) -> StateView {
+    agent.dismiss_clock_in_prompt()
+}
+
 #[tauri::command]
 pub fn enrollment_status(enrollment: State<'_, Arc<Enrollment>>) -> EnrollmentStatus {
     enrollment.status()

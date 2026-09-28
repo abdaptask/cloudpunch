@@ -268,6 +268,16 @@ computer is in use, then every this many minutes. There are no nudges
 once anything has been tracked today, in quiet hours, or while the
 CloudPunch window is showing. ADR-0013 §7.
 
+**Setting:** `reminders.clock_in_prompt_at` / `reminders.clock_in_prompt_tz`
+**Default:** `"08:00"` / `"America/New_York"` · `null` time turns it off
+**Effect:** On weekdays in that zone, from that time, the window comes
+forward with "Time to clock in" for someone at the computer, signed in
+and not yet clocked in. It shows once a day. It offers to start from
+when they signed in to the computer (logon, unlock or wake), if that is
+1 minute to 12 hours ago and after the last session. Never automatic.
+It follows the zone's daylight saving (8:00 New York = 17:30 IST in
+summer, 18:30 IST in winter). ADR-0018 §4.
+
 **Setting:** `reminders.long_day_hours`
 **Default:** `8` · **Range:** 4 – 16
 **Effect:** End-of-day summary. A clock-out or sign-out after at least

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { api, type StateView } from './api.js';
 import { BreakOnCallDialog, callName, type BreakKind } from './BreakOnCallDialog.js';
+import { ClockInPrompt } from './ClockInPrompt.js';
 import { ClockOutDialog } from './ClockOutDialog.js';
 import { IdleReturnDialog } from './IdleReturnDialog.js';
 import { DayDial } from './DayDial.js';
@@ -174,6 +175,8 @@ const ERROR_TEXT: Record<string, string> = {
   invalid_transition: "That action isn't available right now.",
   // First clock-in on this computer waits for enrollment (2b.4 F3c).
   not_enrolled: 'Connecting to CloudPunch… try again in a moment.',
+  // ADR-0018 §4: the sign-in is over 12 hours old or before the last session.
+  start_out_of_range: "That sign-in time can't be used any more. Clock in now instead.",
   ...ENROLL_TEXT,
 };
 
@@ -369,6 +372,14 @@ export function App(): JSX.Element {
                 run(() => api.startBreak(kind));
               }}
               onCancel={() => setClockOutAsked(false)}
+            />
+          )}
+          {signedIn && view?.clockInPrompt && view.status === 'clocked_out' && (
+            <ClockInPrompt
+              signedInAt={view.signedInAt}
+              onClockInFrom={() => run(api.clockInFromSignIn)}
+              onClockInNow={() => run(api.clockIn)}
+              onNotNow={() => run(api.dismissClockInPrompt)}
             />
           )}
           {signedIn && view?.idleReturn && (
@@ -712,9 +723,31 @@ function Actions({
   switch (view.status) {
     case 'clocked_out':
       return (
-        <Button variant="go" onClick={() => run(api.clockIn)}>
-          Clock in
-        </Button>
+        <>
+          <Button variant="go" onClick={() => run(api.clockIn)}>
+            Clock in
+          </Button>
+          {/* ADR-0018 §4: start from when they signed in to the computer. */}
+          {view.signedInAt !== null && (
+            <button
+              type="button"
+              onClick={() => run(api.clockInFromSignIn)}
+              style={{
+                alignSelf: 'center',
+                padding: 0,
+                border: 'none',
+                background: 'none',
+                color: 'inherit',
+                font: 'inherit',
+                fontSize: 12,
+                textDecoration: 'underline',
+                cursor: 'pointer',
+              }}
+            >
+              or clock in from {formatClock(view.signedInAt)}, when you signed in
+            </button>
+          )}
+        </>
       );
     case 'active':
     case 'on_call':

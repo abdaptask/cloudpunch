@@ -32,6 +32,8 @@ const mocks = vi.hoisted(() => ({
   onEnrollment: vi.fn<(cb: (s: EnrollmentStatus) => void) => Promise<() => void>>(),
   getDay: vi.fn<(date: string) => Promise<DayResult>>(),
   getDays: vi.fn<(from: string, to: string) => Promise<DaysResult>>(),
+  clockInFromSignIn: vi.fn<() => Promise<StateView>>(),
+  dismissClockInPrompt: vi.fn<() => Promise<StateView>>(),
   explainIdle: vi.fn<(explanation: string, note: string | null) => Promise<StateView>>(),
   dismissIdleReturn: vi.fn<() => Promise<StateView>>(),
   pinWindow: vi.fn<() => Promise<boolean>>(),
@@ -63,6 +65,8 @@ function view(over: Partial<StateView> = {}): StateView {
     idleSince: null,
     idleReturn: null,
     autoClockOutReason: null,
+    signedInAt: null,
+    clockInPrompt: false,
     ...over,
   };
 }
@@ -1297,5 +1301,61 @@ describe('logged idle (ADR-0018)', () => {
     expect(await screen.findByRole('status')).toHaveTextContent(
       /after a long idle stretch\. The idle time is kept for your manager to review/,
     );
+  });
+});
+
+describe('daily clock-in popup (ADR-0018 §4)', () => {
+  const hhmm = (ms: number): string => {
+    const d = new Date(ms);
+    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  };
+
+  it('offers to start from the computer sign-in, or now, or not now', async () => {
+    const signedInAt = Date.now() - 25 * 60_000;
+    mocks.getState.mockResolvedValue(view({ clockInPrompt: true, signedInAt }));
+    mocks.clockInFromSignIn.mockResolvedValue(
+      view({ status: 'active', sessionStartedAt: signedInAt }),
+    );
+    const user = userEvent.setup();
+    render(<App />);
+    const prompt = await screen.findByRole('dialog', { name: 'clock-in-prompt' });
+    expect(prompt).toHaveTextContent(`You signed in to your computer at ${hhmm(signedInAt)}`);
+    expect(prompt).not.toHaveTextContent('Good morning');
+    expect(within(prompt).getByRole('button', { name: 'Clock in now' })).toBeInTheDocument();
+    expect(within(prompt).getByRole('button', { name: 'Not now' })).toBeInTheDocument();
+    await user.click(
+      within(prompt).getByRole('button', { name: `Clock in from ${hhmm(signedInAt)}` }),
+    );
+    expect(mocks.clockInFromSignIn).toHaveBeenCalledOnce();
+    expect(mocks.clockIn).not.toHaveBeenCalled();
+  });
+
+  it('without a usable sign-in time it just offers Clock in; Not now closes it', async () => {
+    mocks.getState.mockResolvedValue(view({ clockInPrompt: true }));
+    mocks.dismissClockInPrompt.mockResolvedValue(view());
+    const user = userEvent.setup();
+    render(<App />);
+    const prompt = await screen.findByRole('dialog', { name: 'clock-in-prompt' });
+    expect(prompt).toHaveTextContent('Ready to start your day?');
+    expect(within(prompt).queryByRole('button', { name: /Clock in from/ })).not.toBeInTheDocument();
+    await user.click(within(prompt).getByRole('button', { name: 'Not now' }));
+    expect(mocks.dismissClockInPrompt).toHaveBeenCalledOnce();
+    expect(screen.queryByRole('dialog', { name: 'clock-in-prompt' })).not.toBeInTheDocument();
+  });
+
+  it('the home screen also offers the sign-in start under Clock in', async () => {
+    const signedInAt = Date.now() - 10 * 60_000;
+    mocks.getState.mockResolvedValue(view({ signedInAt }));
+    mocks.clockInFromSignIn.mockResolvedValue(
+      view({ status: 'active', sessionStartedAt: signedInAt }),
+    );
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(
+      await screen.findByRole('button', {
+        name: `or clock in from ${hhmm(signedInAt)}, when you signed in`,
+      }),
+    );
+    expect(mocks.clockInFromSignIn).toHaveBeenCalledOnce();
   });
 });

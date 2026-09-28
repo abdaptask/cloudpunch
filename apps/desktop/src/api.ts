@@ -51,6 +51,10 @@ export interface StateView {
   idleReturn: IdleReturn | null;
   /** Why `autoClockedOutAt`: `idle_cap` (ADR-0018) or `prompt` (older). */
   autoClockOutReason: 'idle_cap' | 'prompt' | null;
+  /** Computer sign-in time a clock-in may start from (ADR-0018 §4). */
+  signedInAt: number | null;
+  /** The daily clock-in popup is showing (8:00 New York by default). */
+  clockInPrompt: boolean;
 }
 
 /** The window's close button was pressed (ADR-0013 §1). */
@@ -89,6 +93,9 @@ export const ENROLLMENT_EVENT = 'cp://enrollment';
 export const api = {
   getState: (): Promise<StateView> => invoke<StateView>('get_state'),
   clockIn: (): Promise<StateView> => invoke<StateView>('clock_in'),
+  /** Start from the computer sign-in time; rejects `start_out_of_range`. */
+  clockInFromSignIn: (): Promise<StateView> => invoke<StateView>('clock_in_from_sign_in'),
+  dismissClockInPrompt: (): Promise<StateView> => invoke<StateView>('dismiss_clock_in_prompt'),
   clockOut: (): Promise<StateView> => invoke<StateView>('clock_out'),
   startBreak: (kind: 'bio' | 'meal'): Promise<StateView> =>
     invoke<StateView>('start_break', { kind }),
