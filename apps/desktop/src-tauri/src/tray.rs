@@ -55,6 +55,15 @@ pub fn render_status_label(state: &TrayStateSnapshot) -> String {
     .to_string()
 }
 
+/// Asks the main window to confirm a break started from the tray during
+/// a call; the payload is `"bio"` or `"meal"`.
+pub const BREAK_ON_CALL_EVENT: &str = "cp://break-on-call";
+
+fn on_call<R: Runtime>(app: &AppHandle<R>) -> bool {
+    app.try_state::<Arc<Agent>>()
+        .is_some_and(|a| a.view().status == "on_call")
+}
+
 /// `(menu id, label)` for the state's action items. Pure.
 pub fn action_items(state: TrayStateSnapshot) -> &'static [(&'static str, &'static str)] {
     match state {
@@ -248,6 +257,20 @@ pub fn install<R: Runtime>(app: &AppHandle<R>, state: TrayStateSnapshot) -> taur
                 if let Some(w) = app.get_webview_window("main") {
                     let _ = w.show();
                     let _ = w.set_focus();
+                }
+            }
+            // On a call, a break asks first in the window: "You're on a
+            // Teams call — take a break anyway?" (owner request).
+            "bio_break" | "meal_break" if on_call(app) => {
+                if let Some(w) = app.get_webview_window("main") {
+                    let _ = w.show();
+                    let _ = w.set_focus();
+                    let kind = if event.id.as_ref() == "bio_break" {
+                        "bio"
+                    } else {
+                        "meal"
+                    };
+                    let _ = tauri::Emitter::emit(&w, BREAK_ON_CALL_EVENT, kind);
                 }
             }
             id => match (input_for(id), app.try_state::<Arc<Agent>>()) {

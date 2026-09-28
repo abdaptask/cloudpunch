@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { api, type StateView } from './api.js';
+import { BreakOnCallDialog, callName, type BreakKind } from './BreakOnCallDialog.js';
 import { ClockOutDialog } from './ClockOutDialog.js';
 import { DayDial } from './DayDial.js';
 import { DayPicker } from './DayPicker.js';
@@ -187,6 +188,8 @@ export function App(): JSX.Element {
   const [clockOutAsked, setClockOutAsked] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const askClockOut = (): void => setClockOutAsked(true);
+  // A break during a detected call asks first (owner request).
+  const [breakOnCall, setBreakOnCall] = useState<BreakKind | null>(null);
 
   // Past days (ADR-0016): null shows today, live.
   const [viewDate, setViewDate] = useState<string | null>(null);
@@ -222,6 +225,14 @@ export function App(): JSX.Element {
         void api.unpinWindow().catch(() => undefined);
         setCloseAsked(true);
       }
+    });
+    return () => void off.then((fn) => fn());
+  }, []);
+  // The tray's Bio / Meal break during a call lands here to ask first.
+  useEffect(() => {
+    const off = api.onBreakOnCall((kind) => {
+      void api.unpinWindow().catch(() => undefined);
+      setBreakOnCall(kind);
     });
     return () => void off.then((fn) => fn());
   }, []);
@@ -346,11 +357,24 @@ export function App(): JSX.Element {
                 setClockOutAsked(false);
                 run(api.clockOut);
               }}
+              call={view.status === 'on_call' ? callName(view.callType) : null}
               onBreak={(kind) => {
                 setClockOutAsked(false);
                 run(() => api.startBreak(kind));
               }}
               onCancel={() => setClockOutAsked(false)}
+            />
+          )}
+          {breakOnCall && view?.status === 'on_call' && (
+            <BreakOnCallDialog
+              kind={breakOnCall}
+              callType={view.callType}
+              onStart={() => {
+                const kind = breakOnCall;
+                setBreakOnCall(null);
+                run(() => api.startBreak(kind));
+              }}
+              onCancel={() => setBreakOnCall(null)}
             />
           )}
           {signedIn && !pastDate && view?.longShift && view.sessionStartedAt !== null && (
@@ -545,7 +569,16 @@ export function App(): JSX.Element {
                         }}
                       />
                     ) : (
-                      <Actions view={view} run={run} onClockOut={askClockOut} />
+                      <Actions
+                        view={view}
+                        run={run}
+                        onClockOut={askClockOut}
+                        onBreak={(kind) =>
+                          view.status === 'on_call'
+                            ? setBreakOnCall(kind)
+                            : run(() => api.startBreak(kind))
+                        }
+                      />
                     )}
                   </section>
                 )}
@@ -647,11 +680,14 @@ function Actions({
   view,
   run,
   onClockOut,
+  onBreak,
 }: {
   view: StateView;
   run: (command: () => Promise<StateView>) => void;
   /** Opens the "Clock out now?" dialog. */
   onClockOut: () => void;
+  /** Starts a break, asking first during a call. */
+  onBreak: (kind: BreakKind) => void;
 }): JSX.Element {
   const chips = (children: ReactNode): JSX.Element => (
     <div style={{ display: 'flex', gap: 6 }}>{children}</div>
@@ -675,10 +711,10 @@ function Actions({
           </Button>
           {chips(
             <>
-              <Button variant="chip" onClick={() => run(() => api.startBreak('bio'))}>
+              <Button variant="chip" onClick={() => onBreak('bio')}>
                 Bio break
               </Button>
-              <Button variant="chip" onClick={() => run(() => api.startBreak('meal'))}>
+              <Button variant="chip" onClick={() => onBreak('meal')}>
                 Meal break
               </Button>
               {/* Not offered during a call: it's already tracked (ADR-0009 §2). */}

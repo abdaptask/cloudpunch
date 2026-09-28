@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Desktop: a break during a call asks first (2026-09-28)
+
+Owner request.
+
+- **Bio or Meal break while on a detected call** asks: "You're on a
+  Teams call. Take a bio break anyway? The Teams call so far stays
+  counted as a call. If the call is still going when you end the break,
+  it counts as a call again." The answers are **Start bio break: I've
+  left the call** and **Stay on the call**.
+- It asks the same way from all three places:
+  - **the window;**
+  - **the pinned strip**, inline;
+  - **the tray menu**, which brings the window forward and unpins it.
+- The question goes away if the call ends while it's showing.
+- **Clock out during a call** says so in the "Clock out now?" dialog:
+  "You're on a Teams call. Clocking out ends your shift now; the call
+  time so far is kept."
+
 ### Desktop: end-of-day summary (ADR-0013 §8, 2026-09-28)
 
 Monday UI plan, PR 3. Assumptions confirmed by the project owner.

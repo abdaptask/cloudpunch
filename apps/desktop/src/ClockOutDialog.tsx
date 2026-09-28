@@ -9,12 +9,15 @@ import { useTheme } from './ui/theme.js';
  */
 export function ClockOutDialog({
   offerBreaks,
+  call = null,
   onClockOut,
   onBreak,
   onCancel,
 }: {
   /** True while working (Active / on a call): offer a break instead. */
   offerBreaks: boolean;
+  /** "Teams call" while on a detected call, else null. */
+  call?: string | null;
   onClockOut: () => void;
   onBreak: (kind: 'bio' | 'meal') => void;
   onCancel: () => void;
@@ -37,6 +40,11 @@ export function ClockOutDialog({
       }}
     >
       <h2 style={{ margin: 0, fontSize: 16, fontWeight: 650 }}>Clock out now?</h2>
+      {call && (
+        <p style={{ ...text, color: t.text }}>
+          You&apos;re on a {call}. Clocking out ends your shift now; the call time so far is kept.
+        </p>
+      )}
       <p style={text}>
         {offerBreaks
           ? 'This ends your shift. Stepping away for a bit? Take a break instead, and your day stays in one session.'

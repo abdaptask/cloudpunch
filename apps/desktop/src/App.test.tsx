@@ -26,6 +26,7 @@ const mocks = vi.hoisted(() => ({
   quitApp: vi.fn<() => Promise<void>>(),
   clockOutAndQuit: vi.fn<() => Promise<void>>(),
   onCloseRequested: vi.fn<(cb: () => void) => Promise<() => void>>(),
+  onBreakOnCall: vi.fn<(cb: (kind: 'bio' | 'meal') => void) => Promise<() => void>>(),
   ackLongShift: vi.fn<() => Promise<StateView>>(),
   enrollmentStatus: vi.fn<() => Promise<EnrollmentStatus>>(),
   onEnrollment: vi.fn<(cb: (s: EnrollmentStatus) => void) => Promise<() => void>>(),
@@ -66,6 +67,7 @@ let pushAuth: (s: AuthStatus) => void = () => undefined;
 let pressClose: () => void = () => undefined;
 let pushEnrollment: (s: EnrollmentStatus) => void = () => undefined;
 let pushPinned: (p: boolean) => void = () => undefined;
+let trayBreakOnCall: (kind: 'bio' | 'meal') => void = () => undefined;
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -95,6 +97,10 @@ beforeEach(() => {
   mocks.pinWindow.mockResolvedValue(true);
   mocks.unpinWindow.mockResolvedValue(false);
   mocks.startDragging.mockResolvedValue(undefined);
+  mocks.onBreakOnCall.mockImplementation((cb) => {
+    trayBreakOnCall = cb;
+    return Promise.resolve(() => undefined);
+  });
   mocks.onPinned.mockImplementation((cb) => {
     pushPinned = cb;
     return Promise.resolve(() => undefined);
@@ -1129,5 +1135,77 @@ describe('end-of-day summary (ADR-0013 §8)', () => {
     await user.click(await screen.findByRole('button', { name: 'Sign out' }));
     const trip = await screen.findByRole('dialog', { name: 'trip-complete' });
     expect(trip).toHaveTextContent('Signed out · See you tomorrow');
+  });
+});
+
+describe('break during a call asks first (owner request)', () => {
+  const onCall = (): StateView =>
+    view({ status: 'on_call', callType: 'teams', sessionStartedAt: Date.now() - 60_000 });
+
+  it('asks, Stay on the call does nothing, Start break starts it', async () => {
+    mocks.getState.mockResolvedValue(onCall());
+    mocks.startBreak.mockResolvedValue(view({ status: 'on_break', breakKind: 'bio' }));
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole('button', { name: 'Bio break' }));
+    const dialog = screen.getByRole('dialog', { name: 'break-on-call' });
+    expect(dialog).toHaveTextContent("You're on a Teams call");
+    expect(dialog).toHaveTextContent('it counts as a call again');
+    await user.click(within(dialog).getByRole('button', { name: 'Stay on the call' }));
+    expect(mocks.startBreak).not.toHaveBeenCalled();
+    expect(screen.queryByRole('dialog', { name: 'break-on-call' })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Meal break' }));
+    await user.click(screen.getByRole('button', { name: "Start meal break: I've left the call" }));
+    expect(mocks.startBreak).toHaveBeenCalledWith('meal');
+  });
+
+  it('not on a call: a break starts straight away', async () => {
+    mocks.getState.mockResolvedValue(view({ status: 'active', sessionStartedAt: Date.now() }));
+    mocks.startBreak.mockResolvedValue(view({ status: 'on_break', breakKind: 'bio' }));
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole('button', { name: 'Bio break' }));
+    expect(mocks.startBreak).toHaveBeenCalledWith('bio');
+    expect(screen.queryByRole('dialog', { name: 'break-on-call' })).not.toBeInTheDocument();
+  });
+
+  it('the tray asks through the window, and the question goes when the call ends', async () => {
+    mocks.getState.mockResolvedValue(onCall());
+    render(<App />);
+    await screen.findByRole('button', { name: 'Bio break' });
+    act(() => trayBreakOnCall('bio'));
+    expect(screen.getByRole('dialog', { name: 'break-on-call' })).toHaveTextContent(
+      'Take a bio break anyway?',
+    );
+    expect(mocks.unpinWindow).toHaveBeenCalled();
+    act(() => pushState(view({ status: 'active', sessionStartedAt: Date.now() })));
+    expect(screen.queryByRole('dialog', { name: 'break-on-call' })).not.toBeInTheDocument();
+  });
+
+  it('clock out on a call says the call time is kept', async () => {
+    mocks.getState.mockResolvedValue(onCall());
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole('button', { name: 'Clock out' }));
+    expect(screen.getByRole('dialog', { name: 'clock-out-dialog' })).toHaveTextContent(
+      "You're on a Teams call. Clocking out ends your shift now",
+    );
+  });
+
+  it('the pinned strip asks inline', async () => {
+    mocks.getState.mockResolvedValue(onCall());
+    mocks.startBreak.mockResolvedValue(view({ status: 'on_break', breakKind: 'bio' }));
+    mocks.pinStatus.mockResolvedValue(true);
+    const user = userEvent.setup();
+    render(<App />);
+    const strip = await screen.findByRole('region', { name: 'pinned-strip' });
+    await user.hover(strip);
+    await user.click(within(strip).getByRole('button', { name: 'Bio break' }));
+    const ask = within(strip).getByRole('alertdialog', { name: 'strip-break-on-call' });
+    expect(ask).toHaveTextContent("You're on a Teams call");
+    expect(mocks.startBreak).not.toHaveBeenCalled();
+    await user.click(within(ask).getByRole('button', { name: 'Start break' }));
+    expect(mocks.startBreak).toHaveBeenCalledWith('bio');
   });
 });
