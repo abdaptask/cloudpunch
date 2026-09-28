@@ -5,6 +5,8 @@
 .env.*
 !.env.example
 *.pem
+# The pilot server's CA root: a public certificate, no key (ADR-0019).
+!apps/desktop/pilot/pilot-ca.pem
 *.key
 *.p12
 *.pfx
