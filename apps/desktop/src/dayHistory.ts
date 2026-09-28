@@ -136,6 +136,7 @@ export function tintFor(status: Status): Tint {
       return 'working';
     case 'on_break':
     case 'idle_pending':
+    case 'idle':
       return 'break';
     case 'clocked_out':
       return 'off';

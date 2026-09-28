@@ -1,4 +1,5 @@
 import type { TimeEventRecord, TimeSession } from '../db/index.js';
+import { startFromSignIn } from '../events/start.js';
 import { nextState, type PayrollState } from '../events/state-machine.js';
 
 /**
@@ -27,7 +28,8 @@ export type SegmentKind =
   | 'away_meeting'
   | 'away_phone'
   | 'away_working'
-  | 'prompt';
+  | 'prompt'
+  | 'idle';
 
 export interface DaySegment {
   kind: SegmentKind;
@@ -35,6 +37,8 @@ export interface DaySegment {
   endedAt: Date;
   /** Offset (minutes east of UTC) of the event that started it. */
   offsetMinutes: number;
+  /** An idle stretch's own account (ADR-0018 §2), for the manager. */
+  explanation?: { explanation: string; note: string | null };
 }
 
 export interface BuiltSession {
@@ -43,6 +47,8 @@ export interface BuiltSession {
   /** Offset recorded at clock-in. */
   offsetMinutes: number;
   clockIn: Date;
+  /** Started from the Windows sign-in time (ADR-0018 §4). */
+  startedFromSignIn: boolean;
   /** Where the session ends: its close, else the last segment's end. */
   end: Date;
   open: boolean;
@@ -104,6 +110,8 @@ function kindAfter(
       return current ?? 'away_working';
     case 'IDLE_PENDING':
       return 'prompt';
+    case 'IDLE':
+      return 'idle';
     case 'CLOSED':
       return null;
   }
@@ -118,6 +126,9 @@ export function buildSession(
   const ordered = [...events].sort((a, b) => a.sequenceNumber - b.sequenceNumber);
   const clockInEvt = ordered.find((e) => e.eventType === 'USER_CLOCK_IN');
   if (!clockInEvt) return null;
+  const signInStart = startFromSignIn(clockInEvt.clientTs, clockInEvt.payload);
+  const clockIn = signInStart ?? clockInEvt.clientTs;
+  const explained = new Map<number, { explanation: string; note: string | null }>();
 
   const segments: DaySegment[] = [];
   let state: PayrollState = 'CLOSED';
@@ -139,21 +150,54 @@ export function buildSession(
       next = nextState(state, evt.eventType, evt.payload);
     }
     if (next === null) continue; // ingest already rejected invalid ones
+    if (evt.eventType === 'USER_IDLE_EXPLAINED') {
+      const since = Date.parse(str(evt.payload['idle_since']) ?? '');
+      explained.set(since, {
+        explanation: str(evt.payload['explanation']) ?? 'idle',
+        note: str(evt.payload['note']),
+      });
+      continue;
+    }
+    if (evt.eventType === 'IDLE_STARTED') {
+      // ADR-0018 §1: idle runs from the last input, so the silent
+      // minutes before the prompt (and the prompt) become idle too.
+      const since = new Date(
+        Math.min(
+          evt.clientTs.getTime(),
+          Math.max(clockIn.getTime(), Date.parse(str(evt.payload['idle_since']) ?? '')),
+        ),
+      );
+      cur.seg = null;
+      for (let last = segments.at(-1); last && last.startedAt >= since; last = segments.at(-1)) {
+        segments.pop();
+      }
+      const last = segments[segments.length - 1];
+      if (last && last.endedAt > since) last.endedAt = since;
+      state = next;
+      cur.seg = { kind: 'idle', startedAt: since, offsetMinutes: evt.utcOffsetMinutes };
+      continue;
+    }
     const kind = kindAfter(next, evt, cur.seg?.kind ?? null);
     state = next;
     if (kind === (cur.seg?.kind ?? null)) continue;
-    closeAt(evt.clientTs);
-    if (kind) cur.seg = { kind, startedAt: evt.clientTs, offsetMinutes: evt.utcOffsetMinutes };
+    const at = evt === clockInEvt ? clockIn : evt.clientTs;
+    closeAt(at);
+    if (kind) cur.seg = { kind, startedAt: at, offsetMinutes: evt.utcOffsetMinutes };
   }
 
   const isOpen = session.closedAt === null;
   closeAt(session.closedAt ?? now);
+  for (const seg of segments) {
+    const e = seg.kind === 'idle' ? explained.get(seg.startedAt.getTime()) : undefined;
+    if (e) seg.explanation = e;
+  }
   const last = segments[segments.length - 1];
   return {
     session,
     tzIana: clockInEvt.tzIana,
     offsetMinutes: clockInEvt.utcOffsetMinutes,
-    clockIn: clockInEvt.clientTs,
+    clockIn,
+    startedFromSignIn: signInStart !== null,
     end: isOpen ? now : (session.closedAt ?? last?.endedAt ?? clockInEvt.clientTs),
     open: isOpen,
     segments,
@@ -199,16 +243,26 @@ export interface DayTotals {
   meetings_ms: number;
   breaks_ms: number;
   prompt_ms: number;
+  /** Logged idle (ADR-0018): never worked. */
+  idle_ms: number;
 }
 
 /** Worked = at the computer + calls + away (meeting/phone/working away). */
 export function totals(day: WorkingDay | null): DayTotals {
-  const out: DayTotals = { worked_ms: 0, calls_ms: 0, meetings_ms: 0, breaks_ms: 0, prompt_ms: 0 };
+  const out: DayTotals = {
+    worked_ms: 0,
+    calls_ms: 0,
+    meetings_ms: 0,
+    breaks_ms: 0,
+    prompt_ms: 0,
+    idle_ms: 0,
+  };
   for (const s of day?.sessions ?? []) {
     for (const seg of s.segments) {
       const ms = seg.endedAt.getTime() - seg.startedAt.getTime();
       if (seg.kind.endsWith('_break')) out.breaks_ms += ms;
       else if (seg.kind === 'prompt') out.prompt_ms += ms;
+      else if (seg.kind === 'idle') out.idle_ms += ms;
       else {
         out.worked_ms += ms;
         if (seg.kind.startsWith('call_')) out.calls_ms += ms;

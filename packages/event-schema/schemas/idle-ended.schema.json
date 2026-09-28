@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cloudpunch.aptask.com/schemas/idle-ended.schema.json",
+  "title": "IDLE_ENDED event",
+  "description": "Input came back after logged idle; client_ts is when. IDLE → ACTIVE. idle_since repeats where the stretch began. See ADR-0018 §1.",
+  "allOf": [
+    {
+      "$ref": "common/base-event.schema.json"
+    },
+    {
+      "type": "object",
+      "properties": {
+        "event_type": {
+          "const": "IDLE_ENDED"
+        },
+        "payload": {
+          "type": "object",
+          "properties": {
+            "idle_since": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          "additionalProperties": false
+        }
+      }
+    }
+  ]
+}

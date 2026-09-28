@@ -32,6 +32,8 @@ const mocks = vi.hoisted(() => ({
   onEnrollment: vi.fn<(cb: (s: EnrollmentStatus) => void) => Promise<() => void>>(),
   getDay: vi.fn<(date: string) => Promise<DayResult>>(),
   getDays: vi.fn<(from: string, to: string) => Promise<DaysResult>>(),
+  explainIdle: vi.fn<(explanation: string, note: string | null) => Promise<StateView>>(),
+  dismissIdleReturn: vi.fn<() => Promise<StateView>>(),
   pinWindow: vi.fn<() => Promise<boolean>>(),
   unpinWindow: vi.fn<() => Promise<boolean>>(),
   pinStatus: vi.fn<() => Promise<boolean>>(),
@@ -58,6 +60,9 @@ function view(over: Partial<StateView> = {}): StateView {
     timeline: [],
     longShift: false,
     longDayMs: 8 * 3_600_000,
+    idleSince: null,
+    idleReturn: null,
+    autoClockOutReason: null,
     ...over,
   };
 }
@@ -1087,7 +1092,9 @@ describe('end-of-day summary (ADR-0013 §8)', () => {
     act(() => pushState(day(8.5, 'clocked_out')));
     const trip = await screen.findByRole('dialog', { name: 'trip-complete' });
     expect(within(trip).getByLabelText('odometer')).toHaveTextContent('08:30');
-    expect(within(trip).getByLabelText('trip-line')).toHaveTextContent('8h 30m · 1 call · 1 break');
+    expect(within(trip).getByLabelText('trip-line')).toHaveTextContent(
+      '8h 30m worked · 30m break · 1 call',
+    );
     expect(trip).toHaveTextContent('See you tomorrow');
     expect(screen.getByLabelText('needle')).toHaveAttribute('data-parked', 'true');
     // Clocking in again clears it.
@@ -1102,7 +1109,7 @@ describe('end-of-day summary (ADR-0013 §8)', () => {
     await screen.findByRole('button', { name: 'Clock out' });
     act(() => pushState(day(3, 'clocked_out')));
     const card = await screen.findByRole('status', { name: 'day-summary' });
-    expect(card).toHaveTextContent('Clocked out · 3h 00m · 1 call · 1 break today');
+    expect(card).toHaveTextContent('Clocked out · 3h 00m worked · 30m break · 1 call today');
     expect(screen.queryByRole('dialog', { name: 'trip-complete' })).not.toBeInTheDocument();
     expect(screen.getByLabelText('needle')).toHaveAttribute('data-parked', 'false');
     await user.click(within(card).getByRole('button', { name: 'Dismiss' }));
@@ -1207,5 +1214,88 @@ describe('break during a call asks first (owner request)', () => {
     expect(mocks.startBreak).not.toHaveBeenCalled();
     await user.click(within(ask).getByRole('button', { name: 'Start break' }));
     expect(mocks.startBreak).toHaveBeenCalledWith('bio');
+  });
+});
+
+describe('logged idle (ADR-0018)', () => {
+  const MIN = 60_000;
+
+  it('shows idle since when, and only Clock out', async () => {
+    const since = Date.now() - 10 * MIN;
+    mocks.getState.mockResolvedValue(
+      view({
+        status: 'idle',
+        idleSince: since,
+        sessionStartedAt: since - 60 * MIN,
+        timeline: [
+          { kind: 'working', startedAt: since - 60 * MIN, endedAt: since, session: 1 },
+          { kind: 'idle', startedAt: since, endedAt: null, session: 1 },
+        ],
+      }),
+    );
+    render(<App />);
+    const status = await screen.findByRole('region', { name: 'current-status' });
+    const d = new Date(since);
+    const hhmm = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+    expect(status).toHaveTextContent(`Idle since ${hhmm}`);
+    const actions = screen.getByRole('region', { name: 'actions' });
+    expect(
+      within(actions)
+        .getAllByRole('button')
+        .map((b) => b.textContent),
+    ).toEqual(['Clock out']);
+    // The trip meter shows idle apart from worked time.
+    const stats = screen.getByRole('region', { name: 'day-stats' });
+    expect(stats).toHaveTextContent('1h 00mWorked');
+    expect(stats).toHaveTextContent('10mIdle');
+  });
+
+  it('welcome back: pick what you were doing, add a note, send', async () => {
+    const until = Date.now();
+    const since = until - 23 * MIN;
+    mocks.getState.mockResolvedValue(
+      view({ status: 'active', sessionStartedAt: since - MIN, idleReturn: { since, until } }),
+    );
+    mocks.explainIdle.mockResolvedValue(view({ status: 'active', sessionStartedAt: since - MIN }));
+    const user = userEvent.setup();
+    render(<App />);
+    const dialog = await screen.findByRole('dialog', { name: 'idle-return' });
+    expect(dialog).toHaveTextContent('(23 min). What were you doing?');
+    const send = within(dialog).getByRole('button', { name: 'Send' });
+    expect(send).toBeDisabled();
+    await user.click(within(dialog).getByRole('radio', { name: 'In a meeting' }));
+    await user.type(within(dialog).getByLabelText('idle-note'), '  standup  ');
+    await user.click(send);
+    expect(mocks.explainIdle).toHaveBeenCalledWith('meeting', 'standup');
+    expect(screen.queryByRole('dialog', { name: 'idle-return' })).not.toBeInTheDocument();
+  });
+
+  it('welcome back can be skipped', async () => {
+    const until = Date.now();
+    mocks.getState.mockResolvedValue(
+      view({
+        status: 'active',
+        sessionStartedAt: until - 60 * MIN,
+        idleReturn: { since: until - 5 * MIN, until },
+      }),
+    );
+    mocks.dismissIdleReturn.mockResolvedValue(
+      view({ status: 'active', sessionStartedAt: until - 60 * MIN }),
+    );
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole('button', { name: 'Skip' }));
+    expect(mocks.dismissIdleReturn).toHaveBeenCalledOnce();
+    expect(mocks.explainIdle).not.toHaveBeenCalled();
+  });
+
+  it('the idle cap explains the clock-out', async () => {
+    mocks.getState.mockResolvedValue(
+      view({ autoClockedOutAt: Date.UTC(2026, 8, 28, 14, 5), autoClockOutReason: 'idle_cap' }),
+    );
+    render(<App />);
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      /after a long idle stretch\. The idle time is kept for your manager to review/,
+    );
   });
 });

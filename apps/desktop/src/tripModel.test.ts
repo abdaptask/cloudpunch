@@ -23,17 +23,31 @@ describe('end-of-day summary', () => {
 
   it('totals the day and counts calls and breaks', () => {
     const s = tripSummary(day, at(18, 12), at(0), 8 * H);
-    expect(s).toEqual({ worked: 8 * H + 17 * 60_000, calls: 2, breaks: 2, long: true });
-    expect(tripLine(s)).toBe('8h 17m · 2 calls · 2 breaks');
+    expect(s).toEqual({
+      worked: 8 * H + 17 * 60_000,
+      calls: 2,
+      breaks: 2,
+      breakMs: 55 * 60_000,
+      idleMs: 0,
+      long: true,
+    });
+    expect(tripLine(s)).toBe('8h 17m worked · 55m breaks · 2 calls');
   });
 
   it('a short day is not long; zero counts are left out', () => {
     const s = tripSummary([seg('working', at(9), at(12))], at(12), at(0), 8 * H);
     expect(s.long).toBe(false);
-    expect(tripLine(s)).toBe('3h 00m');
-    expect(tripLine({ worked: 45 * 60_000, calls: 1, breaks: 1, long: false })).toBe(
-      '45m · 1 call · 1 break',
-    );
+    expect(tripLine(s)).toBe('3h 00m worked');
+    expect(
+      tripLine({
+        worked: 45 * 60_000,
+        calls: 1,
+        breaks: 1,
+        breakMs: 10 * 60_000,
+        idleMs: 0,
+        long: false,
+      }),
+    ).toBe('45m worked · 10m break · 1 call');
   });
 
   it('shows the odometer as HH:MM', () => {

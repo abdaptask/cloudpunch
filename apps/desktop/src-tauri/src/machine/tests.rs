@@ -2,6 +2,15 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use super::*;
 
+/// The policy these tests were written against: a 300 s threshold.
+/// The shipped default is 120 s (ADR-0018 §3; see `default_prompt_*`).
+fn cfg() -> CoreConfig {
+    CoreConfig {
+        idle_threshold: Duration::from_secs(300),
+        ..CoreConfig::default()
+    }
+}
+
 fn t(secs: u64) -> SystemTime {
     UNIX_EPOCH + Duration::from_secs(1_790_000_000 + secs)
 }
@@ -17,7 +26,7 @@ fn emitted(fx: &[Effect]) -> Vec<&'static str> {
 
 /// Core clocked in at t(0) with default policy (300 s / 30 s / 5 s).
 fn clocked_in() -> Core {
-    let mut core = Core::new(CoreConfig::default(), t(0));
+    let mut core = Core::new(cfg(), t(0));
     core.handle(Input::ClockIn, t(0)).unwrap();
     core
 }
@@ -58,7 +67,7 @@ fn respond(
 
 #[test]
 fn clock_in_emits_and_enters_active() {
-    let mut core = Core::new(CoreConfig::default(), t(0));
+    let mut core = Core::new(cfg(), t(0));
     let fx = core.handle(Input::ClockIn, t(0)).unwrap();
     assert_eq!(emitted(&fx), ["USER_CLOCK_IN"]);
     assert_eq!(core.state(), CoreState::Active);
@@ -77,7 +86,7 @@ fn clock_in_twice_is_rejected_without_effects() {
 
 #[test]
 fn clock_in_during_a_call_goes_straight_to_on_call() {
-    let mut core = Core::new(CoreConfig::default(), t(0));
+    let mut core = Core::new(cfg(), t(0));
     core.handle(Input::MediaInUse(Some(CallType::Teams)), t(0))
         .unwrap();
     let fx = core.handle(Input::ClockIn, t(1)).unwrap();
@@ -122,7 +131,7 @@ fn clock_out_while_prompting_hides_the_prompt() {
 
 #[test]
 fn clock_out_when_clocked_out_is_rejected() {
-    let mut core = Core::new(CoreConfig::default(), t(0));
+    let mut core = Core::new(cfg(), t(0));
     assert_eq!(
         core.handle(Input::ClockOut, t(0)),
         Err(Rejected::InvalidTransition)
@@ -207,7 +216,8 @@ fn prompt_fires_at_threshold_not_before() {
         core.state(),
         CoreState::IdlePending {
             shown_at: t(300),
-            deadline: t(330)
+            deadline: t(330),
+            idle_since: t(0)
         }
     );
 }
@@ -229,13 +239,14 @@ fn future_last_input_is_treated_as_now() {
 // ── grace countdown (ADR-0008) ────────────────────────────────────
 
 #[test]
-fn timeout_without_input_clocks_out() {
+fn timeout_without_input_logs_idle_from_the_last_input() {
+    // ADR-0018 §1: no clock-out; idle counted from the last input.
     let mut core = prompting();
     assert!(emitted(&tick(&mut core, 0, 329)).is_empty());
     let fx = tick(&mut core, 0, 330);
-    assert_eq!(emitted(&fx), ["PROMPT_TIMEOUT_30S"]);
+    assert_eq!(emitted(&fx), ["IDLE_STARTED"]);
     assert!(fx.contains(&Effect::HidePrompt));
-    assert_eq!(core.state(), CoreState::ClockedOut);
+    assert_eq!(core.state(), CoreState::Idle { since: t(0) });
 }
 
 #[test]
@@ -248,8 +259,9 @@ fn input_during_prompt_pushes_deadline_but_keeps_prompt() {
 
     // Old deadline passes; still pending.
     assert!(emitted(&tick(&mut core, 320, 340)).is_empty());
-    // New deadline passes with no further input: auto clock-out.
-    assert_eq!(emitted(&tick(&mut core, 320, 350)), ["PROMPT_TIMEOUT_30S"]);
+    // New deadline passes with no further input: idle since that input.
+    assert_eq!(emitted(&tick(&mut core, 320, 350)), ["IDLE_STARTED"]);
+    assert_eq!(core.state(), CoreState::Idle { since: t(320) });
 }
 
 #[test]
@@ -389,7 +401,7 @@ fn note_over_500_chars_is_rejected() {
 fn response_not_in_policy_options_is_rejected() {
     let cfg = CoreConfig {
         prompt_options: vec![PromptResponse::StillWorking, PromptResponse::EndShift],
-        ..CoreConfig::default()
+        ..cfg()
     };
     let mut core = Core::new(cfg, t(0));
     core.handle(Input::ClockIn, t(0)).unwrap();
@@ -539,18 +551,19 @@ fn still_working_returns_to_call_and_restarts_cap() {
 }
 
 #[test]
-fn silent_call_prompt_times_out_to_clock_out() {
+fn silent_call_prompt_times_out_to_idle() {
     let mut core = on_call();
     tick(&mut core, 0, 1_810);
-    assert_eq!(emitted(&tick(&mut core, 0, 1_840)), ["PROMPT_TIMEOUT_30S"]);
-    assert_eq!(core.state(), CoreState::ClockedOut);
+    assert_eq!(emitted(&tick(&mut core, 0, 1_840)), ["IDLE_STARTED"]);
+    // Idle from when the call went silent (the call started at t(10)).
+    assert_eq!(core.state(), CoreState::Idle { since: t(10) });
 }
 
 #[test]
 fn cap_disabled_means_calls_never_prompt() {
     let cfg = CoreConfig {
         max_silent_call: None,
-        ..CoreConfig::default()
+        ..cfg()
     };
     let mut core = Core::new(cfg, t(0));
     core.handle(Input::ClockIn, t(0)).unwrap();
@@ -651,7 +664,7 @@ fn call_ending_during_break_leaves_active_on_return() {
 fn media_ignored_when_suppression_disabled() {
     let cfg = CoreConfig {
         suppress_prompt_when_media_active: false,
-        ..CoreConfig::default()
+        ..cfg()
     };
     let mut core = Core::new(cfg, t(0));
     core.handle(Input::ClockIn, t(0)).unwrap();
@@ -666,7 +679,7 @@ fn media_ignored_when_suppression_disabled() {
 
 #[test]
 fn media_while_clocked_out_emits_nothing() {
-    let mut core = Core::new(CoreConfig::default(), t(0));
+    let mut core = Core::new(cfg(), t(0));
     assert!(emitted(
         &core
             .handle(Input::MediaInUse(Some(CallType::Teams)), t(1))
@@ -698,7 +711,7 @@ fn start_break_from_on_call_is_allowed() {
 /// would reject.
 #[test]
 fn emitted_stream_is_accepted_by_server_machine() {
-    let mut core = Core::new(CoreConfig::default(), t(0));
+    let mut core = Core::new(cfg(), t(0));
     let mut all = Vec::new();
     let mut run = |core: &mut Core, input: Input, now: u64| {
         all.extend(core.handle(input, t(now)).unwrap());
@@ -928,4 +941,182 @@ fn call_type_is_none_unless_on_call() {
         [json!({ "in_use": true, "call_type": "teams" })]
     );
     assert_eq!(core.call_type(), Some(CallType::Teams));
+}
+
+// ── ADR-0018: logged idle ────────────────────────────────────────────
+
+/// When `event_type` was emitted in `fx`.
+fn emitted_at(fx: &[Effect], event_type: &str) -> Option<SystemTime> {
+    fx.iter().find_map(|e| match e {
+        Effect::Emit { event, at } if event.event_type() == event_type => Some(*at),
+        _ => None,
+    })
+}
+
+/// Prompted at t(300), unanswered: idle since t(0) from t(330).
+fn idle() -> Core {
+    let mut core = prompting();
+    tick(&mut core, 0, 330);
+    assert_eq!(core.state(), CoreState::Idle { since: t(0) });
+    core
+}
+
+#[test]
+fn default_prompt_is_after_two_minutes() {
+    let mut core = Core::new(CoreConfig::default(), t(0));
+    core.handle(Input::ClockIn, t(0)).unwrap();
+    assert!(emitted(&tick(&mut core, 0, 119)).is_empty());
+    assert_eq!(emitted(&tick(&mut core, 0, 120)), ["INPUT_IDLE_5M"]);
+}
+
+#[test]
+fn idle_starts_at_the_last_input_before_the_prompt() {
+    let mut core = clocked_in();
+    tick(&mut core, 100, 400);
+    assert!(
+        matches!(core.state(), CoreState::IdlePending { idle_since, .. } if idle_since == t(100))
+    );
+    let fx = tick(&mut core, 100, 430);
+    assert_eq!(emitted(&fx), ["IDLE_STARTED"]);
+    assert_eq!(core.state(), CoreState::Idle { since: t(100) });
+}
+
+#[test]
+fn input_after_idle_ends_it_and_asks_what_happened() {
+    let mut core = idle();
+    assert!(emitted(&tick(&mut core, 0, 900)).is_empty(), "still idle");
+    let fx = tick(&mut core, 1_000, 1_001);
+    assert_eq!(emitted(&fx), ["IDLE_ENDED"]);
+    assert_eq!(emitted_at(&fx, "IDLE_ENDED"), Some(t(1_000)));
+    let stretch = IdleStretch {
+        since: t(0),
+        until: t(1_000),
+    };
+    assert!(fx.contains(&Effect::IdleReturned(stretch)));
+    assert_eq!(core.state(), CoreState::Active);
+    assert_eq!(core.idle_return(), Some(stretch));
+    // Re-armed from the return: the next prompt is a full threshold later.
+    assert!(emitted(&tick(&mut core, 1_000, 1_299)).is_empty());
+    assert_eq!(emitted(&tick(&mut core, 1_000, 1_300)), ["INPUT_IDLE_5M"]);
+}
+
+#[test]
+fn explaining_records_an_annotation_and_changes_nothing_else() {
+    let mut core = idle();
+    tick(&mut core, 1_000, 1_001);
+    let fx = core
+        .handle(
+            Input::ExplainIdle {
+                explanation: IdleExplanation::Meeting,
+                note: Some("  standup in room 2 ".into()),
+            },
+            t(1_010),
+        )
+        .unwrap();
+    assert_eq!(emitted(&fx), ["USER_IDLE_EXPLAINED"]);
+    match &fx[0] {
+        Effect::Emit {
+            event:
+                CoreEvent::UserIdleExplained {
+                    stretch,
+                    explanation,
+                    note,
+                },
+            ..
+        } => {
+            assert_eq!(stretch.since, t(0));
+            assert_eq!(stretch.until, t(1_000));
+            assert_eq!(*explanation, IdleExplanation::Meeting);
+            assert_eq!(note.as_deref(), Some("standup in room 2"));
+        }
+        other => panic!("unexpected {other:?}"),
+    }
+    assert_eq!(core.state(), CoreState::Active);
+    assert_eq!(core.idle_return(), None);
+    // Nothing left to explain.
+    assert_eq!(
+        core.handle(
+            Input::ExplainIdle {
+                explanation: IdleExplanation::Idle,
+                note: None,
+            },
+            t(1_020),
+        ),
+        Err(Rejected::InvalidTransition)
+    );
+}
+
+#[test]
+fn skipping_the_question_leaves_it_unexplained() {
+    let mut core = idle();
+    tick(&mut core, 1_000, 1_001);
+    let fx = core.handle(Input::DismissIdleReturn, t(1_005)).unwrap();
+    assert!(emitted(&fx).is_empty());
+    assert_eq!(core.idle_return(), None);
+}
+
+#[test]
+fn the_idle_cap_closes_the_session_when_it_was_reached() {
+    let mut core = idle();
+    assert!(emitted(&tick(&mut core, 0, 7_199)).is_empty());
+    let fx = tick(&mut core, 0, 7_200);
+    assert_eq!(emitted(&fx), ["IDLE_CAP_REACHED"]);
+    assert_eq!(core.state(), CoreState::ClockedOut);
+}
+
+#[test]
+fn a_laptop_asleep_past_the_cap_is_dated_at_the_cap() {
+    let mut core = idle();
+    let fx = tick(&mut core, 0, 30_000);
+    assert_eq!(emitted_at(&fx, "IDLE_CAP_REACHED"), Some(t(7_200)));
+    assert_eq!(core.state(), CoreState::ClockedOut);
+}
+
+#[test]
+fn asleep_through_prompt_and_cap() {
+    // Active, then the next tick comes hours later (sleep): the prompt
+    // opens now, and the cap applies once the grace has passed.
+    let mut core = clocked_in();
+    assert_eq!(emitted(&tick(&mut core, 0, 20_000)), ["INPUT_IDLE_5M"]);
+    let fx = tick(&mut core, 0, 20_030);
+    assert_eq!(emitted(&fx), ["IDLE_STARTED", "IDLE_CAP_REACHED"]);
+    assert_eq!(emitted_at(&fx, "IDLE_CAP_REACHED"), Some(t(7_200)));
+}
+
+#[test]
+fn cap_disabled_keeps_logging_idle() {
+    let cfg = CoreConfig {
+        max_idle: None,
+        ..cfg()
+    };
+    let mut core = Core::new(cfg, t(0));
+    core.handle(Input::ClockIn, t(0)).unwrap();
+    tick(&mut core, 0, 300);
+    tick(&mut core, 0, 330);
+    assert!(emitted(&tick(&mut core, 0, 100_000)).is_empty());
+    assert_eq!(core.state(), CoreState::Idle { since: t(0) });
+}
+
+#[test]
+fn a_click_while_idle_ends_idle_first() {
+    let mut core = idle();
+    let fx = core
+        .handle(Input::StartBreak(BreakKind::Meal), t(2_000))
+        .unwrap();
+    assert_eq!(emitted(&fx), ["IDLE_ENDED", "USER_START_BREAK"]);
+    assert_eq!(
+        core.state(),
+        CoreState::OnBreak {
+            kind: BreakKind::Meal
+        }
+    );
+}
+
+#[test]
+fn clock_out_right_after_idle_drops_the_question() {
+    let mut core = idle();
+    let fx = core.handle(Input::ClockOut, t(2_000)).unwrap();
+    assert_eq!(emitted(&fx), ["IDLE_ENDED", "USER_CLOCK_OUT"]);
+    assert_eq!(core.state(), CoreState::ClockedOut);
+    assert_eq!(core.idle_return(), None);
 }

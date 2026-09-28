@@ -27,6 +27,9 @@ function pending(over: Partial<StateView> = {}): StateView {
     timeline: [],
     longShift: false,
     longDayMs: 8 * 3_600_000,
+    idleSince: null,
+    idleReturn: null,
+    autoClockOutReason: null,
     ...over,
   };
 }

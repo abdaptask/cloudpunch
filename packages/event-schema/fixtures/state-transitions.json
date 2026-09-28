@@ -1,5 +1,5 @@
 {
-  "$comment": "Payroll-state transitions shared by the backend (state-machine.ts) and desktop core (core/state.rs). to=null means the transition is rejected. payload=null means no payload. See ADR-0003, ADR-0008, ADR-0009, ADR-0010, ADR-0011, ADR-0012.",
+  "$comment": "Payroll-state transitions shared by the backend (state-machine.ts) and desktop core (core/state.rs). to=null means the transition is rejected. payload=null means no payload. See ADR-0003, ADR-0008, ADR-0009, ADR-0010, ADR-0011, ADR-0012, ADR-0018.",
   "cases": [
     {
       "from": "ACTIVE",
@@ -1443,6 +1443,611 @@
     },
     {
       "from": "CLOSED",
+      "event_type": "BOGUS_EVENT",
+      "payload": {},
+      "to": null
+    },
+    {
+      "from": "ACTIVE",
+      "event_type": "IDLE_STARTED",
+      "payload": {
+        "idle_since": "2026-09-28T10:00:00.000+05:30"
+      },
+      "to": null
+    },
+    {
+      "from": "ACTIVE",
+      "event_type": "IDLE_STARTED",
+      "payload": {},
+      "to": null
+    },
+    {
+      "from": "ACTIVE",
+      "event_type": "IDLE_ENDED",
+      "payload": {},
+      "to": null
+    },
+    {
+      "from": "ACTIVE",
+      "event_type": "IDLE_CAP_REACHED",
+      "payload": {},
+      "to": null
+    },
+    {
+      "from": "ACTIVE",
+      "event_type": "USER_IDLE_EXPLAINED",
+      "payload": {
+        "explanation": "meeting",
+        "idle_since": "2026-09-28T10:00:00.000+05:30"
+      },
+      "to": "ACTIVE"
+    },
+    {
+      "from": "ACTIVE",
+      "event_type": "USER_IDLE_EXPLAINED",
+      "payload": {
+        "explanation": "napping",
+        "idle_since": "2026-09-28T10:00:00.000+05:30"
+      },
+      "to": null
+    },
+    {
+      "from": "ACTIVE",
+      "event_type": "USER_IDLE_EXPLAINED",
+      "payload": {
+        "explanation": "meeting"
+      },
+      "to": null
+    },
+    {
+      "from": "ON_CALL",
+      "event_type": "IDLE_STARTED",
+      "payload": {
+        "idle_since": "2026-09-28T10:00:00.000+05:30"
+      },
+      "to": null
+    },
+    {
+      "from": "ON_CALL",
+      "event_type": "IDLE_STARTED",
+      "payload": {},
+      "to": null
+    },
+    {
+      "from": "ON_CALL",
+      "event_type": "IDLE_ENDED",
+      "payload": {},
+      "to": null
+    },
+    {
+      "from": "ON_CALL",
+      "event_type": "IDLE_CAP_REACHED",
+      "payload": {},
+      "to": null
+    },
+    {
+      "from": "ON_CALL",
+      "event_type": "USER_IDLE_EXPLAINED",
+      "payload": {
+        "explanation": "meeting",
+        "idle_since": "2026-09-28T10:00:00.000+05:30"
+      },
+      "to": "ON_CALL"
+    },
+    {
+      "from": "ON_CALL",
+      "event_type": "USER_IDLE_EXPLAINED",
+      "payload": {
+        "explanation": "napping",
+        "idle_since": "2026-09-28T10:00:00.000+05:30"
+      },
+      "to": null
+    },
+    {
+      "from": "ON_CALL",
+      "event_type": "USER_IDLE_EXPLAINED",
+      "payload": {
+        "explanation": "meeting"
+      },
+      "to": null
+    },
+    {
+      "from": "ON_BREAK",
+      "event_type": "IDLE_STARTED",
+      "payload": {
+        "idle_since": "2026-09-28T10:00:00.000+05:30"
+      },
+      "to": null
+    },
+    {
+      "from": "ON_BREAK",
+      "event_type": "IDLE_STARTED",
+      "payload": {},
+      "to": null
+    },
+    {
+      "from": "ON_BREAK",
+      "event_type": "IDLE_ENDED",
+      "payload": {},
+      "to": null
+    },
+    {
+      "from": "ON_BREAK",
+      "event_type": "IDLE_CAP_REACHED",
+      "payload": {},
+      "to": null
+    },
+    {
+      "from": "ON_BREAK",
+      "event_type": "USER_IDLE_EXPLAINED",
+      "payload": {
+        "explanation": "meeting",
+        "idle_since": "2026-09-28T10:00:00.000+05:30"
+      },
+      "to": "ON_BREAK"
+    },
+    {
+      "from": "ON_BREAK",
+      "event_type": "USER_IDLE_EXPLAINED",
+      "payload": {
+        "explanation": "napping",
+        "idle_since": "2026-09-28T10:00:00.000+05:30"
+      },
+      "to": null
+    },
+    {
+      "from": "ON_BREAK",
+      "event_type": "USER_IDLE_EXPLAINED",
+      "payload": {
+        "explanation": "meeting"
+      },
+      "to": null
+    },
+    {
+      "from": "AWAY",
+      "event_type": "IDLE_STARTED",
+      "payload": {
+        "idle_since": "2026-09-28T10:00:00.000+05:30"
+      },
+      "to": null
+    },
+    {
+      "from": "AWAY",
+      "event_type": "IDLE_STARTED",
+      "payload": {},
+      "to": null
+    },
+    {
+      "from": "AWAY",
+      "event_type": "IDLE_ENDED",
+      "payload": {},
+      "to": null
+    },
+    {
+      "from": "AWAY",
+      "event_type": "IDLE_CAP_REACHED",
+      "payload": {},
+      "to": null
+    },
+    {
+      "from": "AWAY",
+      "event_type": "USER_IDLE_EXPLAINED",
+      "payload": {
+        "explanation": "meeting",
+        "idle_since": "2026-09-28T10:00:00.000+05:30"
+      },
+      "to": "AWAY"
+    },
+    {
+      "from": "AWAY",
+      "event_type": "USER_IDLE_EXPLAINED",
+      "payload": {
+        "explanation": "napping",
+        "idle_since": "2026-09-28T10:00:00.000+05:30"
+      },
+      "to": null
+    },
+    {
+      "from": "AWAY",
+      "event_type": "USER_IDLE_EXPLAINED",
+      "payload": {
+        "explanation": "meeting"
+      },
+      "to": null
+    },
+    {
+      "from": "IDLE_PENDING",
+      "event_type": "IDLE_STARTED",
+      "payload": {
+        "idle_since": "2026-09-28T10:00:00.000+05:30"
+      },
+      "to": "IDLE"
+    },
+    {
+      "from": "IDLE_PENDING",
+      "event_type": "IDLE_STARTED",
+      "payload": {},
+      "to": null
+    },
+    {
+      "from": "IDLE_PENDING",
+      "event_type": "IDLE_ENDED",
+      "payload": {},
+      "to": null
+    },
+    {
+      "from": "IDLE_PENDING",
+      "event_type": "IDLE_CAP_REACHED",
+      "payload": {},
+      "to": null
+    },
+    {
+      "from": "IDLE_PENDING",
+      "event_type": "USER_IDLE_EXPLAINED",
+      "payload": {
+        "explanation": "meeting",
+        "idle_since": "2026-09-28T10:00:00.000+05:30"
+      },
+      "to": "IDLE_PENDING"
+    },
+    {
+      "from": "IDLE_PENDING",
+      "event_type": "USER_IDLE_EXPLAINED",
+      "payload": {
+        "explanation": "napping",
+        "idle_since": "2026-09-28T10:00:00.000+05:30"
+      },
+      "to": null
+    },
+    {
+      "from": "IDLE_PENDING",
+      "event_type": "USER_IDLE_EXPLAINED",
+      "payload": {
+        "explanation": "meeting"
+      },
+      "to": null
+    },
+    {
+      "from": "CLOSED",
+      "event_type": "IDLE_STARTED",
+      "payload": {
+        "idle_since": "2026-09-28T10:00:00.000+05:30"
+      },
+      "to": null
+    },
+    {
+      "from": "CLOSED",
+      "event_type": "IDLE_STARTED",
+      "payload": {},
+      "to": null
+    },
+    {
+      "from": "CLOSED",
+      "event_type": "IDLE_ENDED",
+      "payload": {},
+      "to": null
+    },
+    {
+      "from": "CLOSED",
+      "event_type": "IDLE_CAP_REACHED",
+      "payload": {},
+      "to": null
+    },
+    {
+      "from": "CLOSED",
+      "event_type": "USER_IDLE_EXPLAINED",
+      "payload": {
+        "explanation": "meeting",
+        "idle_since": "2026-09-28T10:00:00.000+05:30"
+      },
+      "to": null
+    },
+    {
+      "from": "CLOSED",
+      "event_type": "USER_IDLE_EXPLAINED",
+      "payload": {
+        "explanation": "napping",
+        "idle_since": "2026-09-28T10:00:00.000+05:30"
+      },
+      "to": null
+    },
+    {
+      "from": "CLOSED",
+      "event_type": "USER_IDLE_EXPLAINED",
+      "payload": {
+        "explanation": "meeting"
+      },
+      "to": null
+    },
+    {
+      "from": "IDLE",
+      "event_type": "IDLE_STARTED",
+      "payload": {
+        "idle_since": "2026-09-28T10:00:00.000+05:30"
+      },
+      "to": null
+    },
+    {
+      "from": "IDLE",
+      "event_type": "IDLE_STARTED",
+      "payload": {},
+      "to": null
+    },
+    {
+      "from": "IDLE",
+      "event_type": "IDLE_ENDED",
+      "payload": {},
+      "to": "ACTIVE"
+    },
+    {
+      "from": "IDLE",
+      "event_type": "IDLE_CAP_REACHED",
+      "payload": {},
+      "to": "CLOSED"
+    },
+    {
+      "from": "IDLE",
+      "event_type": "USER_IDLE_EXPLAINED",
+      "payload": {
+        "explanation": "meeting",
+        "idle_since": "2026-09-28T10:00:00.000+05:30"
+      },
+      "to": "IDLE"
+    },
+    {
+      "from": "IDLE",
+      "event_type": "USER_IDLE_EXPLAINED",
+      "payload": {
+        "explanation": "napping",
+        "idle_since": "2026-09-28T10:00:00.000+05:30"
+      },
+      "to": null
+    },
+    {
+      "from": "IDLE",
+      "event_type": "USER_IDLE_EXPLAINED",
+      "payload": {
+        "explanation": "meeting"
+      },
+      "to": null
+    },
+    {
+      "from": "IDLE",
+      "event_type": "USER_CLOCK_IN",
+      "payload": {},
+      "to": null
+    },
+    {
+      "from": "IDLE",
+      "event_type": "USER_CLOCK_OUT",
+      "payload": {},
+      "to": "CLOSED"
+    },
+    {
+      "from": "IDLE",
+      "event_type": "USER_START_BREAK",
+      "payload": {
+        "break_kind": "bio"
+      },
+      "to": null
+    },
+    {
+      "from": "IDLE",
+      "event_type": "USER_END_BREAK",
+      "payload": {},
+      "to": null
+    },
+    {
+      "from": "IDLE",
+      "event_type": "USER_MARK_AWAY",
+      "payload": {},
+      "to": null
+    },
+    {
+      "from": "IDLE",
+      "event_type": "USER_MARK_AWAY",
+      "payload": {
+        "away_reason": "meeting"
+      },
+      "to": null
+    },
+    {
+      "from": "IDLE",
+      "event_type": "USER_MARK_AWAY",
+      "payload": {
+        "away_reason": "phone_call"
+      },
+      "to": null
+    },
+    {
+      "from": "IDLE",
+      "event_type": "USER_MARK_AWAY",
+      "payload": {
+        "away_reason": "lunch"
+      },
+      "to": null
+    },
+    {
+      "from": "IDLE",
+      "event_type": "USER_MARK_BACK",
+      "payload": {},
+      "to": null
+    },
+    {
+      "from": "IDLE",
+      "event_type": "INPUT_ACTIVITY",
+      "payload": {},
+      "to": "IDLE"
+    },
+    {
+      "from": "IDLE",
+      "event_type": "INPUT_IDLE_5M",
+      "payload": {},
+      "to": null
+    },
+    {
+      "from": "IDLE",
+      "event_type": "INPUT_IDLE_5M",
+      "payload": {
+        "trigger": "input_idle"
+      },
+      "to": null
+    },
+    {
+      "from": "IDLE",
+      "event_type": "INPUT_IDLE_5M",
+      "payload": {
+        "trigger": "silent_call"
+      },
+      "to": null
+    },
+    {
+      "from": "IDLE",
+      "event_type": "INPUT_IDLE_5M",
+      "payload": {
+        "trigger": "bored"
+      },
+      "to": null
+    },
+    {
+      "from": "IDLE",
+      "event_type": "PROMPT_TIMEOUT_30S",
+      "payload": {},
+      "to": null
+    },
+    {
+      "from": "IDLE",
+      "event_type": "USER_PROMPT_RESPONSE",
+      "payload": {
+        "response": "still_working"
+      },
+      "to": null
+    },
+    {
+      "from": "IDLE",
+      "event_type": "USER_PROMPT_RESPONSE",
+      "payload": {
+        "response": "bio_break"
+      },
+      "to": null
+    },
+    {
+      "from": "IDLE",
+      "event_type": "USER_PROMPT_RESPONSE",
+      "payload": {
+        "response": "meal_break"
+      },
+      "to": null
+    },
+    {
+      "from": "IDLE",
+      "event_type": "USER_PROMPT_RESPONSE",
+      "payload": {
+        "response": "on_phone_call"
+      },
+      "to": null
+    },
+    {
+      "from": "IDLE",
+      "event_type": "USER_PROMPT_RESPONSE",
+      "payload": {
+        "response": "working_away"
+      },
+      "to": null
+    },
+    {
+      "from": "IDLE",
+      "event_type": "USER_PROMPT_RESPONSE",
+      "payload": {
+        "response": "end_shift"
+      },
+      "to": null
+    },
+    {
+      "from": "IDLE",
+      "event_type": "USER_PROMPT_RESPONSE",
+      "payload": {
+        "response": "party"
+      },
+      "to": null
+    },
+    {
+      "from": "IDLE",
+      "event_type": "USER_PROMPT_RESPONSE",
+      "payload": null,
+      "to": null
+    },
+    {
+      "from": "IDLE",
+      "event_type": "MEDIA_DEVICE_STATE",
+      "payload": {
+        "in_use": true
+      },
+      "to": "IDLE"
+    },
+    {
+      "from": "IDLE",
+      "event_type": "MEDIA_DEVICE_STATE",
+      "payload": {
+        "in_use": true,
+        "call_type": "teams"
+      },
+      "to": "IDLE"
+    },
+    {
+      "from": "IDLE",
+      "event_type": "MEDIA_DEVICE_STATE",
+      "payload": {
+        "in_use": true,
+        "call_type": "skype"
+      },
+      "to": null
+    },
+    {
+      "from": "IDLE",
+      "event_type": "MEDIA_DEVICE_STATE",
+      "payload": {
+        "in_use": false,
+        "call_type": "zoom"
+      },
+      "to": null
+    },
+    {
+      "from": "IDLE",
+      "event_type": "MEDIA_DEVICE_STATE",
+      "payload": {
+        "in_use": false
+      },
+      "to": "IDLE"
+    },
+    {
+      "from": "IDLE",
+      "event_type": "MEDIA_DEVICE_STATE",
+      "payload": null,
+      "to": null
+    },
+    {
+      "from": "IDLE",
+      "event_type": "MEDIA_DEVICE_STATE",
+      "payload": {
+        "in_use": "true"
+      },
+      "to": null
+    },
+    {
+      "from": "IDLE",
+      "event_type": "SYSTEM_LOCK",
+      "payload": {},
+      "to": "IDLE"
+    },
+    {
+      "from": "IDLE",
+      "event_type": "NETWORK_OFFLINE",
+      "payload": {},
+      "to": "IDLE"
+    },
+    {
+      "from": "IDLE",
       "event_type": "BOGUS_EVENT",
       "payload": {},
       "to": null

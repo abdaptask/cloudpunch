@@ -4,17 +4,31 @@
   "title": "USER_CLOCK_IN event",
   "description": "Emitted when the user clicks Clock In. See ADR-0003 §3.",
   "allOf": [
-    { "$ref": "common/base-event.schema.json" },
+    {
+      "$ref": "common/base-event.schema.json"
+    },
     {
       "type": "object",
       "properties": {
-        "event_type": { "const": "USER_CLOCK_IN" },
+        "event_type": {
+          "const": "USER_CLOCK_IN"
+        },
         "payload": {
           "type": "object",
           "properties": {
             "geo_optout": {
               "type": "boolean",
               "description": "Reserved: acknowledges the user has been shown the geolocation-off notice. Geolocation is not collected in MVP; this field is only carried for schema-shape stability once geo becomes an opt-in feature."
+            },
+            "start_source": {
+              "type": "string",
+              "enum": ["os_sign_in"],
+              "description": "Clocked in from the computer's sign-in time (ADR-0018 §4). The session starts at started_at when it is no later than client_ts and at most 12 hours before it."
+            },
+            "started_at": {
+              "type": "string",
+              "format": "date-time",
+              "description": "The Windows / macOS sign-in time offered to the person (ADR-0018 §4)."
             }
           },
           "additionalProperties": false

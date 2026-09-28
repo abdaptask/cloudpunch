@@ -120,6 +120,53 @@ describe('buildSession', () => {
     expect(t.prompt_ms).toBe(1 * MIN);
   });
 
+  it('ADR-0018: idle runs from the last input, carries its explanation, and is not worked', () => {
+    const o = IST;
+    const at = (hhmm: string): Date => local(`2026-09-25T${hhmm}:00`, o);
+    const s = shift('s1', '2026-09-25T09:00:00', '2026-09-25T12:00:00', o, [
+      evt('INPUT_IDLE_5M', at('10:02'), o, { trigger: 'input_idle' }),
+      evt('IDLE_STARTED', at('10:03'), o, { idle_since: at('10:00').toISOString() }),
+      evt('IDLE_ENDED', at('10:40'), o, { idle_since: at('10:00').toISOString() }),
+      evt('USER_IDLE_EXPLAINED', at('10:41'), o, {
+        explanation: 'meeting',
+        idle_since: at('10:00').toISOString(),
+        note: 'standup',
+      }),
+    ]);
+    expect(s.segments.map((g) => [g.kind, isoWithOffset(g.startedAt, o).slice(11, 16)])).toEqual([
+      ['working', '09:00'],
+      ['idle', '10:00'],
+      ['working', '10:40'],
+    ]);
+    expect(s.segments[1]?.explanation).toEqual({ explanation: 'meeting', note: 'standup' });
+    const t = totals({ date: '2026-09-25', sessions: [s] });
+    expect(t.idle_ms).toBe(40 * MIN);
+    expect(t.prompt_ms).toBe(0);
+    expect(t.worked_ms).toBe((3 * 60 - 40) * MIN);
+  });
+
+  it('ADR-0018 §4: a session from the Windows sign-in time starts there', () => {
+    const o = IST;
+    const clicked = local('2026-09-25T09:20:00', o);
+    const signedIn = local('2026-09-25T09:02:00', o);
+    const events = [
+      evt('USER_CLOCK_IN', clicked, o, {
+        start_source: 'os_sign_in',
+        started_at: signedIn.toISOString(),
+      }),
+      evt('USER_CLOCK_OUT', local('2026-09-25T10:00:00', o), o),
+    ];
+    events.forEach((e, i) => ((e as { sequenceNumber: number }).sequenceNumber = i + 1));
+    const s = buildSession(
+      session('s1', signedIn, local('2026-09-25T10:00:00', o)),
+      events,
+      new Date(),
+    );
+    expect(s?.startedFromSignIn).toBe(true);
+    expect(s?.clockIn).toEqual(signedIn);
+    expect(s?.segments[0]?.startedAt).toEqual(signedIn);
+  });
+
   it('an open session runs to now', () => {
     const now = local('2026-09-25T15:00:00', IST);
     const s = shift('s1', '2026-09-25T09:00:00', null, IST, [], now);

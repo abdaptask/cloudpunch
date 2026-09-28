@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 
 import { api, type StateView } from './api.js';
 import { BreakOnCallDialog, callName, type BreakKind } from './BreakOnCallDialog.js';
 import { ClockOutDialog } from './ClockOutDialog.js';
+import { IdleReturnDialog } from './IdleReturnDialog.js';
 import { DayDial } from './DayDial.js';
 import { DayPicker } from './DayPicker.js';
 import {
@@ -99,6 +100,8 @@ function statusLabel(v: StateView, now: number): string {
       return CALL_STATUS[v.callType ?? 'other'];
     case 'idle_pending':
       return 'Clocked in — are you still there?';
+    case 'idle':
+      return v.idleSince !== null ? `Idle since ${formatClock(v.idleSince)}` : 'Idle';
     case 'on_break':
       return v.breakKind === 'meal' ? 'On a meal break' : 'On a bio break';
     case 'away':
@@ -128,6 +131,8 @@ function statusColor(t: Theme, v: StateView): string {
       return t.kind[awayKind(v)];
     case 'idle_pending':
       return t.kind.prompt;
+    case 'idle':
+      return t.kind.idle;
     case 'active':
       return t.kind.working;
     case 'on_call':
@@ -304,6 +309,7 @@ export function App(): JSX.Element {
           color={statusColor(t, view)}
           worked={todayTotals.working}
           breaks={todayTotals.break}
+          idle={todayTotals.idle}
           run={run}
           onUnpin={unpin}
         />
@@ -363,6 +369,13 @@ export function App(): JSX.Element {
                 run(() => api.startBreak(kind));
               }}
               onCancel={() => setClockOutAsked(false)}
+            />
+          )}
+          {signedIn && view?.idleReturn && (
+            <IdleReturnDialog
+              stretch={view.idleReturn}
+              onExplain={(explanation, note) => run(() => api.explainIdle(explanation, note))}
+              onSkip={() => run(api.dismissIdleReturn)}
             />
           )}
           {breakOnCall && view?.status === 'on_call' && (
@@ -548,8 +561,9 @@ export function App(): JSX.Element {
                       color: t.warnText,
                     }}
                   >
-                    You were clocked out at {formatClock(view.autoClockedOutAt)} because the idle
-                    prompt wasn&apos;t answered. Time up to when the prompt appeared is kept.
+                    {view.autoClockOutReason === 'idle_cap'
+                      ? `You were clocked out at ${formatClock(view.autoClockedOutAt)} after a long idle stretch. The idle time is kept for your manager to review.`
+                      : `You were clocked out at ${formatClock(view.autoClockedOutAt)} because the idle prompt wasn't answered. Time up to when the prompt appeared is kept.`}
                   </p>
                 )}
 
@@ -728,6 +742,8 @@ function Actions({
         </>
       );
     case 'idle_pending':
+    case 'idle':
+      // Any click or key ends idle (ADR-0018); only clock out needs a button.
       return (
         <Button variant="stop" onClick={onClockOut}>
           Clock out
@@ -810,8 +826,7 @@ function statTime(ms: number): string {
   return formatWorked(ms);
 }
 
-/** Worked · Calls · Breaks at a glance (details hold the full totals). */
-/** Worked / Calls / Breaks as trip-meter readouts under the gauge. */
+/** Worked / Idle / Breaks / Calls as trip-meter readouts under the gauge. */
 function DayStats({
   segments,
   now,
@@ -828,15 +843,16 @@ function DayStats({
     KIND_ORDER.filter(pred).reduce((a, k) => a + (byKind[k] ?? 0), 0);
   const stats: [string, number, string][] = [
     ['Worked', sum((k) => groupOf(k) === 'working'), dark.kind.working],
-    ['Calls', sum((k) => k.startsWith('call_')), dark.kind.call_teams],
+    ['Idle', sum((k) => groupOf(k) === 'idle'), dark.kind.idle],
     ['Breaks', sum((k) => groupOf(k) === 'break'), dark.kind.meal_break],
+    ['Calls', sum((k) => k.startsWith('call_')), dark.kind.call_teams],
   ];
   return (
     <section
       aria-label="day-stats"
       style={{
         display: 'grid',
-        gridTemplateColumns: 'repeat(3, 1fr)',
+        gridTemplateColumns: 'repeat(4, 1fr)',
         gap: 6,
         padding: 6,
         borderRadius: 12,

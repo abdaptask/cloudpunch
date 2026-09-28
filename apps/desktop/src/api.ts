@@ -14,7 +14,17 @@ import type { Segment } from './timelineModel.js';
  * `invalid_argument`).
  */
 
-export type Status = 'clocked_out' | 'active' | 'on_call' | 'idle_pending' | 'on_break' | 'away';
+export type Status =
+  'clocked_out' | 'active' | 'on_call' | 'idle_pending' | 'idle' | 'on_break' | 'away';
+
+/** `USER_IDLE_EXPLAINED.explanation` (ADR-0018 §2). */
+export type IdleExplanation = 'working_away' | 'meeting' | 'phone_call' | 'break' | 'idle';
+
+/** An idle stretch that just ended, epoch ms. */
+export interface IdleReturn {
+  since: number;
+  until: number;
+}
 
 /** Mirrors `agent::StateView`. Timestamps are epoch ms. */
 export interface StateView {
@@ -35,6 +45,12 @@ export interface StateView {
   longShift: boolean;
   /** Policy's long day for the end-of-day summary, ms (ADR-0013 §8). */
   longDayMs: number;
+  /** Start of logged idle while `idle` (ADR-0018). */
+  idleSince: number | null;
+  /** Just back from idle: ask what they were doing. */
+  idleReturn: IdleReturn | null;
+  /** Why `autoClockedOutAt`: `idle_cap` (ADR-0018) or `prompt` (older). */
+  autoClockOutReason: 'idle_cap' | 'prompt' | null;
 }
 
 /** The window's close button was pressed (ADR-0013 §1). */
@@ -80,6 +96,9 @@ export const api = {
   markBack: (): Promise<StateView> => invoke<StateView>('mark_back'),
   /** Voluntary tag (ADR-0011 §2). */
   markAway: (reason: 'meeting'): Promise<StateView> => invoke<StateView>('mark_away', { reason }),
+  explainIdle: (explanation: IdleExplanation, note: string | null): Promise<StateView> =>
+    invoke<StateView>('explain_idle', { explanation, note }),
+  dismissIdleReturn: (): Promise<StateView> => invoke<StateView>('dismiss_idle_return'),
   respondToPrompt: (response: PromptResponse, note: string | null): Promise<StateView> =>
     invoke<StateView>('respond_to_prompt', { response, note }),
   /** Ask the agent to resize the main window to `height` logical px. */

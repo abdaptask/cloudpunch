@@ -33,43 +33,52 @@ ADR-0015.
 ## 1. Inactivity threshold
 
 **Setting:** `idle.threshold_seconds`
-**Default:** `300` (5 minutes)
+**Default:** `120` (2 minutes; was 300 before ADR-0018)
 **Range:** 60 – 3600
 **Effect:** Time without a keyboard or pointer event before
 CloudPunch shows the idle prompt. Below this, the user is `ACTIVE`
 (or `ON_CALL` if mic/camera is in use).
 
-**When to lower:** short-turnaround support roles where 5 minutes of
-silence is unusual.
+**When to lower:** rarely; 2 minutes is already short.
+**Note:** reading a long document can mean two minutes without input.
+"Still working" keeps those minutes payable (ADR-0008 §3).
 **When to raise:** deeply focused roles (research, design) where
 silent stretches are normal — though raising too high defeats the
 purpose. Consider an `IDLE_PENDING` "still working" click as a
 partial acknowledgement of presence rather than a punishment for
 thinking.
 
-## 2. Grace window before auto-clock-out
+## 2. Grace window before idle is logged
 
 **Setting:** `idle.grace_seconds`
 **Default:** `30`
 **Range:** 10 – 300
-**Effect:** After the prompt is shown, the time we wait for a
-response before automatically clocking the user out. If the user
-neither responds nor produces any input in this window, we close the
-session with `reason=idle_auto_clock_out`.
+**Effect:** After the prompt appears, CloudPunch waits this long for an
+answer, then **logs idle time** (ADR-0018). The person stays clocked
+in, and idle is counted from their last input. When they return, the
+window asks what they were doing. Their answer is attached for the
+manager, and the time stays idle (not worked) unless the manager
+accepts it at approval.
 
-**Deliberately kept short.** A long grace window lets an inattentive
-user pad their timesheet with idle time. 30 seconds is enough to
-notice the prompt, click a button, or move the mouse.
+Before ADR-0018, an unanswered prompt clocked the person out
+(`reason=idle_auto_clock_out`). Older app versions still do this until
+they are updated.
+
+**Setting:** `idle.max_idle_minutes`
+**Default:** `120` · **Range:** 15 – 480, or `null` to disable
+**Effect:** After this much continuous idle, the session closes
+(`reason=idle_cap`), dated exactly when the cap was reached. This
+holds even if the laptop slept past it. It stops a forgotten laptop
+from keeping a shift open overnight.
 
 ## 3. Auto-classification of unresponsive idle time
 
 **Setting:** `idle.count_as_payable_when_unresponsive`
 **Default:** `false` (do NOT count as payable)
-**Effect:** When the grace timer expires with no response, the
-5-minute idle window and the 30-second grace are recorded but do
-**not** contribute to payable hours. The session's `closed_at` is the
-moment the prompt appeared (5 minutes after the last activity), not
-the moment the timeout fired.
+**Effect:** When the grace timer expires with no response, the idle
+stretch (from the last input) is recorded as **idle** and does **not**
+contribute to payable hours (ADR-0018 §2). The person's explanation
+never changes that on its own; the manager decides.
 
 **Do not set to `true` without a documented policy reason and
 legal review.** Paying for time an employee did not confirm they

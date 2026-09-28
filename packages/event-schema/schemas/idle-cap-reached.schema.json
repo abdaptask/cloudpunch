@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cloudpunch.aptask.com/schemas/idle-cap-reached.schema.json",
+  "title": "IDLE_CAP_REACHED event",
+  "description": "Idle lasted idle.max_idle_minutes: the session closes at client_ts (closed_reason idle_cap). IDLE → CLOSED. See ADR-0018 §1.",
+  "allOf": [
+    {
+      "$ref": "common/base-event.schema.json"
+    },
+    {
+      "type": "object",
+      "properties": {
+        "event_type": {
+          "const": "IDLE_CAP_REACHED"
+        },
+        "payload": {
+          "type": "object",
+          "properties": {},
+          "additionalProperties": false
+        }
+      }
+    }
+  ]
+}

@@ -240,6 +240,8 @@ pub fn run() {
             commands::mark_away,
             commands::mark_back,
             commands::respond_to_prompt,
+            commands::explain_idle,
+            commands::dismiss_idle_return,
             commands::get_day,
             commands::get_days,
             commands::pin_window,
