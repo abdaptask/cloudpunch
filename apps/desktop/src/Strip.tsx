@@ -32,6 +32,7 @@ export function Strip({
   color,
   worked,
   breaks,
+  idle,
   run,
   onUnpin,
 }: {
@@ -41,9 +42,10 @@ export function Strip({
   label: string;
   /** Status colour, as on the dial. */
   color: string;
-  /** Today's worked and break time (ms). */
+  /** Today's worked, break and idle time (ms). */
   worked: number;
   breaks: number;
+  idle: number;
   run: (command: () => Promise<StateView>) => void;
   onUnpin: () => void;
 }): JSX.Element {
@@ -191,6 +193,7 @@ export function Strip({
             style={{ fontSize: 11, color: t.muted, fontVariantNumeric: 'tabular-nums' }}
           >
             Today · {hm(worked)} worked · {hm(breaks)} breaks
+            {idle > 0 && <> · {hm(idle)} idle</>}
           </div>
           {confirm && view.status === 'on_call' ? (
             <div role="alertdialog" aria-label="strip-break-on-call">
@@ -271,6 +274,9 @@ function StripAction({
       return small('secondary', 'Break', onOpen);
     case 'idle_pending':
       // The idle prompt window has the answers (ADR-0008).
+      return null;
+    case 'idle':
+      // Any input ends idle; the full window then asks what happened.
       return null;
   }
 }

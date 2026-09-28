@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cloudpunch.aptask.com/schemas/user-idle-explained.schema.json",
+  "title": "USER_IDLE_EXPLAINED event",
+  "description": "The person's account of an idle stretch, for the manager. An annotation: it never changes state and never turns idle into worked time. See ADR-0018 §2.",
+  "allOf": [
+    {
+      "$ref": "common/base-event.schema.json"
+    },
+    {
+      "type": "object",
+      "properties": {
+        "event_type": {
+          "const": "USER_IDLE_EXPLAINED"
+        },
+        "payload": {
+          "type": "object",
+          "properties": {
+            "explanation": {
+              "type": "string",
+              "enum": ["working_away", "meeting", "phone_call", "break", "idle"]
+            },
+            "idle_since": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "idle_until": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "note": {
+              "type": ["string", "null"],
+              "maxLength": 500
+            }
+          },
+          "additionalProperties": false,
+          "required": ["explanation", "idle_since"]
+        }
+      }
+    }
+  ]
+}

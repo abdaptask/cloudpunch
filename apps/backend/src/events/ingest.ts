@@ -5,6 +5,7 @@ import {
 } from '@cloudpunch/event-schema';
 import type { DbRepositories, EmploymentStatus, SessionCloseReason } from '../db/index.js';
 import type { EventItem } from './schemas.js';
+import { clockInStart } from './start.js';
 import { INITIAL_STATE, deriveState, nextState, type PayrollState } from './state-machine.js';
 
 /**
@@ -168,7 +169,7 @@ export async function ingestBatch(input: IngestBatchInput): Promise<IngestBatchO
       id: input.sessionId,
       employeeId: employee.id,
       deviceId: device.id,
-      openedAt: new Date(firstEvt.client_ts),
+      openedAt: clockInStart(firstEvt),
     });
   }
 
@@ -318,6 +319,11 @@ export async function ingestBatch(input: IngestBatchInput): Promise<IngestBatchO
         sessionClosedWith = 'user_clock_out';
       } else if (evt.event_type === 'PROMPT_TIMEOUT_30S') {
         sessionClosedWith = 'idle_auto_clock_out';
+      } else if (evt.event_type === 'IDLE_CAP_REACHED') {
+        // ADR-0018 §1: closes when the cap was reached, not when the
+        // event arrived (it may have been queued offline).
+        sessionClosedWith = 'idle_cap';
+        sessionClosedAt = new Date(evt.client_ts);
       } else if (evt.event_type === 'SESSION_RECOVERED') {
         // ADR-0003 §10: the agent found this session still open after
         // a crash or shutdown. Close it at the last heartbeat it saw,

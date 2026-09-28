@@ -114,8 +114,8 @@ export function IdlePrompt({
       </h1>
       <p id={descId} style={{ margin: 0, fontSize: 14, lineHeight: 1.45, color: t.muted }}>
         {expired
-          ? 'No response — clocking you out.'
-          : `We haven't seen any activity for a while. You'll be clocked out in ${remaining}s unless you choose an option.`}
+          ? 'No response. Logging idle time from your last activity; you stay clocked in.'
+          : `We haven't seen any activity for a while. If you don't choose an option in ${remaining}s, the time since your last activity is logged as idle. You stay clocked in.`}
       </p>
 
       {pendingNoteFor === null ? (

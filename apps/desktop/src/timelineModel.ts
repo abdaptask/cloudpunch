@@ -15,7 +15,9 @@ export type SegmentKind =
   | 'away_meeting'
   | 'away_phone'
   | 'away_working'
-  | 'prompt';
+  | 'prompt'
+  /** Logged idle after an unanswered prompt (ADR-0018): never worked. */
+  | 'idle';
 
 export interface Segment {
   kind: SegmentKind;
@@ -34,7 +36,7 @@ export type ClosedSegment = Segment & { endedAt: number };
  * all count as working time; they are shown as separate segments
  * while they happen.
  */
-export type SegmentGroup = 'working' | 'break' | 'prompt';
+export type SegmentGroup = 'working' | 'break' | 'prompt' | 'idle';
 
 export function groupOf(kind: SegmentKind): SegmentGroup {
   switch (kind) {
@@ -52,6 +54,8 @@ export function groupOf(kind: SegmentKind): SegmentGroup {
       return 'break';
     case 'prompt':
       return 'prompt';
+    case 'idle':
+      return 'idle';
   }
 }
 
@@ -67,6 +71,7 @@ export const KIND_LABEL: Record<SegmentKind, string> = {
   away_phone: 'On a phone call',
   away_working: 'Working away',
   prompt: 'Idle prompt',
+  idle: 'Idle',
 };
 
 /** Label for a kind as a line under the Working total. */
@@ -129,7 +134,7 @@ export function today(
 export type Totals = Record<SegmentGroup, number>;
 
 export function totals(segments: readonly Segment[], now: number, since?: number): Totals {
-  const out: Totals = { working: 0, break: 0, prompt: 0 };
+  const out: Totals = { working: 0, break: 0, prompt: 0, idle: 0 };
   for (const s of today(segments, now, since)) {
     out[groupOf(s.kind)] += s.endedAt - s.startedAt;
   }
@@ -184,6 +189,7 @@ export const KIND_ORDER: readonly SegmentKind[] = [
   'meal_break',
   'other_break',
   'prompt',
+  'idle',
 ];
 
 /** Today's time per segment kind; kinds with no time are absent. */

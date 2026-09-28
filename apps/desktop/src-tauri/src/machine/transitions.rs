@@ -7,7 +7,8 @@
 //! fixture `packages/event-schema/fixtures/state-transitions.json`.
 //!
 //! ADR-0003 §3, amended by ADR-0008 (input keeps the prompt up) and
-//! ADR-0009 (`ON_CALL` via `MEDIA_DEVICE_STATE { in_use }`).
+//! ADR-0009 (`ON_CALL` via `MEDIA_DEVICE_STATE { in_use }`) and
+//! ADR-0018 (`IDLE`: an unanswered prompt logs idle time).
 
 use serde_json::Value;
 
@@ -20,6 +21,8 @@ pub enum PayrollState {
     OnBreak,
     Away,
     IdlePending,
+    /// Logged idle after an unanswered prompt (ADR-0018).
+    Idle,
     Closed,
 }
 
@@ -32,6 +35,7 @@ impl PayrollState {
             PayrollState::OnBreak => "ON_BREAK",
             PayrollState::Away => "AWAY",
             PayrollState::IdlePending => "IDLE_PENDING",
+            PayrollState::Idle => "IDLE",
             PayrollState::Closed => "CLOSED",
         }
     }
@@ -43,6 +47,7 @@ impl PayrollState {
             "ON_BREAK" => PayrollState::OnBreak,
             "AWAY" => PayrollState::Away,
             "IDLE_PENDING" => PayrollState::IdlePending,
+            "IDLE" => PayrollState::Idle,
             "CLOSED" => PayrollState::Closed,
             _ => return None,
         })
@@ -126,7 +131,28 @@ pub fn next_payroll_state(
                 _ => None,
             }
         }
+        // Pre-ADR-0018 clients; still legal so old history replays.
         "PROMPT_TIMEOUT_30S" => (current == IdlePending).then_some(Closed),
+
+        // ADR-0018 §1: idle counted from the last input.
+        "IDLE_STARTED" => {
+            let since = field("idle_since")?.as_str()?;
+            chrono::DateTime::parse_from_rfc3339(since).ok()?;
+            (current == IdlePending).then_some(Idle)
+        }
+        "IDLE_ENDED" => (current == Idle).then_some(Active),
+        "IDLE_CAP_REACHED" => (current == Idle).then_some(Closed),
+        // ADR-0018 §2: an annotation for the manager; no state change.
+        "USER_IDLE_EXPLAINED" => {
+            let explanation = field("explanation")?.as_str()?;
+            let known = matches!(
+                explanation,
+                "working_away" | "meeting" | "phone_call" | "break" | "idle"
+            );
+            let since = field("idle_since")?.as_str()?;
+            chrono::DateTime::parse_from_rfc3339(since).ok()?;
+            (known && current != Closed).then_some(current)
+        }
 
         "USER_PROMPT_RESPONSE" => {
             if current != IdlePending {
@@ -185,7 +211,7 @@ mod tests {
     #[test]
     fn wire_names_round_trip() {
         use PayrollState::*;
-        for s in [Active, OnCall, OnBreak, Away, IdlePending, Closed] {
+        for s in [Active, OnCall, OnBreak, Away, IdlePending, Idle, Closed] {
             assert_eq!(PayrollState::from_wire(s.as_str()), Some(s));
         }
         assert_eq!(PayrollState::from_wire("CLOCKED_OUT"), None);

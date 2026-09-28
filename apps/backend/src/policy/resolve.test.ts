@@ -12,7 +12,8 @@ describe('schemaDefaults', () => {
   const d = schemaDefaults() as Record<string, Record<string, unknown>>;
 
   it('matches the documented defaults (docs/policy/idle-policy-defaults.md)', () => {
-    expect(d['idle']?.['threshold_seconds']).toBe(300);
+    expect(d['idle']?.['threshold_seconds']).toBe(120);
+    expect(d['idle']?.['max_idle_minutes']).toBe(120);
     expect(d['idle']?.['grace_seconds']).toBe(30);
     expect(d['idle']?.['max_silent_call_minutes']).toBe(30);
     expect((d['break'] as Record<string, Record<string, unknown>>)['bio']?.['max_minutes']).toBe(

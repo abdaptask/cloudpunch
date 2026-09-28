@@ -8,8 +8,15 @@
     "idle": {
       "type": "object",
       "properties": {
-        "threshold_seconds": { "type": "integer", "minimum": 60, "maximum": 3600, "default": 300 },
+        "threshold_seconds": { "type": "integer", "minimum": 60, "maximum": 3600, "default": 120 },
         "grace_seconds": { "type": "integer", "minimum": 10, "maximum": 300, "default": 30 },
+        "max_idle_minutes": {
+          "type": ["integer", "null"],
+          "minimum": 15,
+          "maximum": 480,
+          "default": 120,
+          "description": "Continuous logged idle closes the session after this long (closed_reason idle_cap). null disables. ADR-0018 §1."
+        },
         "suppress_prompt_when_media_active": { "type": "boolean", "default": true },
         "media_state_debounce_seconds": {
           "type": "integer",

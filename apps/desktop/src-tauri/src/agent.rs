@@ -28,7 +28,8 @@ use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 use crate::call_type::{self, Rules};
 use crate::machine::driver::Driver;
 use crate::machine::{
-    AwayReason, BreakKind, CallType, Core, CoreConfig, CoreState, Effect, Input, Rejected,
+    AwayReason, BreakKind, CallType, Core, CoreConfig, CoreState, Effect, IdleStretch, Input,
+    Rejected,
 };
 use crate::policy::PolicyDoc;
 use crate::recorder::{OutboxSink, Recorder};
@@ -66,11 +67,38 @@ pub struct StateView {
     pub timeline: Vec<SegmentView>,
     /// Long-shift check showing (ADR-0013 §5).
     pub long_shift: bool,
+    /// Start of the logged idle stretch while `idle` (ADR-0018).
+    pub idle_since: Option<u64>,
+    /// An idle stretch that just ended, waiting for "what were you
+    /// doing?" (ADR-0018 §2).
+    pub idle_return: Option<IdleReturnView>,
+    /// Why `auto_clocked_out_at` happened: `idle_cap` or `prompt`.
+    pub auto_clock_out_reason: Option<&'static str>,
     /// Policy's long day for the end-of-day summary, ms (ADR-0013 §8).
     pub long_day_ms: u64,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IdleReturnView {
+    pub since: u64,
+    pub until: u64,
+}
+
 impl StateView {
+    pub fn with_idle_return(mut self, stretch: Option<IdleStretch>) -> Self {
+        self.idle_return = stretch.map(|s| IdleReturnView {
+            since: epoch_ms(s.since),
+            until: epoch_ms(s.until),
+        });
+        self
+    }
+
+    pub fn with_auto_clock_out_reason(mut self, reason: Option<&'static str>) -> Self {
+        self.auto_clock_out_reason = reason;
+        self
+    }
+
     pub fn with_long_shift(mut self, long_shift: bool) -> Self {
         self.long_shift = long_shift;
         self
@@ -99,8 +127,13 @@ pub fn view_of(
     cfg: &CoreConfig,
     auto_clocked_out_at: Option<SystemTime>,
 ) -> StateView {
+    let idle_since = match state {
+        CoreState::Idle { since } => Some(epoch_ms(since)),
+        _ => None,
+    };
     let (status, break_kind, away_reason, prompt_deadline) = match state {
         CoreState::ClockedOut => ("clocked_out", None, None, None),
+        CoreState::Idle { .. } => ("idle", None, None, None),
         CoreState::Active => ("active", None, None, None),
         CoreState::OnCall => ("on_call", None, None, None),
         CoreState::IdlePending { deadline, .. } => {
@@ -122,6 +155,9 @@ pub fn view_of(
         timeline: Vec::new(),
         long_shift: false,
         long_day_ms: 8 * 3_600_000,
+        idle_since,
+        idle_return: None,
+        auto_clock_out_reason: None,
     }
 }
 
@@ -132,7 +168,10 @@ pub fn tray_snapshot(state: CoreState, call_type: Option<CallType>) -> TrayState
         CoreState::OnBreak { .. } => TrayStateSnapshot::OnBreak,
         CoreState::Away { reason } => TrayStateSnapshot::Away(reason),
         CoreState::OnCall => TrayStateSnapshot::OnCall(call_type.unwrap_or(CallType::Other)),
-        CoreState::Active | CoreState::IdlePending { .. } => TrayStateSnapshot::ClockedIn,
+        // Idle is still clocked in; the tooltip says since when.
+        CoreState::Active | CoreState::IdlePending { .. } | CoreState::Idle { .. } => {
+            TrayStateSnapshot::ClockedIn
+        }
     }
 }
 
@@ -261,6 +300,7 @@ impl Ui for TauriUi {
 struct Inner {
     driver: Driver<OutboxSink>,
     auto_clocked_out_at: Option<SystemTime>,
+    auto_clock_out_reason: Option<&'static str>,
     timeline: Timeline,
     reminder_cfg: ReminderConfig,
     reminders: ReminderState,
@@ -292,6 +332,8 @@ impl Inner {
         .with_timeline(&self.timeline)
         .with_long_shift(self.long_shift)
         .with_long_day(self.reminder_cfg.long_day)
+        .with_idle_return(self.driver.core().idle_return())
+        .with_auto_clock_out_reason(self.auto_clock_out_reason)
     }
 
     fn tooltip(&self, snapshot: TrayStateSnapshot, now: SystemTime) -> String {
@@ -355,6 +397,7 @@ impl<U: Ui> Agent<U> {
             inner: Mutex::new(Inner {
                 driver: Driver::new(core, recorder.sink()),
                 auto_clocked_out_at: None,
+                auto_clock_out_reason: None,
                 timeline: Timeline::new(),
                 reminder_cfg: ReminderConfig::default(),
                 reminders: ReminderState::default(),
@@ -438,7 +481,14 @@ impl<U: Ui> Agent<U> {
             }
             let call_after = inner.driver.core().call_type();
             if after != before || call_after != call_before {
-                inner.timeline.record(after, call_after, now);
+                // Record at the event's own time: idle starts at the last
+                // input, and the idle cap is dated when it was reached,
+                // even if the laptop slept past it (ADR-0018).
+                let at = match after {
+                    CoreState::Idle { since } => since,
+                    _ => outcome.last_emit_at.unwrap_or(now),
+                };
+                inner.timeline.record(after, call_after, at);
                 // Journal the day so a restart keeps it on screen.
                 self.recorder.save_day(&inner.timeline.to_json());
             }
@@ -455,19 +505,31 @@ impl<U: Ui> Agent<U> {
                 match effect {
                     Effect::ShowPrompt { .. } => plan.show_prompt = true,
                     Effect::HidePrompt => plan.hide_prompt = true,
+                    // Back from idle: bring the window up to ask.
+                    Effect::IdleReturned(_) => {
+                        plan.show_main = true;
+                        plan.broadcast = true;
+                    }
                     _ => {}
                 }
             }
-            // Only the grace timeout clocks out from a tick.
-            if is_tick
-                && matches!(before, CoreState::IdlePending { .. })
-                && after == CoreState::ClockedOut
-            {
-                inner.auto_clocked_out_at = Some(now);
-                plan.show_main = true;
+            // Only the idle cap (or, before ADR-0018, the grace
+            // timeout) clocks out from a tick.
+            if is_tick && after == CoreState::ClockedOut {
+                if let CoreState::Idle { since } = before {
+                    let cap = inner.driver.core().config().max_idle.unwrap_or_default();
+                    inner.auto_clocked_out_at = Some(since + cap);
+                    inner.auto_clock_out_reason = Some("idle_cap");
+                    plan.show_main = true;
+                } else if matches!(before, CoreState::IdlePending { .. }) {
+                    inner.auto_clocked_out_at = Some(now);
+                    inner.auto_clock_out_reason = Some("prompt");
+                    plan.show_main = true;
+                }
             }
             if is_clock_in {
                 inner.auto_clocked_out_at = None;
+                inner.auto_clock_out_reason = None;
             }
             if after == CoreState::ClockedOut {
                 inner.long_shift = false;
@@ -705,6 +767,7 @@ fn open_prompt_window(app: &AppHandle) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::machine::IdleExplanation;
     use crate::machine::PromptResponse;
 
     fn t(ms: u64) -> SystemTime {
@@ -722,6 +785,7 @@ mod tests {
             CoreState::IdlePending {
                 shown_at: t(1_000),
                 deadline: t(31_000),
+                idle_since: t(0),
             },
             &cfg,
             None,
@@ -961,7 +1025,8 @@ mod tests {
     }
 
     #[test]
-    fn idle_opens_prompt_then_timeout_clocks_out_and_shows_main() {
+    fn unanswered_prompt_logs_idle_then_welcome_back_shows_main() {
+        // ADR-0018: no clock-out on timeout; idle from the last input.
         let (agent, ui) = agent_with_ui();
         let base = SystemTime::now();
         agent.handle_at(Input::ClockIn, base).unwrap();
@@ -976,14 +1041,68 @@ mod tests {
         ui.calls.lock().unwrap().clear();
 
         let view = tick_at(&agent, base, 330);
-        assert_eq!(view.status, "clocked_out");
-        assert_eq!(
-            view.auto_clocked_out_at,
-            Some(epoch_ms(base + Duration::from_secs(330)))
-        );
+        assert_eq!(view.status, "idle");
+        assert_eq!(view.idle_since, Some(epoch_ms(base)));
+        assert_eq!(view.auto_clocked_out_at, None);
         assert_eq!(
             *ui.calls.lock().unwrap(),
-            ["hide_prompt", "show_main", "state:clocked_out:NotClockedIn"]
+            ["hide_prompt", "state:idle:ClockedIn"]
+        );
+        // The timeline shows idle from the clock-in (the last input).
+        let kinds: Vec<_> = view.timeline.iter().map(|s| s.kind).collect();
+        assert_eq!(kinds, ["idle"]);
+        ui.calls.lock().unwrap().clear();
+
+        // Input returns: working again, and the window asks.
+        let back = base + Duration::from_secs(900);
+        let view = agent
+            .handle_at(
+                Input::Tick {
+                    last_input_at: back,
+                },
+                back,
+            )
+            .unwrap();
+        assert_eq!(view.status, "active");
+        let ret = view.idle_return.expect("asks what happened");
+        assert_eq!((ret.since, ret.until), (epoch_ms(base), epoch_ms(back)));
+        assert!(ui.calls.lock().unwrap().contains(&"show_main".to_string()));
+        let kinds: Vec<_> = view.timeline.iter().map(|s| s.kind).collect();
+        assert_eq!(kinds, ["idle", "working"]);
+
+        let view = agent
+            .handle_at(
+                Input::ExplainIdle {
+                    explanation: IdleExplanation::Meeting,
+                    note: None,
+                },
+                back,
+            )
+            .unwrap();
+        assert!(view.idle_return.is_none());
+    }
+
+    #[test]
+    fn the_idle_cap_clocks_out_at_the_cap_and_says_why() {
+        let (agent, _ui) = agent_with_ui();
+        let base = SystemTime::now();
+        agent.handle_at(Input::ClockIn, base).unwrap();
+        tick_at(&agent, base, 300);
+        tick_at(&agent, base, 330);
+        // Asleep well past the 2-hour cap.
+        let view = tick_at(&agent, base, 20_000);
+        assert_eq!(view.status, "clocked_out");
+        assert_eq!(view.auto_clock_out_reason, Some("idle_cap"));
+        assert_eq!(
+            view.auto_clocked_out_at,
+            Some(epoch_ms(base + Duration::from_secs(7_200)))
+        );
+        // The idle segment ends at the cap, not at wake-up.
+        let last = view.timeline.last().unwrap();
+        assert_eq!(last.kind, "idle");
+        assert_eq!(
+            last.ended_at,
+            Some(epoch_ms(base + Duration::from_secs(7_200)))
         );
     }
 
@@ -1089,7 +1208,7 @@ mod tests {
         agent.handle(Input::ClockIn).unwrap();
         agent.apply_policy(&policy(900, 15), Some("v2".into()));
         // The session keeps its idle rule; the nudge cadence changes now.
-        assert_eq!(idle_threshold(&agent), Duration::from_secs(300));
+        assert_eq!(idle_threshold(&agent), Duration::from_secs(120));
         assert_eq!(
             agent.lock().reminder_cfg.bio_cap,
             Duration::from_secs(15 * 60)

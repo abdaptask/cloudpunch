@@ -286,6 +286,7 @@ mod tests {
         let prompting = CoreState::IdlePending {
             shown_at: t(50),
             deadline: t(51),
+            idle_since: t(0),
         };
         assert!(due(&cfg, inp(prompting, 51), &mut st).is_empty());
         // Call over and window hidden: the overdue reminder fires now.

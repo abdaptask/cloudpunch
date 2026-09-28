@@ -19,7 +19,8 @@
  *   - Clock-drift ERROR_FROZEN state
  */
 
-export type PayrollState = 'ACTIVE' | 'ON_CALL' | 'ON_BREAK' | 'AWAY' | 'IDLE_PENDING' | 'CLOSED';
+export type PayrollState =
+  'ACTIVE' | 'ON_CALL' | 'ON_BREAK' | 'AWAY' | 'IDLE_PENDING' | 'IDLE' | 'CLOSED';
 
 /**
  * State a session enters immediately after USER_CLOCK_IN is accepted.
@@ -55,6 +56,17 @@ const AWAY_REASONS: ReadonlySet<string> = new Set([
   'meeting',
   'other',
 ]);
+
+/** `USER_IDLE_EXPLAINED.payload.explanation` (ADR-0018 §2). */
+export const IDLE_EXPLANATIONS: ReadonlySet<string> = new Set([
+  'working_away',
+  'meeting',
+  'phone_call',
+  'break',
+  'idle',
+]);
+
+const isTimestamp = (v: unknown): boolean => typeof v === 'string' && !Number.isNaN(Date.parse(v));
 
 const PROMPT_RESPONSES: ReadonlySet<string> = new Set([
   'still_working',
@@ -149,8 +161,32 @@ export function nextState(
     }
 
     case 'PROMPT_TIMEOUT_30S':
+      // Pre-ADR-0018 clients: an unanswered prompt closed the session.
+      // Still accepted, so old history replays the same.
       if (current !== 'IDLE_PENDING') return null;
       return 'CLOSED';
+
+    // ADR-0018 §1: an unanswered prompt starts logged idle time,
+    // counted from the last input (`idle_since`).
+    case 'IDLE_STARTED':
+      if (current !== 'IDLE_PENDING' || !isTimestamp(payload?.['idle_since'])) return null;
+      return 'IDLE';
+
+    case 'IDLE_ENDED':
+      return current === 'IDLE' ? 'ACTIVE' : null;
+
+    case 'IDLE_CAP_REACHED':
+      return current === 'IDLE' ? 'CLOSED' : null;
+
+    // ADR-0018 §2: the person's account of an idle stretch. An
+    // annotation for the manager; it never changes state.
+    case 'USER_IDLE_EXPLAINED': {
+      if (current === 'CLOSED') return null;
+      const explanation = payload?.['explanation'];
+      if (typeof explanation !== 'string' || !IDLE_EXPLANATIONS.has(explanation)) return null;
+      if (!isTimestamp(payload?.['idle_since'])) return null;
+      return current;
+    }
 
     case 'USER_PROMPT_RESPONSE': {
       if (current !== 'IDLE_PENDING') return null;

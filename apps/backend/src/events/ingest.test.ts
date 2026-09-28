@@ -409,6 +409,125 @@ describe('ingestBatch — batch-level gates', () => {
     expect(s?.reconstructed).toBe(false);
   });
 
+  it('ADR-0018: idle is logged, and the idle cap closes the session when it was reached', async () => {
+    const t0 = Date.now() - 3 * 3_600_000;
+    const at = (min: number): string => new Date(t0 + min * 60_000).toISOString();
+    const r = await send(ctx, [
+      await signedEvent(ctx, { event_type: 'USER_CLOCK_IN', sequence_number: 1, client_ts: at(0) }),
+      await signedEvent(ctx, {
+        event_type: 'INPUT_IDLE_5M',
+        sequence_number: 2,
+        origin: 'system_watcher',
+        client_ts: at(10),
+        payload: { trigger: 'input_idle' },
+      }),
+      await signedEvent(ctx, {
+        event_type: 'IDLE_STARTED',
+        sequence_number: 3,
+        origin: 'system_watcher',
+        client_ts: at(10.5),
+        payload: { idle_since: at(8) },
+      }),
+      await signedEvent(ctx, {
+        event_type: 'IDLE_CAP_REACHED',
+        sequence_number: 4,
+        origin: 'system_watcher',
+        client_ts: at(128),
+      }),
+    ]);
+    expect(r.status).toBe('batch_accepted');
+    if (r.status === 'batch_accepted') {
+      expect(r.results.map((x) => x.status)).toEqual([
+        'accepted',
+        'accepted',
+        'accepted',
+        'accepted',
+      ]);
+    }
+    const s = await ctx.db.timeSessions.findById(ctx.sessionId);
+    expect(s?.closedReason).toBe('idle_cap');
+    // Dated at the cap (queued offline or not), not when the batch arrived.
+    expect(s?.closedAt?.toISOString()).toBe(at(128));
+  });
+
+  it('ADR-0018: idle ends on return; an explanation is an annotation', async () => {
+    const t0 = Date.now() - 3_600_000;
+    const at = (min: number): string => new Date(t0 + min * 60_000).toISOString();
+    const r = await send(ctx, [
+      await signedEvent(ctx, { event_type: 'USER_CLOCK_IN', sequence_number: 1, client_ts: at(0) }),
+      await signedEvent(ctx, {
+        event_type: 'INPUT_IDLE_5M',
+        sequence_number: 2,
+        origin: 'system_watcher',
+        client_ts: at(10),
+      }),
+      await signedEvent(ctx, {
+        event_type: 'IDLE_STARTED',
+        sequence_number: 3,
+        origin: 'system_watcher',
+        client_ts: at(10.5),
+        payload: { idle_since: at(8) },
+      }),
+      // Not legal while idle: the client ends idle first.
+      await signedEvent(ctx, {
+        event_type: 'USER_START_BREAK',
+        sequence_number: 4,
+        client_ts: at(20),
+        payload: { break_kind: 'bio' },
+      }),
+    ]);
+    if (r.status === 'batch_accepted') {
+      expect(r.results.map((x) => x.status)).toEqual([
+        'accepted',
+        'accepted',
+        'accepted',
+        'rejected',
+      ]);
+    }
+    const r2 = await send(ctx, [
+      await signedEvent(ctx, {
+        event_type: 'IDLE_ENDED',
+        sequence_number: 4,
+        origin: 'system_watcher',
+        client_ts: at(30),
+        payload: { idle_since: at(8) },
+      }),
+      await signedEvent(ctx, {
+        event_type: 'USER_IDLE_EXPLAINED',
+        sequence_number: 5,
+        client_ts: at(31),
+        payload: { explanation: 'meeting', idle_since: at(8), idle_until: at(30), note: null },
+      }),
+      await signedEvent(ctx, {
+        event_type: 'USER_START_BREAK',
+        sequence_number: 6,
+        client_ts: at(32),
+        payload: { break_kind: 'bio' },
+      }),
+    ]);
+    expect(r2.status).toBe('batch_accepted');
+    if (r2.status === 'batch_accepted') {
+      expect(r2.results.map((x) => x.status)).toEqual(['accepted', 'accepted', 'accepted']);
+    }
+    const s = await ctx.db.timeSessions.findById(ctx.sessionId);
+    expect(s?.closedAt).toBeNull();
+  });
+
+  it('ADR-0018 §4: a clock-in from the Windows sign-in time opens the session then', async () => {
+    const clicked = new Date(Date.now() - 60_000);
+    const signedInAt = new Date(clicked.getTime() - 25 * 60_000);
+    await send(ctx, [
+      await signedEvent(ctx, {
+        event_type: 'USER_CLOCK_IN',
+        sequence_number: 1,
+        client_ts: clicked.toISOString(),
+        payload: { start_source: 'os_sign_in', started_at: signedInAt.toISOString() },
+      }),
+    ]);
+    const s = await ctx.db.timeSessions.findById(ctx.sessionId);
+    expect(s?.openedAt.toISOString()).toBe(signedInAt.toISOString());
+  });
+
   it('rejects when session does not exist and first event is not USER_CLOCK_IN', async () => {
     const evt = await signedEvent(ctx, {
       event_type: 'INPUT_ACTIVITY',

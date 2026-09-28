@@ -34,6 +34,11 @@ export const EVENT_TYPES = [
   'CLOCK_DRIFT_DETECTED',
   'SESSION_RECOVERED',
   'INTEGRITY_VIOLATION',
+  // ADR-0018: idle is logged instead of clocking out.
+  'IDLE_STARTED',
+  'IDLE_ENDED',
+  'IDLE_CAP_REACHED',
+  'USER_IDLE_EXPLAINED',
 ] as const;
 
 export const eventItemSchema = z

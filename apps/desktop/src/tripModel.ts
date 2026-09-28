@@ -10,6 +10,9 @@ export interface TripSummary {
   worked: number;
   calls: number;
   breaks: number;
+  /** Break and logged idle time (ms): the owner wants both shown. */
+  breakMs: number;
+  idleMs: number;
   /** At least the policy's long day. */
   long: boolean;
 }
@@ -21,11 +24,14 @@ export function tripSummary(
   longDayMs: number,
 ): TripSummary {
   const rows = today(segments, now, since);
-  const worked = totals(segments, now, since).working;
+  const sum = totals(segments, now, since);
+  const worked = sum.working;
   return {
     worked,
     calls: rows.filter((r) => r.kind.startsWith('call_')).length,
     breaks: rows.filter((r) => groupOf(r.kind) === 'break').length,
+    breakMs: sum.break,
+    idleMs: sum.idle,
     long: worked >= longDayMs,
   };
 }
@@ -39,11 +45,13 @@ export function hoursMinutes(ms: number): string {
 
 const count = (n: number, one: string): string => `${n} ${one}${n === 1 ? '' : 's'}`;
 
-/** "8h 12m · 3 calls · 2 breaks"; zero counts are left out. */
+/** "8h 12m worked · 45m breaks · 20m idle · 3 calls"; zeros are left out. */
 export function tripLine(s: TripSummary): string {
-  const parts = [hoursMinutes(s.worked)];
+  const parts = [`${hoursMinutes(s.worked)} worked`];
+  if (s.breakMs > 0)
+    parts.push(`${hoursMinutes(s.breakMs)} ${s.breaks === 1 ? 'break' : 'breaks'}`);
+  if (s.idleMs > 0) parts.push(`${hoursMinutes(s.idleMs)} idle`);
   if (s.calls > 0) parts.push(count(s.calls, 'call'));
-  if (s.breaks > 0) parts.push(count(s.breaks, 'break'));
   return parts.join(' · ');
 }
 

@@ -24,6 +24,11 @@
 //! reports only the first input after an idle period and cannot be
 //! re-armed "from now" when a call ends.
 //!
+//! An unanswered prompt no longer clocks out (ADR-0018): it logs
+//! `IDLE`, counted from the last input, until input returns
+//! (`IDLE_ENDED`, then "welcome back") or the idle cap closes the
+//! session (`IDLE_CAP_REACHED`, at exactly `idle_since + cap`).
+//!
 //! Every event the core emits is first checked against
 //! [`transitions::next_payroll_state`], the Rust mirror of the
 //! backend state machine, so the client never records a transition
@@ -139,6 +144,48 @@ impl IdleTrigger {
     }
 }
 
+/// The person's account of an idle stretch (ADR-0018 §2). An
+/// annotation for the manager; it never turns idle into worked time.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IdleExplanation {
+    WorkingAway,
+    Meeting,
+    PhoneCall,
+    Break,
+    Idle,
+}
+
+impl IdleExplanation {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            IdleExplanation::WorkingAway => "working_away",
+            IdleExplanation::Meeting => "meeting",
+            IdleExplanation::PhoneCall => "phone_call",
+            IdleExplanation::Break => "break",
+            IdleExplanation::Idle => "idle",
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Self> {
+        [
+            IdleExplanation::WorkingAway,
+            IdleExplanation::Meeting,
+            IdleExplanation::PhoneCall,
+            IdleExplanation::Break,
+            IdleExplanation::Idle,
+        ]
+        .into_iter()
+        .find(|e| e.as_str() == s)
+    }
+}
+
+/// An idle stretch that just ended, waiting for "what were you doing?".
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct IdleStretch {
+    pub since: SystemTime,
+    pub until: SystemTime,
+}
+
 /// Maximum `note` length (`user-prompt-response.schema.json`).
 pub const NOTE_MAX_CHARS: usize = 500;
 
@@ -149,8 +196,12 @@ pub const NOTE_MAX_CHARS: usize = 500;
 pub struct CoreConfig {
     /// `idle.threshold_seconds`.
     pub idle_threshold: Duration,
-    /// `idle.grace_seconds`.
+    /// `idle.grace_seconds`: how long the prompt waits before idle
+    /// is logged (ADR-0018 §3).
     pub grace: Duration,
+    /// `idle.max_idle_minutes` (ADR-0018 §1): continuous idle closes
+    /// the session after this long. `None` disables the cap.
+    pub max_idle: Option<Duration>,
     /// `idle.media_state_debounce_seconds` — how long mic/cam must
     /// stay off before a call counts as ended.
     pub media_off_debounce: Duration,
@@ -172,8 +223,9 @@ pub struct CoreConfig {
 impl Default for CoreConfig {
     fn default() -> Self {
         Self {
-            idle_threshold: Duration::from_secs(300),
+            idle_threshold: Duration::from_secs(120),
             grace: Duration::from_secs(30),
+            max_idle: Some(Duration::from_secs(120 * 60)),
             media_off_debounce: Duration::from_secs(5),
             suppress_prompt_when_media_active: true,
             max_silent_call: Some(Duration::from_secs(30 * 60)),
@@ -194,6 +246,13 @@ pub enum CoreState {
     IdlePending {
         shown_at: SystemTime,
         deadline: SystemTime,
+        /// Last input (or re-arm) before the prompt: where idle starts
+        /// if nobody answers (ADR-0018 §1).
+        idle_since: SystemTime,
+    },
+    /// Logged idle after an unanswered prompt (ADR-0018).
+    Idle {
+        since: SystemTime,
     },
     OnBreak {
         kind: BreakKind,
@@ -211,6 +270,7 @@ impl CoreState {
             CoreState::Active => PayrollState::Active,
             CoreState::OnCall => PayrollState::OnCall,
             CoreState::IdlePending { .. } => PayrollState::IdlePending,
+            CoreState::Idle { .. } => PayrollState::Idle,
             CoreState::OnBreak { .. } => PayrollState::OnBreak,
             CoreState::Away { .. } => PayrollState::Away,
         })
@@ -235,6 +295,13 @@ pub enum Input {
         response: PromptResponse,
         note: Option<String>,
     },
+    /// "What were you doing?" after an idle stretch (ADR-0018 §2).
+    ExplainIdle {
+        explanation: IdleExplanation,
+        note: Option<String>,
+    },
+    /// Skip that question; the stretch stays unexplained idle.
+    DismissIdleReturn,
     /// Raw mic-OR-camera state from the watcher, before debounce:
     /// `Some(kind of call)` while in use, `None` when not (ADR-0012).
     MediaInUse(Option<CallType>),
@@ -270,6 +337,22 @@ pub enum CoreEvent {
         trigger: IdleTrigger,
     },
     PromptTimeout30s,
+    /// ADR-0018: the prompt went unanswered; idle since the last input.
+    IdleStarted {
+        since: SystemTime,
+    },
+    /// Input came back after idle.
+    IdleEnded {
+        since: SystemTime,
+    },
+    /// Idle reached the cap; the session closes.
+    IdleCapReached,
+    /// The person's account of an idle stretch.
+    UserIdleExplained {
+        stretch: IdleStretch,
+        explanation: IdleExplanation,
+        note: Option<String>,
+    },
     MediaDeviceState {
         in_use: bool,
         /// Present while `in_use` (ADR-0012).
@@ -289,6 +372,10 @@ impl CoreEvent {
             CoreEvent::UserPromptResponse { .. } => "USER_PROMPT_RESPONSE",
             CoreEvent::InputIdle5m { .. } => "INPUT_IDLE_5M",
             CoreEvent::PromptTimeout30s => "PROMPT_TIMEOUT_30S",
+            CoreEvent::IdleStarted { .. } => "IDLE_STARTED",
+            CoreEvent::IdleEnded { .. } => "IDLE_ENDED",
+            CoreEvent::IdleCapReached => "IDLE_CAP_REACHED",
+            CoreEvent::UserIdleExplained { .. } => "USER_IDLE_EXPLAINED",
             CoreEvent::MediaDeviceState { .. } => "MEDIA_DEVICE_STATE",
         }
     }
@@ -308,6 +395,18 @@ impl CoreEvent {
             CoreEvent::MediaDeviceState { in_use, .. } => json!({ "in_use": in_use }),
             CoreEvent::UserMarkAway { reason, .. } => json!({ "away_reason": reason.as_str() }),
             CoreEvent::InputIdle5m { trigger } => json!({ "trigger": trigger.as_str() }),
+            // UTC here; the wire encoder rewrites these in the local zone.
+            CoreEvent::IdleStarted { since } | CoreEvent::IdleEnded { since } => {
+                json!({ "idle_since": utc_rfc3339(*since) })
+            }
+            CoreEvent::UserIdleExplained {
+                stretch,
+                explanation,
+                ..
+            } => json!({
+                "explanation": explanation.as_str(),
+                "idle_since": utc_rfc3339(stretch.since),
+            }),
             _ => json!({}),
         }
     }
@@ -329,6 +428,8 @@ pub enum Effect {
     },
     HidePrompt,
     StateChanged(CoreState),
+    /// Idle ended: ask "what were you doing?" (ADR-0018 §2).
+    IdleReturned(IdleStretch),
 }
 
 /// Why an input was refused. The core's state is unchanged.
@@ -356,6 +457,8 @@ pub struct Core {
     /// When `ON_CALL` was last entered. The silent-call cap is
     /// measured from max(last input, this) (ADR-0010).
     on_call_since: SystemTime,
+    /// The idle stretch waiting for an explanation, if any.
+    idle_return: Option<IdleStretch>,
 }
 
 impl Core {
@@ -367,7 +470,13 @@ impl Core {
             media: None,
             media_off_since: None,
             on_call_since: now,
+            idle_return: None,
         }
+    }
+
+    /// The idle stretch waiting for "what were you doing?", if any.
+    pub fn idle_return(&self) -> Option<IdleStretch> {
+        self.idle_return
     }
 
     pub fn state(&self) -> CoreState {
@@ -398,6 +507,12 @@ impl Core {
 
     pub fn handle(&mut self, input: Input, now: SystemTime) -> Result<Vec<Effect>, Rejected> {
         let mut fx = Vec::new();
+        // Acting on the app is input: a click while idle ends the idle
+        // first, so the action itself is never refused (ADR-0018 §1).
+        let user_action = !matches!(input, Input::Tick { .. } | Input::MediaInUse(_));
+        if let (true, CoreState::Idle { since }) = (user_action, self.state) {
+            self.end_idle(since, now, &mut fx);
+        }
         match input {
             Input::ClockIn => {
                 if self.state != CoreState::ClockedOut {
@@ -441,6 +556,21 @@ impl Core {
                     &mut fx,
                 )?;
             }
+            Input::ExplainIdle { explanation, note } => {
+                let stretch = self.idle_return.ok_or(Rejected::InvalidTransition)?;
+                let note = clean_note(note, false)?;
+                self.apply(
+                    CoreEvent::UserIdleExplained {
+                        stretch,
+                        explanation,
+                        note,
+                    },
+                    now,
+                    &mut fx,
+                )?;
+                self.idle_return = None;
+            }
+            Input::DismissIdleReturn => self.idle_return = None,
             Input::MediaInUse(raw) => self.media_raw(raw, now, &mut fx),
             Input::Tick { last_input_at } => self.tick(last_input_at, now, &mut fx),
         }
@@ -479,7 +609,14 @@ impl Core {
             (PayrollState::IdlePending, _) => CoreState::IdlePending {
                 shown_at: now,
                 deadline: now + self.cfg.grace,
+                // The tick replaces this with the last input time.
+                idle_since: now,
             },
+            (PayrollState::Idle, CoreEvent::IdleStarted { since }) => {
+                CoreState::Idle { since: *since }
+            }
+            // An annotation: the state (and its details) stay as they are.
+            (_, CoreEvent::UserIdleExplained { .. }) => self.state,
             (PayrollState::OnBreak, CoreEvent::UserStartBreak { kind }) => {
                 CoreState::OnBreak { kind: *kind }
             }
@@ -509,9 +646,17 @@ impl Core {
             _ => return Err(Rejected::InvalidTransition),
         };
 
+        if matches!(event, CoreEvent::UserIdleExplained { .. }) {
+            fx.push(Effect::Emit { event, at: now });
+            return Ok(());
+        }
         fx.push(Effect::Emit { event, at: now });
         if was_pending && !matches!(next, CoreState::IdlePending { .. }) {
             fx.push(Effect::HidePrompt);
+        }
+        if next == CoreState::ClockedOut {
+            // An explanation can't be recorded once the session closed.
+            self.idle_return = None;
         }
         match next {
             CoreState::Active => self.enter_active(now, fx),
@@ -622,7 +767,9 @@ impl Core {
                     let event = CoreEvent::InputIdle5m {
                         trigger: IdleTrigger::InputIdle,
                     };
-                    let _ = self.apply(event, now, fx);
+                    if self.apply(event, now, fx).is_ok() {
+                        self.set_idle_since(since);
+                    }
                 }
             }
             CoreState::OnCall => {
@@ -632,27 +779,94 @@ impl Core {
                         let event = CoreEvent::InputIdle5m {
                             trigger: IdleTrigger::SilentCall,
                         };
-                        let _ = self.apply(event, now, fx);
+                        if self.apply(event, now, fx).is_ok() {
+                            self.set_idle_since(since);
+                        }
                     }
                 }
             }
-            CoreState::IdlePending { shown_at, deadline } => {
+            CoreState::IdlePending {
+                shown_at,
+                deadline,
+                idle_since,
+            } => {
                 let mut deadline = deadline;
                 if last_input_at > shown_at {
                     let pushed = last_input_at + self.cfg.grace;
                     if pushed > deadline {
                         deadline = pushed;
-                        self.state = CoreState::IdlePending { shown_at, deadline };
+                        self.state = CoreState::IdlePending {
+                            shown_at,
+                            deadline,
+                            idle_since,
+                        };
                         fx.push(Effect::UpdatePromptDeadline { deadline });
                     }
                 }
                 if now >= deadline {
-                    let _ = self.apply(CoreEvent::PromptTimeout30s, now, fx);
+                    // ADR-0018 §1: log idle from the last input, not clock out.
+                    let since = last_input_at.max(idle_since).min(now);
+                    let _ = self.apply(CoreEvent::IdleStarted { since }, now, fx);
+                    self.idle_tick(since, last_input_at, now, fx);
                 }
             }
+            CoreState::Idle { since } => self.idle_tick(since, last_input_at, now, fx),
             _ => {}
         }
     }
+}
+
+impl Core {
+    /// Where idle starts if the prompt that just opened goes unanswered.
+    fn set_idle_since(&mut self, since: SystemTime) {
+        if let CoreState::IdlePending {
+            shown_at, deadline, ..
+        } = self.state
+        {
+            self.state = CoreState::IdlePending {
+                shown_at,
+                deadline,
+                idle_since: since,
+            };
+        }
+    }
+
+    /// While `IDLE`: input ends it; otherwise the cap may close the
+    /// session, dated exactly when the cap was reached (the laptop may
+    /// have slept past it).
+    fn idle_tick(
+        &mut self,
+        since: SystemTime,
+        last_input_at: SystemTime,
+        now: SystemTime,
+        fx: &mut Vec<Effect>,
+    ) {
+        if last_input_at > since {
+            self.end_idle(since, last_input_at.min(now), fx);
+            return;
+        }
+        if let Some(cap) = self.cfg.max_idle {
+            if elapsed(since, now) >= cap {
+                let _ = self.apply(CoreEvent::IdleCapReached, since + cap, fx);
+            }
+        }
+    }
+
+    /// Back from idle at `at`: `IDLE_ENDED`, `ACTIVE`, and ask what the
+    /// person was doing.
+    fn end_idle(&mut self, since: SystemTime, at: SystemTime, fx: &mut Vec<Effect>) {
+        let at = at.max(since);
+        if self.apply(CoreEvent::IdleEnded { since }, at, fx).is_ok() {
+            let stretch = IdleStretch { since, until: at };
+            self.idle_return = Some(stretch);
+            fx.push(Effect::IdleReturned(stretch));
+        }
+    }
+}
+
+/// RFC 3339 in UTC, for transition payloads.
+fn utc_rfc3339(t: SystemTime) -> String {
+    chrono::DateTime::<chrono::Utc>::from(t).to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
 }
 
 /// Trim; blank becomes `None`; enforce `required` and the length cap.

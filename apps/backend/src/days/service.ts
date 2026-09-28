@@ -23,7 +23,15 @@ export interface DaySessionView {
   close_reason: string | null;
   reconstructed: boolean;
   open: boolean;
-  segments: { kind: string; started_at: string; ended_at: string }[];
+  /** Started from the Windows sign-in time (ADR-0018 §4). */
+  started_from_sign_in: boolean;
+  segments: {
+    kind: string;
+    started_at: string;
+    ended_at: string;
+    /** Idle stretches: the person's account, if they gave one. */
+    explanation?: { explanation: string; note: string | null };
+  }[];
 }
 
 export interface DayView {
@@ -77,10 +85,12 @@ function sessionView(s: BuiltSession): DaySessionView {
     close_reason: s.session.closedReason,
     reconstructed: s.session.reconstructed,
     open: s.open,
+    started_from_sign_in: s.startedFromSignIn,
     segments: s.segments.map((g) => ({
       kind: g.kind,
       started_at: isoWithOffset(g.startedAt, g.offsetMinutes),
       ended_at: isoWithOffset(g.endedAt, g.offsetMinutes),
+      ...(g.explanation ? { explanation: g.explanation } : {}),
     })),
   };
 }

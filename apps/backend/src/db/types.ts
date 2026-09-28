@@ -14,6 +14,7 @@ export type EventOrigin = 'user' | 'system_watcher' | 'server' | 'reconstructed'
 export type SessionCloseReason =
   | 'user_clock_out'
   | 'idle_auto_clock_out'
+  | 'idle_cap'
   | 'app_exit_reconstructed'
   | 'system_shutdown_reconstructed'
   | 'greythr_termination_forced'

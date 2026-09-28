@@ -119,11 +119,13 @@ describe('IdlePrompt — countdown (core owns the timer, ADR-0008 §2)', () => {
 
   it('counts down from the core-supplied deadline', () => {
     render(<IdlePrompt deadline={T0 + 30_000} onRespond={vi.fn()} />);
-    expect(screen.getByText(/clocked out in 30s/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/option in 30s, the time since your last activity is logged as idle/),
+    ).toBeInTheDocument();
     act(() => {
       vi.advanceTimersByTime(10_000);
     });
-    expect(screen.getByText(/clocked out in 20s/)).toBeInTheDocument();
+    expect(screen.getByText(/option in 20s/)).toBeInTheDocument();
   });
 
   it('a new deadline (input reset the grace timer, ADR-0008 §2) resets the display', () => {
@@ -132,10 +134,12 @@ describe('IdlePrompt — countdown (core owns the timer, ADR-0008 §2)', () => {
     act(() => {
       vi.advanceTimersByTime(25_000);
     });
-    expect(screen.getByText(/clocked out in 5s/)).toBeInTheDocument();
+    expect(screen.getByText(/option in 5s/)).toBeInTheDocument();
 
     rerender(<IdlePrompt deadline={T0 + 25_000 + 30_000} onRespond={onRespond} />);
-    expect(screen.getByText(/clocked out in 30s/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/option in 30s, the time since your last activity is logged as idle/),
+    ).toBeInTheDocument();
   });
 
   it('on expiry disables options and never responds on its own (core owns timeout)', () => {
@@ -144,7 +148,11 @@ describe('IdlePrompt — countdown (core owns the timer, ADR-0008 §2)', () => {
     act(() => {
       vi.advanceTimersByTime(31_000);
     });
-    expect(screen.getByText('No response — clocking you out.')).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        'No response. Logging idle time from your last activity; you stay clocked in.',
+      ),
+    ).toBeInTheDocument();
     for (const b of within(screen.getByRole('group', { name: 'prompt-options' })).getAllByRole(
       'button',
     )) {

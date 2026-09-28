@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   formatDuration,
+  KIND_ORDER,
   sessionsToday,
   totalsByKind,
   formatTimer,
@@ -56,6 +57,7 @@ describe('timelineModel', () => {
       working: 89 * MIN,
       break: 30 * MIN,
       prompt: 1 * MIN,
+      idle: 0,
     });
   });
 
@@ -128,5 +130,20 @@ describe('workingDayStart (ADR-0016 §1)', () => {
   it('a gap over 6 hours starts a new day', () => {
     const segs = [seg(at(25, 8), at(25, 10), 1), seg(at(25, 16, 1), null, 2)];
     expect(workingDayStart(segs, at(25, 17))).toBe(at(25, 16, 1));
+  });
+});
+
+describe('logged idle (ADR-0018)', () => {
+  const now = Date.now();
+  const MIN = 60_000;
+  it('is its own group: never working, never a break', () => {
+    const segs: Segment[] = [
+      { kind: 'working', startedAt: now - 60 * MIN, endedAt: now - 40 * MIN, session: 1 },
+      { kind: 'idle', startedAt: now - 40 * MIN, endedAt: now - 10 * MIN, session: 1 },
+      { kind: 'working', startedAt: now - 10 * MIN, endedAt: null, session: 1 },
+    ];
+    expect(groupOf('idle')).toBe('idle');
+    expect(totals(segs, now)).toEqual({ working: 30 * MIN, break: 0, prompt: 0, idle: 30 * MIN });
+    expect(KIND_ORDER).toContain('idle');
   });
 });

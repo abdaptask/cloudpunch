@@ -147,6 +147,15 @@ pub fn wire_payload(event: &CoreEvent, zone: &Zone) -> Value {
         } => {
             payload.insert("note".into(), json!(note));
         }
+        // ADR-0018: idle times in the recording computer's zone.
+        CoreEvent::IdleStarted { since } | CoreEvent::IdleEnded { since } => {
+            payload.insert("idle_since".into(), json!(zone.rfc3339(*since)));
+        }
+        CoreEvent::UserIdleExplained { stretch, note, .. } => {
+            payload.insert("idle_since".into(), json!(zone.rfc3339(stretch.since)));
+            payload.insert("idle_until".into(), json!(zone.rfc3339(stretch.until)));
+            payload.insert("note".into(), json!(note));
+        }
         _ => {}
     }
     Value::Object(payload)

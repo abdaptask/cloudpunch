@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://cloudpunch.aptask.com/schemas/event-types.json",
   "title": "CloudPunch time_event types",
-  "description": "Enumeration of every allowed event_type in the time_event ledger. See ADR-0003 §2 and ADR-0004 §9.",
+  "description": "Enumeration of every allowed event_type in the time_event ledger. See ADR-0003 \u00a72 and ADR-0004 \u00a79; idle events ADR-0018.",
   "type": "string",
   "enum": [
     "USER_CLOCK_IN",
@@ -26,6 +26,10 @@
     "SERVER_REJECT",
     "CLOCK_DRIFT_DETECTED",
     "SESSION_RECOVERED",
-    "INTEGRITY_VIOLATION"
+    "INTEGRITY_VIOLATION",
+    "IDLE_STARTED",
+    "IDLE_ENDED",
+    "IDLE_CAP_REACHED",
+    "USER_IDLE_EXPLAINED"
   ]
 }

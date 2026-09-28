@@ -33,6 +33,8 @@ pub enum SegmentKind {
     Away(AwayReason),
     /// Idle prompt showing.
     Prompt,
+    /// Logged idle after an unanswered prompt (ADR-0018).
+    Idle,
 }
 
 impl SegmentKind {
@@ -42,13 +44,14 @@ impl SegmentKind {
             CoreState::Active => SegmentKind::Working,
             CoreState::OnCall => SegmentKind::OnCall(call_type.unwrap_or(CallType::Other)),
             CoreState::IdlePending { .. } => SegmentKind::Prompt,
+            CoreState::Idle { .. } => SegmentKind::Idle,
             CoreState::OnBreak { kind } => SegmentKind::Break(kind),
             CoreState::Away { reason } => SegmentKind::Away(reason),
         })
     }
 
     /// Every kind, for parsing stored segments.
-    const ALL: [SegmentKind; 11] = [
+    const ALL: [SegmentKind; 12] = [
         SegmentKind::Working,
         SegmentKind::OnCall(CallType::Teams),
         SegmentKind::OnCall(CallType::Zoom),
@@ -60,6 +63,7 @@ impl SegmentKind {
         SegmentKind::Away(AwayReason::WorkingAway),
         SegmentKind::Away(AwayReason::Meeting),
         SegmentKind::Prompt,
+        SegmentKind::Idle,
     ];
 
     pub fn from_wire(s: &str) -> Option<Self> {
@@ -79,6 +83,7 @@ impl SegmentKind {
             SegmentKind::Away(AwayReason::WorkingAway) => "away_working",
             SegmentKind::Away(AwayReason::Meeting) => "away_meeting",
             SegmentKind::Prompt => "prompt",
+            SegmentKind::Idle => "idle",
         }
     }
 }
@@ -134,6 +139,11 @@ impl Timeline {
                 return;
             }
         }
+        if kind == Some(SegmentKind::Idle) {
+            // Idle runs from the last input (ADR-0018 §1): the silent
+            // minutes and the prompt before it become idle too.
+            self.cut_back_to(at);
+        }
         self.close_open(at);
         match kind {
             None => self.session_started_at = None,
@@ -150,6 +160,24 @@ impl Timeline {
                     ended_at: None,
                     session: self.sessions,
                 });
+            }
+        }
+    }
+
+    /// Drop this session's segments that start at or after `at` and
+    /// end the one running across it at `at`.
+    fn cut_back_to(&mut self, at: SystemTime) {
+        let session = self.sessions;
+        while self
+            .segments
+            .last()
+            .is_some_and(|s| s.session == session && s.started_at >= at)
+        {
+            self.segments.pop();
+        }
+        if let Some(last) = self.segments.last_mut() {
+            if last.session == session && last.ended_at.map_or(true, |e| e > at) {
+                last.ended_at = Some(at);
             }
         }
     }
@@ -396,6 +424,7 @@ mod tests {
             CoreState::IdlePending {
                 shown_at: t(300),
                 deadline: t(330),
+                idle_since: t(0),
             },
             t(300),
         );

@@ -26,6 +26,9 @@ pub struct Outcome {
     pub sink_error: Option<SinkError>,
     /// Events still waiting to be recorded.
     pub backlog: usize,
+    /// When the last event of this call happened (its own time, which
+    /// can be earlier than `now`: idle cap after sleep, ADR-0018).
+    pub last_emit_at: Option<SystemTime>,
 }
 
 pub struct Driver<S: EventSink> {
@@ -64,9 +67,13 @@ impl<S: EventSink> Driver<S> {
     pub fn handle(&mut self, input: Input, now: SystemTime) -> Result<Outcome, Rejected> {
         let fx = self.core.handle(input, now)?;
         let mut effects = Vec::with_capacity(fx.len());
+        let mut last_emit_at = None;
         for effect in fx {
             match effect {
-                Effect::Emit { event, at } => self.backlog.push_back((event, at)),
+                Effect::Emit { event, at } => {
+                    last_emit_at = Some(at);
+                    self.backlog.push_back((event, at));
+                }
                 other => effects.push(other),
             }
         }
@@ -75,6 +82,7 @@ impl<S: EventSink> Driver<S> {
             effects,
             sink_error,
             backlog: self.backlog.len(),
+            last_emit_at,
         })
     }
 

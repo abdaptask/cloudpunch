@@ -7,6 +7,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Idle is logged instead of clocking out (ADR-0018, 2026-09-28)
+
+Owner request, decided before the pilot. **Needs migration 0004**,
+which only widens two CHECK lists.
+
+- **The idle popup comes after 2 minutes** (default
+  `idle.threshold_seconds` = 120, was 300). HR / Admin can change it.
+- **No more 30-second clock-out.**
+  - An unanswered popup logs **idle** time, counted from the last
+    input. The person stays clocked in.
+  - New payroll state `IDLE` and events `IDLE_STARTED`, `IDLE_ENDED`
+    and `IDLE_CAP_REACHED`. `PROMPT_TIMEOUT_30S` is still accepted, so
+    old history replays the same.
+- **Welcome back.** When input returns, the window asks: "You were idle
+  13:02–13:25 (23 min). What were you doing?", with an optional note.
+  - The answer is sent as `USER_IDLE_EXPLAINED`, an annotation for the
+    manager.
+  - **Idle stays idle.** The manager decides at timesheet approval.
+- **Idle cap.** After 2 hours of continuous idle (`idle.max_idle_minutes`,
+  15–480, or `null` to disable) the session closes with
+  `closed_reason = idle_cap`. It is dated exactly when the cap was
+  reached, even if the laptop slept past it.
+- **Clicking anything while idle** (a break, clock out) ends the idle
+  first, so the action is never refused.
+- **Idle is shown everywhere:**
+  - its own pink segment and "Idle since 13:02";
+  - the trip meter (Worked / Idle / Breaks / Calls) and the details;
+  - the pinned strip;
+  - the end-of-day summary, now "8h 12m worked · 45m breaks · 20m idle
+    · 3 calls".
+- **Past days** (`GET /v1/me/days`) return `idle` segments with their
+  explanation, `idle_ms` in totals, and `started_from_sign_in` per
+  session.
+- **Backend:** `USER_CLOCK_IN` may carry `start_source: os_sign_in` and
+  `started_at`. The session then opens at `started_at`, if that is no
+  later than the click and at most 12 hours before it. This is groundwork
+  for ADR-0018 §4.
+- **The idle-cap close uses the event's time.** Other session closes
+  still use the time the batch arrives. That's a known gap for
+  clock-outs queued offline, flagged for a follow-up.
+
 ### Desktop: a break during a call asks first (2026-09-28)
 
 Owner request.

@@ -88,6 +88,7 @@ export const light: Theme = {
     away_phone: '#e11d48', // rose
     away_working: '#475569', // slate
     prompt: '#9ca3af', // grey
+    idle: '#db2777', // pink: clocked in, not working (ADR-0018)
   },
   danger: '#c0262d',
   go: '#15803d',
@@ -124,6 +125,7 @@ export const dark: Theme = {
     away_phone: '#fb7185',
     away_working: '#94a3b8',
     prompt: '#6b7280',
+    idle: '#f472b6',
   },
   danger: '#ff6b6b',
   go: '#16a34a',

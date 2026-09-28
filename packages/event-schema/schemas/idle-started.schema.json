@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cloudpunch.aptask.com/schemas/idle-started.schema.json",
+  "title": "IDLE_STARTED event",
+  "description": "The idle prompt went unanswered: logged idle begins, counted from the last input (idle_since). IDLE_PENDING → IDLE. Replaces PROMPT_TIMEOUT_30S for new clients. See ADR-0018 §1.",
+  "allOf": [
+    {
+      "$ref": "common/base-event.schema.json"
+    },
+    {
+      "type": "object",
+      "properties": {
+        "event_type": {
+          "const": "IDLE_STARTED"
+        },
+        "payload": {
+          "type": "object",
+          "properties": {
+            "idle_since": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          "additionalProperties": false,
+          "required": ["idle_since"]
+        }
+      }
+    }
+  ]
+}

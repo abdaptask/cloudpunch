@@ -18,7 +18,7 @@ use crate::auth::{open_system_browser, AuthError, AuthManager, AuthStatus};
 use crate::days::{self, DayCache, DayError};
 use crate::enroll::{self, EnrollError, Enroller, Enrollment, EnrollmentStatus};
 use crate::keystore::{OsStore, Secrets};
-use crate::machine::{CoreState, Input, PromptResponse};
+use crate::machine::{CoreState, IdleExplanation, Input, PromptResponse};
 use crate::policy::{self, FetchError, FetchOutcome, PolicyDoc};
 use crate::recorder::{Recorder, Target};
 use crate::strip::{self, Pin};
@@ -684,6 +684,25 @@ async fn fetch_as_user(
     .await
     .map_err(|_| "internal".to_string())?;
     Ok((oid, fetched))
+}
+
+/// "What were you doing?" after an idle stretch (ADR-0018 §2).
+/// `explanation`: working_away | meeting | phone_call | break | idle.
+#[tauri::command]
+pub fn explain_idle(
+    agent: State<'_, Arc<Agent>>,
+    explanation: String,
+    note: Option<String>,
+) -> CommandResult {
+    let explanation =
+        IdleExplanation::parse(&explanation).ok_or_else(|| "invalid_argument".to_string())?;
+    run(&agent, Input::ExplainIdle { explanation, note })
+}
+
+/// Skip that question; the stretch stays unexplained idle.
+#[tauri::command]
+pub fn dismiss_idle_return(agent: State<'_, Arc<Agent>>) -> CommandResult {
+    run(&agent, Input::DismissIdleReturn)
 }
 
 /// Close dialog: "Keep running in tray" (ADR-0013 §1).

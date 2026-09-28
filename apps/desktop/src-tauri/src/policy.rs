@@ -46,6 +46,8 @@ pub struct Idle {
     pub media_state_debounce_seconds: u64,
     /// `null` disables the cap.
     pub max_silent_call_minutes: Option<u64>,
+    /// ADR-0018: continuous idle closes the session; `null` disables.
+    pub max_idle_minutes: Option<u64>,
     pub prompt_options: Vec<String>,
     pub call_type_apps: Vec<CallApp>,
     pub call_type_ignored: Vec<String>,
@@ -115,11 +117,12 @@ pub struct Reminders {
 impl Default for Idle {
     fn default() -> Self {
         Self {
-            threshold_seconds: 300,
+            threshold_seconds: 120,
             grace_seconds: 30,
             suppress_prompt_when_media_active: true,
             media_state_debounce_seconds: 5,
             max_silent_call_minutes: Some(30),
+            max_idle_minutes: Some(120),
             prompt_options: PromptResponse::ALL
                 .iter()
                 .map(|r| r.as_str().to_string())
@@ -217,6 +220,10 @@ impl PolicyDoc {
         CoreConfig {
             idle_threshold: Duration::from_secs(self.idle.threshold_seconds),
             grace: Duration::from_secs(self.idle.grace_seconds),
+            max_idle: self
+                .idle
+                .max_idle_minutes
+                .map(|m| Duration::from_secs(m * 60)),
             media_off_debounce: Duration::from_secs(self.idle.media_state_debounce_seconds),
             suppress_prompt_when_media_active: self.idle.suppress_prompt_when_media_active,
             max_silent_call: self
@@ -368,9 +375,10 @@ mod tests {
         // Shape of GET /v1/me/policy with no overrides (schema defaults).
         let doc = json!({
             "idle": {
-                "threshold_seconds": 300, "grace_seconds": 30,
+                "threshold_seconds": 120, "grace_seconds": 30,
                 "suppress_prompt_when_media_active": true,
                 "media_state_debounce_seconds": 5, "max_silent_call_minutes": 30,
+                "max_idle_minutes": 120,
                 "count_as_payable_when_unresponsive": false,
                 "prompt_options": ["still_working", "bio_break", "meal_break",
                                    "on_phone_call", "working_away", "end_shift"],
