@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### People: assign CloudPunch roles in the app (ADR-0020, 2026-09-28)
+
+Owner request: no Entra portal for day-to-day role changes.
+
+- **Settings → People.** It lists everyone with a CloudPunch role,
+  searches the company directory to add someone, and has role
+  checkboxes.
+  - Giving **Employee** also creates the person's employee record from
+    the directory.
+  - Changes take effect at their next sign-in.
+- **Roles stay in Entra (invariant 6).** People writes Entra app-role
+  assignments **on behalf of the signed-in admin** (OBO). Microsoft
+  checks their own rights, and the server holds no standing directory
+  power.
+  - CloudPunch proves its identity with a certificate whose key never
+    left the VM.
+- **Limits:**
+  - Administrators may change any role; HR may give or remove Employee
+    and Manager only.
+  - No removing your own Administrator role, and never the last
+    Administrator.
+  - Every change is audited (`audit_log`, `roles_set`).
+- **Backend:** `GET /v1/admin/people`, `GET /v1/admin/people/search`,
+  `PUT /v1/admin/people/:oid/roles`, and settings
+  `ENTRA_OBO_CERT_KEY_PATH` / `ENTRA_OBO_CERT_THUMBPRINT`.
+- **One-time Entra setup** (upload the certificate, add two delegated
+  Graph permissions and consent, add owners) is in
+  `docs/ops/pilot-vm.md`.
+
 ### Ops: pilot on the internal VM (ADR-0019, 2026-09-28)
 
 Owner decisions: live testers on the same VM, network admin opened 443,

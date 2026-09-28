@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type postgres from 'postgres';
 import type {
+  PeopleRepo,
   AppUser,
   AppUserRepo,
   DbRepositories,
@@ -45,6 +46,7 @@ export class PostgresDb implements DbRepositories {
   readonly timeEvents: TimeEventRepo;
   readonly policies: PolicyRepo;
   readonly departments: DepartmentRepo;
+  readonly people: PeopleRepo;
 
   constructor(private readonly sql: postgres.Sql) {
     this.employees = this.buildEmployeeRepo();
@@ -53,6 +55,36 @@ export class PostgresDb implements DbRepositories {
     this.timeSessions = this.buildTimeSessionRepo();
     this.timeEvents = this.buildTimeEventRepo();
     this.policies = this.buildPolicyRepo();
+    this.people = {
+      provision: (input) =>
+        this.sql.begin(async (tx) => {
+          const [existing] = await tx<{ id: string; employeeId: string | null }[]>`
+            SELECT id, employee_id AS "employeeId" FROM app_user
+            WHERE entra_object_id = ${input.oid} FOR UPDATE`;
+          if (existing?.employeeId) return { employeeId: existing.employeeId, created: false };
+          const display = `${input.givenName} ${input.familyName}`.trim();
+          const [employee] = await tx<{ id: string }[]>`
+            INSERT INTO employee (source, given_name, family_name, display_name, status)
+            VALUES ('local_admin', ${input.givenName}, ${input.familyName}, ${display}, 'active')
+            RETURNING id`;
+          if (!employee) throw new Error('employee insert returned no row');
+          await tx`
+            INSERT INTO app_user (entra_object_id, work_email, display_name, employee_id)
+            VALUES (${input.oid}, ${input.email ?? ''}, ${display}, ${employee.id})
+            ON CONFLICT (entra_object_id)
+              DO UPDATE SET employee_id = EXCLUDED.employee_id, updated_at = now()`;
+          return { employeeId: employee.id, created: true };
+        }),
+      auditRoleChange: async (e) => {
+        await this.sql`
+          INSERT INTO audit_log (actor_type, actor_user_id, entity_type, entity_id, action,
+                                 previous_value, new_value, reason, correlation_id, occurred_at)
+          VALUES ('user', ${e.actorUserId}, 'app_role_assignment', ${e.targetOid}, 'roles_set',
+                  ${this.sql.json({ roles: [...e.previousRoles] })},
+                  ${this.sql.json({ roles: [...e.newRoles] })},
+                  ${e.reason}, ${e.correlationId}, ${e.at})`;
+      },
+    };
     this.departments = {
       exists: async (id) => {
         const rows = await this.sql`SELECT 1 FROM department WHERE id = ${id} LIMIT 1`;

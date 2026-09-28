@@ -276,7 +276,37 @@ export interface DepartmentRepo {
   list(): Promise<Department[]>;
 }
 
+/** Someone to link to an employee record, from the directory (ADR-0020). */
+export interface ProvisionInput {
+  oid: string;
+  email: string | null;
+  givenName: string;
+  familyName: string;
+}
+
+/** A change to someone's CloudPunch roles, for audit_log. */
+export interface RoleChangeAudit {
+  actorUserId: string;
+  targetOid: string;
+  previousRoles: readonly string[];
+  newRoles: readonly string[];
+  reason: string | null;
+  correlationId: string;
+  at: Date;
+}
+
+export interface PeopleRepo {
+  /**
+   * Make sure `input.oid` has an app_user linked to an active employee
+   * (source `local_admin`). Idempotent: an existing link is left alone.
+   */
+  provision(input: ProvisionInput): Promise<{ employeeId: string; created: boolean }>;
+  /** Write the audit_log row (action `roles_set`). */
+  auditRoleChange(entry: RoleChangeAudit): Promise<void>;
+}
+
 export interface DbRepositories {
+  people: PeopleRepo;
   employees: EmployeeRepo;
   users: AppUserRepo;
   devices: DeviceRepo;

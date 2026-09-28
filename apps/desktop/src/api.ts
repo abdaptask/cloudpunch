@@ -26,6 +26,21 @@ export interface AdminPolicy {
   effective: { policy: Record<string, unknown> };
 }
 
+/** People (ADR-0020): someone with CloudPunch roles. */
+export interface Person {
+  oid: string;
+  name: string;
+  roles: string[];
+  has_employee_record: boolean;
+}
+
+/** People: a directory search result. */
+export interface DirectoryUser {
+  oid: string;
+  name: string;
+  email: string | null;
+}
+
 /** An idle stretch that just ended, epoch ms. */
 export interface IdleReturn {
   since: number;
@@ -108,6 +123,11 @@ export const api = {
     invoke('admin_departments'),
   adminPolicyGet: (scope: 'global' | 'department', id: string | null): Promise<AdminPolicy> =>
     invoke<AdminPolicy>('admin_policy_get', { scope, id }),
+  adminPeople: (): Promise<{ people: Person[] }> => invoke('admin_people'),
+  adminPeopleSearch: (q: string): Promise<{ users: DirectoryUser[] }> =>
+    invoke('admin_people_search', { q }),
+  adminPeopleSetRoles: (oid: string, roles: string[], reason: string): Promise<unknown> =>
+    invoke('admin_people_set_roles', { oid, roles, reason: reason || null }),
   adminPolicyPut: (
     scope: 'global' | 'department',
     id: string | null,

@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type {
+  PeopleRepo,
+  RoleChangeAudit,
   AppUser,
   AppUserRepo,
   DbRepositories,
@@ -41,6 +43,9 @@ export class InMemoryDb implements DbRepositories {
   readonly timeEvents: TimeEventRepo;
   readonly policies: PolicyRepo;
   readonly departments: DepartmentRepo;
+  readonly people: PeopleRepo;
+  /** audit_log rows written by role changes, for tests. */
+  readonly roleAudit: RoleChangeAudit[] = [];
 
   private readonly policyByScope = new Map<string, PolicyOverride>();
   private readonly departmentById = new Map<string, { code: string; name: string }>();
@@ -79,6 +84,41 @@ export class InMemoryDb implements DbRepositories {
         this.policyByScope.delete(key);
         this.audit.push(auditRow(change, 'policy_clear', previous.document, null));
         return previous;
+      },
+    };
+    this.people = {
+      provision: async (input) => {
+        const existing = this.employeeByOid.get(input.oid);
+        if (existing) return { employeeId: existing, created: false };
+        const employeeId = randomUUID();
+        this.employeeById.set(employeeId, {
+          id: employeeId,
+          source: 'local_admin',
+          greythrEmployeeId: null,
+          employeeNumber: null,
+          givenName: input.givenName,
+          familyName: input.familyName,
+          displayName: `${input.givenName} ${input.familyName}`.trim(),
+          workEmail: input.email ?? '',
+          status: 'active',
+          departmentId: null,
+        });
+        const userId = this.userByOid.get(input.oid) ?? randomUUID();
+        this.userById.set(userId, {
+          id: userId,
+          entraObjectId: input.oid,
+          workEmail: input.email ?? '',
+          displayName: `${input.givenName} ${input.familyName}`.trim(),
+          isServiceAccount: false,
+          breakGlass: false,
+          employeeId,
+        });
+        this.userByOid.set(input.oid, userId);
+        this.employeeByOid.set(input.oid, employeeId);
+        return { employeeId, created: true };
+      },
+      auditRoleChange: async (entry) => {
+        this.roleAudit.push(entry);
       },
     };
     this.departments = {
