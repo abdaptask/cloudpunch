@@ -29,8 +29,39 @@ export interface Theme {
   warnText: string;
   /** Dial face: working (green), on a break (amber), clocked out (grey). */
   tint: Record<'working' | 'break' | 'off', string>;
+  /** The dial's dark-glass gauge: the same in both modes (instrument cluster). */
+  gauge: Gauge;
   font: string;
 }
+
+export interface Gauge {
+  /** Glass face, centre and edge of its gradient. */
+  face: string;
+  faceEdge: string;
+  rim: string;
+  text: string;
+  dim: string;
+  /** Unlit LED / seven-segment and the empty track. */
+  unlit: string;
+  /** Ambient glow for the status (working / break / clocked out). */
+  glow: Record<'working' | 'break' | 'off', string>;
+  /** Rev-counter LEDs: normal, past 8h, past 10h. */
+  led: Record<'normal' | 'over' | 'red', string>;
+  /** The now needle. */
+  needle: string;
+}
+
+const gauge: Gauge = {
+  face: '#141d2e',
+  faceEdge: '#070b13',
+  rim: '#2c3a52',
+  text: '#eaf2ff',
+  dim: '#8ea0bb',
+  unlit: 'rgba(142, 160, 187, 0.14)',
+  glow: { working: '#22c55e', break: '#f59e0b', off: '#64748b' },
+  led: { normal: '#22d3ee', over: '#f59e0b', red: '#ef4444' },
+  needle: '#ff5a36',
+};
 
 const font = '"Segoe UI Variable Text", "Segoe UI", -apple-system, BlinkMacSystemFont, sans-serif';
 
@@ -66,6 +97,7 @@ export const light: Theme = {
   warnBg: '#fff4e0',
   warnText: '#7a4a00',
   tint: { working: '#e7f6ec', break: '#fff3dc', off: '#f1f2f5' },
+  gauge,
   font,
 };
 
@@ -101,6 +133,7 @@ export const dark: Theme = {
   warnBg: '#3a2a10',
   warnText: '#ffd28a',
   tint: { working: '#12281b', break: '#2e2410', off: '#1b1e25' },
+  gauge,
   font,
 };
 

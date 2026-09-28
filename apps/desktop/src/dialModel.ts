@@ -64,3 +64,20 @@ export function arcPath(cx: number, cy: number, r: number, from: number, sweep: 
   const large = s > 180 ? 1 : 0;
   return `M ${x1.toFixed(2)} ${y1.toFixed(2)} A ${r} ${r} 0 ${large} 1 ${x2.toFixed(2)} ${y2.toFixed(2)}`;
 }
+
+/** Rev-counter ring: one LED per 15 minutes worked, 12 hours round. */
+export const LED_COUNT = 48;
+const LED_MS = 15 * 60_000;
+
+/** How many LEDs are lit for `workedMs` (0 … LED_COUNT). */
+export function ledsLit(workedMs: number): number {
+  if (!Number.isFinite(workedMs) || workedMs <= 0) return 0;
+  return Math.min(LED_COUNT, Math.floor(workedMs / LED_MS));
+}
+
+/** LED `i`'s band: normal up to 8h, over from 8h, red from 10h. */
+export function ledBand(i: number): 'normal' | 'over' | 'red' {
+  if (i < 32) return 'normal';
+  if (i < 40) return 'over';
+  return 'red';
+}

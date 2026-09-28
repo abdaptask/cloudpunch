@@ -33,7 +33,8 @@ import {
 } from './timelineModel.js';
 import { Button } from './ui/Button.js';
 import { Logo } from './ui/Logo.js';
-import { useTheme, type Theme } from './ui/theme.js';
+import { SevenSegment } from './ui/SevenSegment.js';
+import { dark, useTheme, type Theme } from './ui/theme.js';
 import { SignIn } from './SignIn.js';
 import { Strip } from './Strip.js';
 import { useAgentState } from './useAgentState.js';
@@ -403,6 +404,8 @@ export function App(): JSX.Element {
                       segments={todaySegs}
                       now={now}
                       tint={view ? t.tint[tintFor(view.status)] : undefined}
+                      glow={view ? t.gauge.glow[tintFor(view.status)] : undefined}
+                      worked={todayTotals.working}
                     >
                       <div
                         style={{
@@ -413,7 +416,8 @@ export function App(): JSX.Element {
                           fontWeight: 650,
                           letterSpacing: 0.6,
                           textTransform: 'uppercase',
-                          color: view ? statusColor(t, view) : t.muted,
+                          // On the dark gauge: the dark theme's brighter colours.
+                          color: view ? statusColor(dark, view) : t.gauge.dim,
                         }}
                       >
                         <span
@@ -422,26 +426,23 @@ export function App(): JSX.Element {
                             width: 7,
                             height: 7,
                             borderRadius: 999,
-                            background: view ? statusColor(t, view) : t.border,
+                            background: view ? statusColor(dark, view) : t.gauge.unlit,
+                            boxShadow: view ? `0 0 6px ${statusColor(dark, view)}` : 'none',
                           }}
                         />
                         <span>{view ? statusLabel(view, now) : 'Loading…'}</span>
                       </div>
                       {view?.sessionStartedAt != null ? (
                         <>
-                          <div
-                            aria-label="session-timer"
-                            style={{
-                              fontSize: 30,
-                              fontWeight: 650,
-                              letterSpacing: -0.5,
-                              fontVariantNumeric: 'tabular-nums',
-                              lineHeight: 1.1,
-                            }}
-                          >
-                            {formatTimer(now - view.sessionStartedAt)}
+                          <div aria-label="session-timer" style={{ margin: '4px 0 2px' }}>
+                            <SevenSegment
+                              text={formatTimer(now - view.sessionStartedAt)}
+                              color={t.gauge.text}
+                              unlit={t.gauge.unlit}
+                              height={28}
+                            />
                           </div>
-                          <div style={{ fontSize: 11, color: t.muted }}>
+                          <div style={{ fontSize: 11, color: t.gauge.dim }}>
                             since {formatClock(view.sessionStartedAt)}
                           </div>
                         </>
@@ -458,7 +459,7 @@ export function App(): JSX.Element {
                             >
                               {formatWorked(dayOf(view, now).worked)}
                             </div>
-                            <div style={{ fontSize: 11, color: t.muted }}>worked today</div>
+                            <div style={{ fontSize: 11, color: t.gauge.dim }}>worked today</div>
                           </>
                         )
                       )}
@@ -735,6 +736,7 @@ function statTime(ms: number): string {
 }
 
 /** Worked · Calls · Breaks at a glance (details hold the full totals). */
+/** Worked / Calls / Breaks as trip-meter readouts under the gauge. */
 function DayStats({
   segments,
   now,
@@ -745,45 +747,60 @@ function DayStats({
   since?: number | undefined;
 }): JSX.Element {
   const t = useTheme();
+  const g = t.gauge;
   const byKind = totalsByKind(segments, now, since);
   const sum = (pred: (k: SegmentKind) => boolean): number =>
     KIND_ORDER.filter(pred).reduce((a, k) => a + (byKind[k] ?? 0), 0);
   const stats: [string, number, string][] = [
-    ['Worked', sum((k) => groupOf(k) === 'working'), t.kind.working],
-    ['Calls', sum((k) => k.startsWith('call_')), t.kind.call_teams],
-    ['Breaks', sum((k) => groupOf(k) === 'break'), t.kind.meal_break],
+    ['Worked', sum((k) => groupOf(k) === 'working'), dark.kind.working],
+    ['Calls', sum((k) => k.startsWith('call_')), dark.kind.call_teams],
+    ['Breaks', sum((k) => groupOf(k) === 'break'), dark.kind.meal_break],
   ];
   return (
     <section
       aria-label="day-stats"
       style={{
-        ...card(t),
-        padding: '10px 6px',
         display: 'grid',
         gridTemplateColumns: 'repeat(3, 1fr)',
+        gap: 6,
+        padding: 6,
+        borderRadius: 12,
+        background: `linear-gradient(180deg, ${g.face}, ${g.faceEdge})`,
+        border: `1px solid ${g.rim}`,
       }}
     >
-      {stats.map(([label, ms, colour], i) => (
+      {stats.map(([label, ms, colour]) => (
         <div
           key={label}
           style={{
+            padding: '7px 4px 6px',
+            borderRadius: 8,
+            background: 'rgba(0, 0, 0, 0.28)',
+            boxShadow: `inset 0 0 0 1px ${g.unlit}`,
             textAlign: 'center',
-            borderLeft: i === 0 ? 'none' : `1px solid ${t.border}`,
           }}
         >
           <div
             style={{
+              fontFamily: 'ui-monospace, "Cascadia Mono", Consolas, monospace',
               fontSize: 15,
-              fontWeight: 650,
+              fontWeight: 600,
+              letterSpacing: 0.5,
+              color: g.text,
               fontVariantNumeric: 'tabular-nums',
+              textShadow: `0 0 6px ${colour}`,
             }}
           >
             {statTime(ms)}
           </div>
           <div
             style={{
-              fontSize: 11,
-              color: t.muted,
+              marginTop: 2,
+              fontSize: 9.5,
+              fontWeight: 650,
+              letterSpacing: 1,
+              textTransform: 'uppercase',
+              color: g.dim,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
@@ -792,7 +809,13 @@ function DayStats({
           >
             <span
               aria-hidden
-              style={{ width: 7, height: 7, borderRadius: 2, background: colour }}
+              style={{
+                width: 6,
+                height: 6,
+                borderRadius: 999,
+                background: colour,
+                boxShadow: `0 0 5px ${colour}`,
+              }}
             />
             {label}
           </div>
@@ -1028,6 +1051,8 @@ function PastDial({
         now={end ?? Date.parse(`${date}T12:00:00`)}
         hand={false}
         tint={t.tint.off}
+        glow={t.gauge.glow.off}
+        worked={worked}
         label={dayLabel(date, today)}
       >
         <div
@@ -1036,7 +1061,7 @@ function PastDial({
             fontWeight: 650,
             letterSpacing: 0.6,
             textTransform: 'uppercase',
-            color: t.muted,
+            color: t.gauge.dim,
           }}
         >
           {state.status === 'loading' ? 'Loading…' : 'Worked'}
@@ -1054,7 +1079,7 @@ function PastDial({
             >
               {segments.length > 0 ? formatWorked(worked) : '0m'}
             </div>
-            <div style={{ fontSize: 11, color: t.muted }}>
+            <div style={{ fontSize: 11, color: t.gauge.dim }}>
               {first !== null && end !== null
                 ? `${formatClock(first)} – ${formatClock(end)}`
                 : 'Nothing tracked'}
