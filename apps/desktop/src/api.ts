@@ -1,6 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import type { DayResult } from './dayHistory.js';
+import type { DaysResult } from './dayPickerModel.js';
 import type { PromptResponse } from './IdlePrompt.js';
 import type { Segment } from './timelineModel.js';
 
@@ -101,4 +102,7 @@ export const api = {
    * cached), `not_configured`, `not_signed_in`, or the backend's code.
    */
   getDay: (date: string): Promise<DayResult> => invoke<DayResult>('get_day', { date }),
+  /** Totals per working day for the day picker; rejects like `getDay`. */
+  getDays: (from: string, to: string): Promise<DaysResult> =>
+    invoke<DaysResult>('get_days', { from, to }),
 };

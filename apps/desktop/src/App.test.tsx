@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AuthStatus, EnrollmentStatus, StateView } from './api.js';
 import { App } from './App.js';
 import { localDateOf, shiftDate, type DayResult } from './dayHistory.js';
+import type { DaysResult } from './dayPickerModel.js';
 import { light } from './ui/theme.js';
 
 const mocks = vi.hoisted(() => ({
@@ -29,6 +30,7 @@ const mocks = vi.hoisted(() => ({
   enrollmentStatus: vi.fn<() => Promise<EnrollmentStatus>>(),
   onEnrollment: vi.fn<(cb: (s: EnrollmentStatus) => void) => Promise<() => void>>(),
   getDay: vi.fn<(date: string) => Promise<DayResult>>(),
+  getDays: vi.fn<(from: string, to: string) => Promise<DaysResult>>(),
 }));
 
 const SIGNED_IN: AuthStatus = { signedIn: true, name: 'Test User', username: 'test@aptask.com' };
@@ -752,8 +754,9 @@ describe('past days (ADR-0016)', () => {
     expect(within(status).queryByLabelText('session-timer')).not.toBeInTheDocument();
     expect(status).not.toHaveTextContent('Ready to start?');
     expect(screen.getByRole('region', { name: 'day-stats' })).toHaveTextContent('30mBreaks');
-    // Clocking in still works from here.
-    expect(screen.getByRole('button', { name: 'Clock in' })).toBeInTheDocument();
+    // A past day has no clock or break actions (owner request).
+    expect(screen.queryByRole('button', { name: 'Clock in' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Back to today' })).toBeInTheDocument();
 
     await user.click(within(nav).getByRole('button', { name: 'Next day' }));
     expect(await screen.findByRole('img', { name: /Today on a clock/ })).toBeInTheDocument();
@@ -788,5 +791,142 @@ describe('past days (ADR-0016)', () => {
     for (let i = 0; i < 30; i += 1) await user.click(prev);
     expect(prev).toBeDisabled();
     expect(mocks.getDay).toHaveBeenLastCalledWith(shiftDate(today, -30));
+  });
+  it('a past day hides the long-shift banner; it is back on today', async () => {
+    mocks.getState.mockResolvedValue(
+      view({ status: 'active', sessionStartedAt: Date.now() - 10 * 3_600_000, longShift: true }),
+    );
+    mocks.getDay.mockResolvedValue(result());
+    const user = userEvent.setup();
+    render(<App />);
+    await screen.findByRole('alertdialog', { name: 'long-shift' });
+    await user.click(screen.getByRole('button', { name: 'Previous day' }));
+    await screen.findByLabelText('past-worked');
+    expect(screen.queryByRole('alertdialog', { name: 'long-shift' })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Back to today' }));
+    expect(await screen.findByRole('alertdialog', { name: 'long-shift' })).toBeInTheDocument();
+  });
+
+  it('clocked in on a past day: only Back to today, showing the live status', async () => {
+    mocks.getState.mockResolvedValue(
+      view({ status: 'on_break', breakKind: 'meal', sessionStartedAt: Date.now() - 3_600_000 }),
+    );
+    mocks.getDay.mockResolvedValue(result());
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole('button', { name: 'Previous day' }));
+    const actions = screen.getByRole('region', { name: 'actions' });
+    for (const name of ['Clock out', 'End break', 'Bio break', 'Meal break', 'In a meeting']) {
+      expect(within(actions).queryByRole('button', { name })).not.toBeInTheDocument();
+    }
+    expect(within(actions).getByLabelText('live-status')).toHaveTextContent(
+      /On a meal break · 01:00:0\d/,
+    );
+    await user.click(within(actions).getByRole('button', { name: 'Back to today' }));
+    expect(await screen.findByRole('button', { name: 'End break' })).toBeInTheDocument();
+    expect(screen.getByLabelText('day-shown')).toHaveTextContent('Today');
+  });
+
+  describe('day picker', () => {
+    const H = 3_600_000;
+    function days(entries: [number, number][], stale = false): DaysResult {
+      return {
+        days: {
+          days: entries.map(([ago, hours]) => ({
+            date: shiftDate(today, -ago),
+            sessions: 1,
+            worked_ms: hours * H,
+            calls_ms: 0,
+            meetings_ms: 0,
+            breaks_ms: 0,
+            prompt_ms: 0,
+          })),
+        },
+        stale,
+      };
+    }
+    const cell = (date: string): HTMLElement => {
+      const el = document.querySelector<HTMLElement>(`[data-date="${date}"]`);
+      if (!el) throw new Error(`no cell ${date}`);
+      return el;
+    };
+
+    it('opens from the date, shades worked days, greys empty ones, and jumps on a tap', async () => {
+      mocks.getDays.mockResolvedValue(
+        days([
+          [1, 7.5],
+          [3, 9],
+        ]),
+      );
+      mocks.getDay.mockResolvedValue(result());
+      const user = userEvent.setup();
+      render(<App />);
+      await user.click(await screen.findByLabelText('day-shown'));
+      const picker = screen.getByRole('dialog', { name: 'day-picker' });
+      expect(mocks.getDays).toHaveBeenCalledWith(shiftDate(today, -30), today);
+      expect(await within(picker).findByLabelText('lookback-summary')).toHaveTextContent(
+        '2 days · 16h 30m · avg 8h 15m',
+      );
+      expect(cell(shiftDate(today, -2))).toHaveAttribute('aria-disabled', 'true');
+      expect(cell(today)).toHaveAttribute('aria-disabled', 'false');
+      expect(cell(shiftDate(today, -3))).toHaveAccessibleName(/· 9h 00m$/);
+      // The dial is replaced while the picker is open.
+      expect(screen.queryByRole('img', { name: /Today on a clock/ })).not.toBeInTheDocument();
+
+      // Hover: the day's hours, a breakdown, and a hint to click.
+      await user.hover(cell(shiftDate(today, -3)));
+      const tip = screen.getByRole('tooltip', { name: 'day-tooltip' });
+      expect(tip).toHaveTextContent('9h 00m worked');
+      expect(tip).toHaveTextContent('1 session');
+      expect(tip).toHaveTextContent('Click for details');
+      // An empty day says so, and a click does nothing.
+      await user.hover(cell(shiftDate(today, -2)));
+      expect(screen.getByRole('tooltip')).toHaveTextContent('Nothing tracked');
+      expect(screen.getByRole('tooltip')).not.toHaveTextContent('Click for details');
+      await user.click(cell(shiftDate(today, -2)));
+      expect(screen.getByRole('dialog', { name: 'day-picker' })).toBeInTheDocument();
+
+      // A click opens that day with its details.
+      await user.click(cell(yesterday));
+      expect(screen.queryByRole('dialog', { name: 'day-picker' })).not.toBeInTheDocument();
+      expect(mocks.getDay).toHaveBeenCalledWith(yesterday);
+      expect(await screen.findByLabelText('past-worked')).toHaveTextContent('7h 30m');
+      expect(screen.getByRole('region', { name: 'past-day' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Hide details' })).toBeInTheDocument();
+    });
+
+    it('moves with the arrow keys, skipping empty days, and closes on Escape', async () => {
+      mocks.getDays.mockResolvedValue(
+        days([
+          [1, 4],
+          [8, 6],
+        ]),
+      );
+      const user = userEvent.setup();
+      render(<App />);
+      await user.click(await screen.findByLabelText('day-shown'));
+      await screen.findByText(/2 days/);
+      expect(cell(today)).toHaveFocus();
+      await user.keyboard('{ArrowLeft}');
+      expect(cell(yesterday)).toHaveFocus();
+      expect(screen.getByRole('tooltip')).toHaveTextContent('Yesterday4h 00m worked');
+      // Days 2–7 ago are empty: the next step left lands on 8 days ago.
+      await user.keyboard('{ArrowLeft}');
+      expect(cell(shiftDate(today, -8))).toHaveFocus();
+      await user.keyboard('{Escape}');
+      expect(screen.queryByRole('dialog', { name: 'day-picker' })).not.toBeInTheDocument();
+    });
+
+    it('offline: every day stays pickable and says why there is no shading', async () => {
+      mocks.getDays.mockRejectedValue('offline');
+      const user = userEvent.setup();
+      render(<App />);
+      await user.click(await screen.findByLabelText('day-shown'));
+      expect(
+        await screen.findByText(/Offline · hours show when you're online/),
+      ).toBeInTheDocument();
+      expect(cell(shiftDate(today, -30))).toHaveAttribute('aria-disabled', 'false');
+      expect(document.querySelector(`[data-date="${shiftDate(today, -31)}"]`)).toBeNull();
+    });
   });
 });

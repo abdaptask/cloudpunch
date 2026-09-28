@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Desktop: day picker, and no clock actions on past days (2026-09-28)
+
+Follow-up to ADR-0016, requested by the project owner.
+
+- **Past days are for looking back.** On a past day, Clock in, Clock
+  out and the break and meeting buttons are replaced by one
+  **Back to today** button. The button also shows the live status
+  underneath, for example "Clocked in · 02:14:05". The long-shift
+  banner is hidden there too and comes back on today.
+- **Day picker.** Tap the date (‹ Today ▾ ›) to open a heat calendar of
+  today and the previous 30 days. It has Monday-first week rows, and
+  each cell is shaded by hours worked: under 2h, 2–5h, 5–8h, 8h or
+  more.
+  - Days with nothing tracked are greyed out.
+  - Hover or focus shows a tooltip with the hours worked that day and
+    a breakdown, e.g. "Tue 22 Sep · 8h 12m worked · 2 sessions · 45m
+    breaks · 1h 10m calls", and "Click for details". Empty days say
+    "Nothing tracked".
+  - The footer sums the period: days worked, total, and average per
+    day.
+  - A click opens that day with its sessions and totals already
+    expanded. Arrow keys move and skip empty days, Enter
+    picks, and Escape closes.
+  - The ‹ › arrows still step one day at a time.
+- **Offline.** The picker shows the range loaded earlier this run.
+  With none loaded, every day stays pickable, without shading.
+- New agent command `get_days(from, to)` calls
+  `GET /v1/me/days?from&to` (at most 31 days). It shares the signed-in
+  fetch and the per-user memory cache with `get_day`. Nothing is
+  written to disk, and the cache is still emptied at sign-out.
+
 ### Desktop: "Today" is the working day, not the date (2026-09-25)
 
 Follow-up to ADR-0016, approved by the project owner.
