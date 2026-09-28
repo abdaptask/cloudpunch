@@ -96,6 +96,45 @@ pub fn put_policy(
     )
 }
 
+/// People (ADR-0020): everyone with a CloudPunch role.
+pub fn people(http: &Client, base: &str, token: &str) -> Result<Value, DayError> {
+    send(
+        http,
+        base,
+        token,
+        reqwest::Method::GET,
+        "/v1/admin/people",
+        None,
+    )
+}
+
+/// People: search the company directory.
+pub fn people_search(http: &Client, base: &str, token: &str, q: &str) -> Result<Value, DayError> {
+    let q: String = url::form_urlencoded::byte_serialize(q.as_bytes()).collect();
+    let path = format!("/v1/admin/people/search?q={q}");
+    send(http, base, token, reqwest::Method::GET, &path, None)
+}
+
+/// People: set exactly these roles for `oid` (an Entra object id).
+pub fn people_set_roles(
+    http: &Client,
+    base: &str,
+    token: &str,
+    oid: &str,
+    roles: &[String],
+    reason: Option<&str>,
+) -> Result<Value, DayError> {
+    if !is_uuid(oid) {
+        return Err(DayError::Refused("invalid_argument".into()));
+    }
+    let mut body = serde_json::json!({ "roles": roles });
+    if let Some(r) = reason.map(str::trim).filter(|r| !r.is_empty()) {
+        body["reason"] = Value::String(r.to_string());
+    }
+    let path = format!("/v1/admin/people/{oid}/roles");
+    send(http, base, token, reqwest::Method::PUT, &path, Some(&body))
+}
+
 /// One signed-in call. 401/429/5xx and network trouble are
 /// `Unavailable`; other 4xx carry the server's `code`.
 fn send(
@@ -188,6 +227,23 @@ mod tests {
         );
         assert_eq!(got.unwrap()["scope"], "global");
         m.assert();
+    }
+
+    #[test]
+    fn people_search_encodes_the_query_and_set_roles_checks_the_id() {
+        let server = MockServer::start();
+        let m = server.mock(|when, then| {
+            when.method(GET)
+                .path("/v1/admin/people/search")
+                .query_param("q", "far heen&x=1");
+            then.status(200).json_body(json!({ "users": [] }));
+        });
+        people_search(&client(), &server.base_url(), "tok", "far heen&x=1").unwrap();
+        m.assert();
+        assert_eq!(
+            people_set_roles(&client(), &server.base_url(), "tok", "../x", &[], None),
+            Err(DayError::Refused("invalid_argument".into()))
+        );
     }
 
     #[test]

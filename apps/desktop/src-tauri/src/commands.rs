@@ -724,6 +724,41 @@ pub async fn admin_policy_get(
     answer(fetched)
 }
 
+/// People (ADR-0020): everyone with a CloudPunch role.
+#[tauri::command]
+pub async fn admin_people(auth: State<'_, Arc<Auth>>) -> Result<serde_json::Value, String> {
+    let (_, fetched) = fetch_as_user(&auth, admin::people).await?;
+    answer(fetched)
+}
+
+/// People: search the company directory (2+ characters).
+#[tauri::command]
+pub async fn admin_people_search(
+    auth: State<'_, Arc<Auth>>,
+    q: String,
+) -> Result<serde_json::Value, String> {
+    let (_, fetched) = fetch_as_user(&auth, move |http, base, token| {
+        admin::people_search(http, base, token, &q)
+    })
+    .await?;
+    answer(fetched)
+}
+
+/// People: set exactly these roles for one person. Audited server-side.
+#[tauri::command]
+pub async fn admin_people_set_roles(
+    auth: State<'_, Arc<Auth>>,
+    oid: String,
+    roles: Vec<String>,
+    reason: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let (_, fetched) = fetch_as_user(&auth, move |http, base, token| {
+        admin::people_set_roles(http, base, token, &oid, &roles, reason.as_deref())
+    })
+    .await?;
+    answer(fetched)
+}
+
 /// Replace a scope's override document. Audited server-side.
 #[tauri::command]
 pub async fn admin_policy_put(

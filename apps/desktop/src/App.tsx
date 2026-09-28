@@ -40,6 +40,7 @@ import { Button } from './ui/Button.js';
 import { Logo } from './ui/Logo.js';
 import { SevenSegment } from './ui/SevenSegment.js';
 import { dark, useTheme, type Theme } from './ui/theme.js';
+import { PeopleScreen } from './PeopleScreen.js';
 import { SettingsScreen } from './SettingsScreen.js';
 import { SignIn } from './SignIn.js';
 import { Strip } from './Strip.js';
@@ -225,7 +226,13 @@ export function App(): JSX.Element {
     };
   }, [signedIn]);
   const canEditCompany = capabilities.includes('admin.policy.write');
-  const canEditSettings = canEditCompany || capabilities.includes('hr.policy.write');
+  const canEditRules = canEditCompany || capabilities.includes('hr.policy.write');
+  // People (ADR-0020): Administrators assign any role, HR Employee / Manager.
+  const canAssignAll = capabilities.includes('admin.role.assign');
+  const canManagePeople = canAssignAll || capabilities.includes('hr.employee.write');
+  const canEditSettings = canEditRules || canManagePeople;
+  const [adminTab, setAdminTab] = useState<'rules' | 'people'>('rules');
+  const tab = !canEditRules ? 'people' : !canManagePeople ? 'rules' : adminTab;
   const showDate = (d: string): void => setViewDate(d >= todayDate ? null : d);
   const todayDate = localDateOf(now);
   const pastDate = viewDate !== null && viewDate < todayDate ? viewDate : null;
@@ -461,10 +468,41 @@ export function App(): JSX.Element {
             </p>
           )}
           {signedIn && settingsOpen && canEditSettings && (
-            <SettingsScreen
-              canEditCompany={canEditCompany}
-              onClose={() => setSettingsOpen(false)}
-            />
+            <>
+              {canEditRules && canManagePeople && (
+                <div role="tablist" aria-label="admin-tabs" style={{ display: 'flex', gap: 6 }}>
+                  {(
+                    [
+                      ['rules', 'Rules'],
+                      ['people', 'People'],
+                    ] as const
+                  ).map(([key, label]) => (
+                    <Button
+                      key={key}
+                      role="tab"
+                      aria-selected={tab === key}
+                      variant="chip"
+                      onClick={() => setAdminTab(key)}
+                      style={
+                        tab === key
+                          ? { borderColor: t.accent, color: t.accent, fontWeight: 650 }
+                          : {}
+                      }
+                    >
+                      {label}
+                    </Button>
+                  ))}
+                </div>
+              )}
+              {tab === 'rules' ? (
+                <SettingsScreen
+                  canEditCompany={canEditCompany}
+                  onClose={() => setSettingsOpen(false)}
+                />
+              ) : (
+                <PeopleScreen canAssignAll={canAssignAll} onClose={() => setSettingsOpen(false)} />
+              )}
+            </>
           )}
           {signedIn && !(settingsOpen && canEditSettings) && (
             <>

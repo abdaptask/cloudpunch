@@ -45,7 +45,29 @@ cd apps/backend && npx tsx --env-file=.env.local scripts/migrate.ts
 
 Apply a migration **before** deploying code that needs it.
 
-## Add a tester
+## People: one-time Entra setup (ADR-0020)
+
+People lets Administrators and HR assign CloudPunch roles in the app.
+It needs these, once, by a Global Admin:
+
+1. **Certificate.** Go to **App registrations → CloudPunch API →
+   Certificates & secrets → Certificates → Upload certificate**, and pick
+   `docs/ops/pilot-entra-obo.crt`. Its SHA-1 thumbprint is
+   `DEC502051BF50A89C0E93673E32F48B0EAB295E1` and it expires 2028-09-27.
+   The private key is only on the VM (`/etc/cloudpunch/entra-obo.key`).
+2. **Permissions.** On the same app, go to **API permissions → Add a
+   permission → Microsoft Graph → Delegated permissions**, add
+   `User.ReadBasic.All` and `AppRoleAssignment.ReadWrite.All`, then
+   **Grant admin consent for ApTask**.
+3. **Owners.** Go to **Enterprise applications → CloudPunch API →
+   Owners → Add**, and add each Administrator and HR person who manages
+   roles.
+
+After that, open CloudPunch → Settings → **People**, search for a
+person, tick their roles and Save. Their employee record is created
+automatically.
+
+## Add a tester (without People)
 
 1. **Entra admin center → Enterprise applications → CloudPunch API →
    Users and groups → Add user/group.** Pick the person and the role

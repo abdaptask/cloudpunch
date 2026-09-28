@@ -36,6 +36,9 @@ const mocks = vi.hoisted(() => ({
   myCapabilities: vi.fn<() => Promise<string[]>>(),
   adminDepartments: vi.fn<() => Promise<{ departments: { id: string; name: string }[] }>>(),
   adminPolicyGet: vi.fn(),
+  adminPeople: vi.fn(),
+  adminPeopleSearch: vi.fn(),
+  adminPeopleSetRoles: vi.fn(),
   adminPolicyPut: vi.fn(),
   dismissClockInPrompt: vi.fn<() => Promise<StateView>>(),
   explainIdle: vi.fn<(explanation: string, note: string | null) => Promise<StateView>>(),
@@ -1460,6 +1463,99 @@ describe('Settings for HR and Administrators (ADR-0018 §5)', () => {
     await user.click(within(settings).getByRole('button', { name: 'Save' }));
     expect(await within(settings).findByRole('alert')).toHaveTextContent(
       "Your role can't change this.",
+    );
+  });
+});
+
+describe('People (ADR-0020)', () => {
+  const FARHEEN = '8afe98ae-5b43-4c12-86c5-b4473225f7f0';
+  const NILESH = '026e2734-c0e4-4d70-9d19-6beafa588629';
+
+  it('an Administrator adds someone from the directory with a role', async () => {
+    mocks.myCapabilities.mockResolvedValue(['admin.role.assign', 'admin.policy.write']);
+    mocks.adminPolicyGet.mockResolvedValue({ override: null, effective: { policy: {} } });
+    mocks.adminPeople.mockResolvedValue({
+      people: [
+        {
+          oid: NILESH,
+          name: 'Nilesh Darekar',
+          roles: ['Employee', 'Administrator'],
+          has_employee_record: true,
+        },
+      ],
+    });
+    mocks.adminPeopleSearch.mockResolvedValue({
+      users: [{ oid: FARHEEN, name: 'Farheen Khanam', email: 'farheen@aptask.com' }],
+    });
+    mocks.adminPeopleSetRoles.mockResolvedValue({ changed: true });
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole('button', { name: 'Settings' }));
+    await user.click(screen.getByRole('tab', { name: 'People' }));
+    const people = screen.getByRole('region', { name: 'people' });
+    expect(await within(people).findByText('Employee · Administrator')).toBeInTheDocument();
+    await user.type(within(people).getByLabelText('people-search'), 'farh');
+    await user.click(await within(people).findByRole('button', { name: /Farheen Khanam/ }));
+    const roles = within(people).getByRole('group', { name: 'edit-roles' });
+    // A new person starts with Employee ticked.
+    expect(within(roles).getByLabelText('role-Employee')).toBeChecked();
+    expect(within(roles).getByLabelText('role-Administrator')).toBeEnabled();
+    await user.click(within(roles).getByLabelText('role-Manager'));
+    await user.type(within(roles).getByLabelText('people-reason'), 'pilot');
+    await user.click(within(roles).getByRole('button', { name: 'Save' }));
+    expect(mocks.adminPeopleSetRoles).toHaveBeenCalledWith(
+      FARHEEN,
+      ['Employee', 'Manager'],
+      'pilot',
+    );
+    expect(await within(people).findByRole('status')).toHaveTextContent(
+      'Farheen Khanam gets the new roles at their next sign-in',
+    );
+  });
+
+  it('HR sees People only, and can tick Employee and Manager only', async () => {
+    mocks.myCapabilities.mockResolvedValue(['hr.employee.write']);
+    mocks.adminPeople.mockResolvedValue({
+      people: [
+        { oid: FARHEEN, name: 'Farheen Khanam', roles: ['Employee'], has_employee_record: true },
+      ],
+    });
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole('button', { name: 'Settings' }));
+    expect(screen.queryByRole('tab', { name: 'Rules' })).not.toBeInTheDocument();
+    const people = screen.getByRole('region', { name: 'people' });
+    await user.click(await within(people).findByRole('button', { name: /Farheen Khanam/ }));
+    const roles = within(people).getByRole('group', { name: 'edit-roles' });
+    expect(within(roles).getByLabelText('role-Manager')).toBeEnabled();
+    for (const r of ['HR', 'Payroll', 'Auditor', 'Administrator']) {
+      expect(within(roles).getByLabelText(`role-${r}`)).toBeDisabled();
+    }
+    expect(within(roles).getByRole('button', { name: 'Save' })).toBeDisabled();
+  });
+
+  it('explains a server refusal in plain words', async () => {
+    mocks.myCapabilities.mockResolvedValue(['admin.role.assign']);
+    mocks.adminPeople.mockResolvedValue({
+      people: [
+        {
+          oid: NILESH,
+          name: 'Nilesh Darekar',
+          roles: ['Administrator'],
+          has_employee_record: true,
+        },
+      ],
+    });
+    mocks.adminPeopleSetRoles.mockRejectedValue('last_administrator');
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole('button', { name: 'Settings' }));
+    const people = screen.getByRole('region', { name: 'people' });
+    await user.click(await within(people).findByRole('button', { name: /Nilesh Darekar/ }));
+    await user.click(within(people).getByLabelText('role-Administrator'));
+    await user.click(within(people).getByRole('button', { name: 'Save' }));
+    expect(await within(people).findByRole('alert')).toHaveTextContent(
+      'CloudPunch needs at least one Administrator.',
     );
   });
 });

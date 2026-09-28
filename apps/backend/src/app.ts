@@ -9,10 +9,16 @@ import { devicesRoutes } from './devices/routes.js';
 import { eventsRoutes } from './events/routes.js';
 import { healthPlugin, type HealthProbe } from './health/routes.js';
 import { meRoutes } from './me/routes.js';
+import { readFileSync } from 'node:fs';
+import { createGraph, type Graph } from './people/graph.js';
+import { graphTokenOnBehalfOf } from './people/obo.js';
+import { peopleRoutes } from './people/routes.js';
 import { policyAdminRoutes } from './policy/admin-routes.js';
 import { policyRoutes } from './policy/routes.js';
 
 export interface BuildAppOptions {
+  /** Tests inject a fake Graph; otherwise built from the OBO certificate. */
+  graphFor?: ((userToken: string) => Promise<Graph>) | null;
   env: Env;
   logger: Logger;
   db?: DbRepositories | undefined;
@@ -77,6 +83,10 @@ export async function buildApp(opts: BuildAppOptions) {
     await app.register(dayRoutes, { db: opts.db });
     await app.register(policyRoutes, { db: opts.db });
     await app.register(policyAdminRoutes, { db: opts.db });
+    await app.register(peopleRoutes, {
+      db: opts.db,
+      graphFor: opts.graphFor ?? graphFromEnv(opts),
+    });
   } else {
     opts.logger.warn(
       'buildApp called without a DbRepositories; /v1/me, /v1/me/policy, /v1/devices/enroll, and /v1/events are not registered.',
@@ -84,4 +94,36 @@ export async function buildApp(opts: BuildAppOptions) {
   }
 
   return app;
+}
+
+/**
+ * People's Graph access (ADR-0020): on behalf of the caller, when the
+ * OBO certificate is configured; otherwise null (routes answer 503).
+ */
+function graphFromEnv(opts: BuildAppOptions): ((userToken: string) => Promise<Graph>) | null {
+  const { env } = opts;
+  if (
+    !env.ENTRA_TENANT_ID ||
+    !env.ENTRA_API_CLIENT_ID ||
+    !env.ENTRA_OBO_CERT_KEY_PATH ||
+    !env.ENTRA_OBO_CERT_THUMBPRINT
+  ) {
+    return null;
+  }
+  let privateKeyPem: string;
+  try {
+    privateKeyPem = readFileSync(env.ENTRA_OBO_CERT_KEY_PATH, 'utf8');
+  } catch (err) {
+    opts.logger.error({ err: String(err) }, 'people: OBO key unreadable; People disabled');
+    return null;
+  }
+  const cfg = {
+    tenantId: env.ENTRA_TENANT_ID,
+    clientId: env.ENTRA_API_CLIENT_ID,
+    privateKeyPem,
+    thumbprint: env.ENTRA_OBO_CERT_THUMBPRINT,
+  };
+  const apiAppId = env.ENTRA_API_CLIENT_ID;
+  return async (userToken) =>
+    createGraph({ token: await graphTokenOnBehalfOf(cfg, userToken), apiAppId });
 }

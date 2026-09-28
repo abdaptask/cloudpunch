@@ -34,6 +34,11 @@ const envSchema = z.object({
   ENTRA_API_CLIENT_ID: z.string().uuid().optional(),
   ENTRA_API_APPLICATION_ID_URI: z.string().min(1).optional(),
   ENTRA_REQUIRED_SCOPE: z.string().default('api.access'),
+  // People (ADR-0020): the on-behalf-of certificate for Microsoft Graph.
+  // The key file stays on the server (root:cloudpunch 0640); the
+  // thumbprint is the certificate's SHA-1, base64url (`x5t`).
+  ENTRA_OBO_CERT_KEY_PATH: z.string().min(1).optional(),
+  ENTRA_OBO_CERT_THUMBPRINT: z.string().min(1).optional(),
 
   APP_VERSION: z.string().default('0.0.0-dev'),
 
