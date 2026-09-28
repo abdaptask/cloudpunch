@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Backend: a friendly page at the service address (2026-09-28)
+
+- Opening `https://cloudpunch.aptask.com` in a browser now shows a short
+  CloudPunch page ("this is the service behind the app; install the
+  app, sign in with your ApTask account"), not a JSON 404. The page is
+  static, with no scripts and no data, served with a strict CSP
+  (`default-src 'none'`, `frame-ancestors 'none'`).
+- `/favicon.ico` answers 204.
 ### Ops: pilot reachable from anywhere via Cloudflare Tunnel (ADR-0019 §8, 2026-09-28)
 
 - The testers work from home without a VPN. The VM now runs
