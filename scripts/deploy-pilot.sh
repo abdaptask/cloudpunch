@@ -20,7 +20,8 @@ fi
 REV="$(git rev-parse --short HEAD)"
 echo "deploy-pilot: deploying $REV to $HOST"
 
-git archive --format=tar HEAD | ssh -o BatchMode=yes "$HOST" "REV=$REV bash -s" <<'REMOTE'
+# The archive goes on stdin, so the remote script travels as an argument.
+read -r -d '' REMOTE <<'REMOTE' || true
 set -euo pipefail
 sudo rm -rf /opt/cloudpunch/app.new && sudo mkdir -p /opt/cloudpunch/app.new
 sudo tar -x -C /opt/cloudpunch/app.new
@@ -34,7 +35,7 @@ sudo mv /opt/cloudpunch/app.new /opt/cloudpunch/app
 sudo chown -R root:root /opt/cloudpunch/app && sudo chmod -R a+rX,go-w /opt/cloudpunch/app
 sudo systemctl restart cloudpunch-api
 for _ in $(seq 1 20); do
-  if curl -fsS -o /dev/null http://127.0.0.1:8080/livez; then
+  if curl -fs -o /dev/null http://127.0.0.1:8080/livez; then
     echo "deploy-pilot: $REV is live"
     exit 0
   fi
@@ -45,3 +46,6 @@ sudo rm -rf /opt/cloudpunch/app && sudo mv /opt/cloudpunch/app.prev /opt/cloudpu
 sudo systemctl restart cloudpunch-api
 exit 1
 REMOTE
+
+git archive --format=tar HEAD |
+  ssh -o BatchMode=yes "$HOST" "REV=$REV bash -c $(printf '%q' "$REMOTE")"
