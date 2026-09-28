@@ -1,4 +1,4 @@
-import { useId, type ReactNode } from 'react';
+import { useEffect, useId, useRef, type ReactNode } from 'react';
 import {
   arcPath,
   clockAngle,
@@ -40,6 +40,7 @@ export function DayDial({
   worked = 0,
   elapsed = null,
   hand = true,
+  park = false,
   label = 'Today',
   children,
 }: {
@@ -56,6 +57,8 @@ export function DayDial({
   elapsed?: number | null;
   /** Draw the "now" needle (not on past days). */
   hand?: boolean;
+  /** "Engine off": sweep the needle back to 12 (end of a long day). */
+  park?: boolean;
   /** Day name for screen readers. */
   label?: string;
   children: ReactNode;
@@ -65,6 +68,19 @@ export function DayDial({
   const id = useId().replace(/:/g, '');
   const arcs = dialArcs(segments, now);
   const nowAngle = clockAngle(now);
+  const needle = useRef<SVGGElement>(null);
+  const angleAtPark = useRef(0);
+  angleAtPark.current = park ? angleAtPark.current : nowAngle;
+  useEffect(() => {
+    const el = needle.current;
+    if (!park || !el || typeof el.animate !== 'function') return;
+    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
+    const anim = el.animate(
+      [{ transform: 'rotate(0deg)' }, { transform: `rotate(${-angleAtPark.current}deg)` }],
+      { duration: 1600, easing: 'cubic-bezier(.6,0,.2,1)', fill: 'forwards' },
+    );
+    return () => anim.cancel();
+  }, [park]);
   const lit = elapsed === null ? 0 : secondsLit(elapsed);
   const band = ledBand(worked);
   const labels: [number, string][] = [
@@ -203,7 +219,13 @@ export function DayDial({
 
         {/* Now. */}
         {hand && (
-          <g filter={`url(#${id}-neon)`} aria-label="needle">
+          <g
+            ref={needle}
+            filter={`url(#${id}-neon)`}
+            aria-label="needle"
+            data-parked={park}
+            style={{ transformOrigin: `${C}px ${C}px`, transformBox: 'view-box' }}
+          >
             <path
               d={`M ${lX.toFixed(2)} ${lY.toFixed(2)} L ${tipX.toFixed(2)} ${tipY.toFixed(2)} L ${rX.toFixed(2)} ${rY.toFixed(2)} Z`}
               fill={g.needle}

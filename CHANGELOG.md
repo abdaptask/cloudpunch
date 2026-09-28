@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Desktop: end-of-day summary (ADR-0013 §8, 2026-09-28)
+
+Monday UI plan, PR 3. Assumptions confirmed by the project owner.
+
+- **Trip complete.** Clocking out (or signing out) after a long day
+  sweeps the dial's needle back to 12 ("engine off"). An odometer rolls
+  the worked total up from 00:00, followed by "8h 12m · 3 calls ·
+  2 breaks · See you tomorrow".
+- **Shorter days** get a quiet card: "Clocked out · 3h 10m · 1 break
+  today".
+- **Long day is a policy setting:** `reminders.long_day_hours`, default
+  8, range 4–16. It reaches the webview as `StateView.longDayMs`.
+- Not shown after the idle auto clock-out, which has its own notice.
+- Honours `prefers-reduced-motion`. Web Animations API only.
+
 ### Desktop: car-dashboard dial (2026-09-28)
 
 Monday UI plan, PR 2, requested by the project owner.

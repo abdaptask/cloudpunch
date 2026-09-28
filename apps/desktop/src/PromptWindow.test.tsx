@@ -26,6 +26,7 @@ function pending(over: Partial<StateView> = {}): StateView {
     sessionStartedAt: null,
     timeline: [],
     longShift: false,
+    longDayMs: 8 * 3_600_000,
     ...over,
   };
 }

@@ -1,0 +1,55 @@
+import { groupOf, today, totals, type Segment } from './timelineModel.js';
+
+/**
+ * End-of-day summary (ADR-0013 §8): what the day looked like when the
+ * employee clocked out or signed out. A day of at least the policy's
+ * `reminders.long_day_hours` gets the "Trip complete" animation;
+ * shorter days get a quiet card.
+ */
+export interface TripSummary {
+  worked: number;
+  calls: number;
+  breaks: number;
+  /** At least the policy's long day. */
+  long: boolean;
+}
+
+export function tripSummary(
+  segments: readonly Segment[],
+  now: number,
+  since: number,
+  longDayMs: number,
+): TripSummary {
+  const rows = today(segments, now, since);
+  const worked = totals(segments, now, since).working;
+  return {
+    worked,
+    calls: rows.filter((r) => r.kind.startsWith('call_')).length,
+    breaks: rows.filter((r) => groupOf(r.kind) === 'break').length,
+    long: worked >= longDayMs,
+  };
+}
+
+/** "8h 12m", "45m". */
+export function hoursMinutes(ms: number): string {
+  const mins = Math.floor(Math.max(0, ms) / 60_000);
+  const h = Math.floor(mins / 60);
+  return h > 0 ? `${h}h ${String(mins % 60).padStart(2, '0')}m` : `${mins}m`;
+}
+
+const count = (n: number, one: string): string => `${n} ${one}${n === 1 ? '' : 's'}`;
+
+/** "8h 12m · 3 calls · 2 breaks"; zero counts are left out. */
+export function tripLine(s: TripSummary): string {
+  const parts = [hoursMinutes(s.worked)];
+  if (s.calls > 0) parts.push(count(s.calls, 'call'));
+  if (s.breaks > 0) parts.push(count(s.breaks, 'break'));
+  return parts.join(' · ');
+}
+
+/** The odometer's "HH:MM" for `ms` worked. */
+export function odometer(ms: number): string {
+  const mins = Math.floor(Math.max(0, ms) / 60_000);
+  const pad = (n: number): string => String(n).padStart(2, '0');
+  return `${pad(Math.min(99, Math.floor(mins / 60)))}:${pad(mins % 60)}`;
+}

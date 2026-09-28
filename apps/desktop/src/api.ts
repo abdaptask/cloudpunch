@@ -33,6 +33,8 @@ export interface StateView {
   timeline: Segment[];
   /** Long-shift check showing (ADR-0013 §5). */
   longShift: boolean;
+  /** Policy's long day for the end-of-day summary, ms (ADR-0013 §8). */
+  longDayMs: number;
 }
 
 /** The window's close button was pressed (ADR-0013 §1). */
