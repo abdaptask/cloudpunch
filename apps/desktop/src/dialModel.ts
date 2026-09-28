@@ -65,19 +65,24 @@ export function arcPath(cx: number, cy: number, r: number, from: number, sweep: 
   return `M ${x1.toFixed(2)} ${y1.toFixed(2)} A ${r} ${r} 0 ${large} 1 ${x2.toFixed(2)} ${y2.toFixed(2)}`;
 }
 
-/** Rev-counter ring: one LED per 15 minutes worked, 12 hours round. */
-export const LED_COUNT = 48;
-const LED_MS = 15 * 60_000;
+/** Seconds ring: 60 LEDs, one per second of the running session. */
+export const LED_COUNT = 60;
 
-/** How many LEDs are lit for `workedMs` (0 … LED_COUNT). */
-export function ledsLit(workedMs: number): number {
-  if (!Number.isFinite(workedMs) || workedMs <= 0) return 0;
-  return Math.min(LED_COUNT, Math.floor(workedMs / LED_MS));
+/**
+ * LEDs lit `elapsedMs` into the session: the seconds of the current
+ * minute, so the ring sweeps once a minute in step with the timer. At
+ * each minute mark the whole ring shows for that second.
+ */
+export function secondsLit(elapsedMs: number): number {
+  if (!Number.isFinite(elapsedMs) || elapsedMs < 1000) return 0;
+  const s = Math.floor(elapsedMs / 1000) % 60;
+  return s === 0 ? LED_COUNT : s;
 }
 
-/** LED `i`'s band: normal up to 8h, over from 8h, red from 10h. */
-export function ledBand(i: number): 'normal' | 'over' | 'red' {
-  if (i < 32) return 'normal';
-  if (i < 40) return 'over';
-  return 'red';
+/** The sweep's colour for time worked today: normal, past 8h, past 10h. */
+export function ledBand(workedMs: number): 'normal' | 'over' | 'red' {
+  const h = workedMs / 3_600_000;
+  if (h >= 10) return 'red';
+  if (h >= 8) return 'over';
+  return 'normal';
 }

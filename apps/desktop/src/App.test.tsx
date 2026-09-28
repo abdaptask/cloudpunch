@@ -674,8 +674,10 @@ describe('day dial (owner request: your day on a clock)', () => {
     render(<App />);
     const dial = await screen.findByRole('img', { name: /Today on a clock: Working, Teams call/ });
     expect(dial.querySelectorAll('[data-arc]')).toHaveLength(3);
-    // Rev counter: an hour worked lights 4 of the 48 LEDs; the needle shows now.
-    expect(within(dial).getByLabelText('led-ring')).toHaveAttribute('data-lit', '4');
+    // Seconds ring: 60 min into the session → the minute mark (or its first seconds).
+    const ring = within(dial).getByLabelText('led-ring');
+    expect(['60', '1', '2']).toContain(ring.getAttribute('data-lit'));
+    expect(ring).toHaveAttribute('data-band', 'normal');
     expect(within(dial).getByLabelText('needle')).toBeInTheDocument();
     const status = screen.getByRole('region', { name: 'current-status' });
     // The seven-segment timer keeps its text for screen readers.
@@ -764,8 +766,8 @@ describe('past days (ADR-0016)', () => {
     expect(mocks.getDay).toHaveBeenCalledWith(yesterday);
     expect(await screen.findByLabelText('past-worked')).toHaveTextContent('7h 30m');
     const status = screen.getByRole('region', { name: 'current-status' });
-    // A past day: its LEDs (7h 30m = 30), no needle.
-    expect(within(status).getByLabelText('led-ring')).toHaveAttribute('data-lit', '30');
+    // A past day: seconds ring dark, no needle.
+    expect(within(status).getByLabelText('led-ring')).toHaveAttribute('data-lit', '0');
     expect(within(status).queryByLabelText('needle')).not.toBeInTheDocument();
     expect(status).toHaveTextContent('09:00 – 17:00');
     expect(

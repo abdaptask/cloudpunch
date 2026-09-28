@@ -7,7 +7,7 @@ import {
   clockAngle,
   dialArcs,
   ledBand,
-  ledsLit,
+  secondsLit,
   polar,
 } from './dialModel.js';
 
@@ -75,25 +75,25 @@ describe('arc geometry', () => {
   });
 });
 
-describe('rev-counter LEDs', () => {
-  const MIN = 60_000;
-  it('lights one LED per full 15 minutes, up to the whole ring', () => {
-    expect(ledsLit(0)).toBe(0);
-    expect(ledsLit(14 * MIN)).toBe(0);
-    expect(ledsLit(15 * MIN)).toBe(1);
-    expect(ledsLit(8 * 60 * MIN)).toBe(32);
-    expect(ledsLit(20 * 60 * MIN)).toBe(LED_COUNT);
-    expect(ledsLit(Number.NaN)).toBe(0);
-    expect(ledsLit(-5)).toBe(0);
+describe('seconds ring', () => {
+  it('lights one LED per second of the minute, the whole ring on the minute', () => {
+    expect(secondsLit(0)).toBe(0);
+    expect(secondsLit(999)).toBe(0);
+    expect(secondsLit(1_000)).toBe(1);
+    expect(secondsLit(59_999)).toBe(59);
+    expect(secondsLit(60_000)).toBe(LED_COUNT);
+    expect(secondsLit(61_000)).toBe(1);
+    expect(secondsLit(3_600_000 + 30_000)).toBe(30);
+    expect(secondsLit(Number.NaN)).toBe(0);
   });
 
-  it('turns amber past 8 hours and red past 10', () => {
-    expect([0, 31, 32, 39, 40, 47].map(ledBand)).toEqual([
+  it('turns amber past 8 hours worked and red past 10', () => {
+    const H = 3_600_000;
+    expect([0, 7.99 * H, 8 * H, 9.99 * H, 10 * H].map(ledBand)).toEqual([
       'normal',
       'normal',
       'over',
       'over',
-      'red',
       'red',
     ]);
   });

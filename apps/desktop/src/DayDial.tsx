@@ -1,5 +1,13 @@
 import { useId, type ReactNode } from 'react';
-import { arcPath, clockAngle, dialArcs, LED_COUNT, ledBand, ledsLit, polar } from './dialModel.js';
+import {
+  arcPath,
+  clockAngle,
+  dialArcs,
+  LED_COUNT,
+  ledBand,
+  secondsLit,
+  polar,
+} from './dialModel.js';
 import { KIND_LABEL, type Segment } from './timelineModel.js';
 import { dark, useTheme } from './ui/theme.js';
 
@@ -8,7 +16,7 @@ const C = SIZE / 2;
 /** Radius of the day ring. */
 const R = 96;
 const STROKE = 13;
-/** The rev-counter LEDs, outside the day ring. */
+/** The seconds LEDs, outside the day ring. */
 const LED_R = 110;
 /** The glass face: covers the LEDs. */
 const FACE_R = 117;
@@ -16,8 +24,8 @@ const FACE_R = 117;
 /**
  * "Your day on a clock", as a car-dashboard gauge (owner request):
  * dark glass, today's segments as neon arcs at their real times on a
- * 12-hour face, a rev-counter LED ring filling with time worked (one
- * LED per 15 minutes; amber past 8h, red past 10h), a glowing needle at
+ * 12-hour face, a 60-LED seconds ring sweeping with the session timer
+ * (green; amber past 8h worked, red past 10h), a glowing needle at
  * now, and the status as an ambient glow. The centre holds the status
  * and the timer (`children`).
  *
@@ -30,6 +38,7 @@ export function DayDial({
   tint,
   glow,
   worked = 0,
+  elapsed = null,
   hand = true,
   label = 'Today',
   children,
@@ -41,8 +50,10 @@ export function DayDial({
   tint?: string | undefined;
   /** Ambient glow colour for the status. */
   glow?: string | undefined;
-  /** Time worked today, for the LED ring (ms). */
+  /** Time worked today (ms): the seconds ring's colour. */
   worked?: number;
+  /** Time into the running session (ms), or null: seconds ring dark. */
+  elapsed?: number | null;
   /** Draw the "now" needle (not on past days). */
   hand?: boolean;
   /** Day name for screen readers. */
@@ -54,7 +65,8 @@ export function DayDial({
   const id = useId().replace(/:/g, '');
   const arcs = dialArcs(segments, now);
   const nowAngle = clockAngle(now);
-  const lit = ledsLit(worked);
+  const lit = elapsed === null ? 0 : secondsLit(elapsed);
+  const band = ledBand(worked);
   const labels: [number, string][] = [
     [0, '12'],
     [90, '3'],
@@ -115,8 +127,8 @@ export function DayDial({
           style={{ transition: 'fill 400ms ease' }}
         />
 
-        {/* Rev-counter LEDs. */}
-        <g aria-label="led-ring" data-lit={lit}>
+        {/* Seconds LEDs. */}
+        <g aria-label="led-ring" data-lit={lit} data-band={band}>
           {Array.from({ length: LED_COUNT }, (_, i) => {
             const a = (i + 0.5) * (360 / LED_COUNT);
             const [x, y] = polar(C, C, LED_R, a);
@@ -126,8 +138,8 @@ export function DayDial({
                 key={i}
                 cx={x}
                 cy={y}
-                r={2}
-                fill={on ? g.led[ledBand(i)] : g.unlit}
+                r={1.7}
+                fill={on ? g.led[band] : g.unlit}
                 filter={on ? `url(#${id}-neon)` : undefined}
               />
             );

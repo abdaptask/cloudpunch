@@ -45,7 +45,7 @@ export interface Gauge {
   unlit: string;
   /** Ambient glow for the status (working / break / clocked out). */
   glow: Record<'working' | 'break' | 'off', string>;
-  /** Rev-counter LEDs: normal, past 8h, past 10h. */
+  /** Seconds LEDs by time worked: normal (green), past 8h, past 10h. */
   led: Record<'normal' | 'over' | 'red', string>;
   /** The now needle. */
   needle: string;
@@ -59,7 +59,7 @@ const gauge: Gauge = {
   dim: '#8ea0bb',
   unlit: 'rgba(142, 160, 187, 0.14)',
   glow: { working: '#22c55e', break: '#f59e0b', off: '#64748b' },
-  led: { normal: '#22d3ee', over: '#f59e0b', red: '#ef4444' },
+  led: { normal: '#22c55e', over: '#f59e0b', red: '#ef4444' },
   needle: '#ff5a36',
 };
 

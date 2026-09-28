@@ -406,6 +406,7 @@ export function App(): JSX.Element {
                       tint={view ? t.tint[tintFor(view.status)] : undefined}
                       glow={view ? t.gauge.glow[tintFor(view.status)] : undefined}
                       worked={todayTotals.working}
+                      elapsed={view?.sessionStartedAt != null ? now - view.sessionStartedAt : null}
                     >
                       <div
                         style={{

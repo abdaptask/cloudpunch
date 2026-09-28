@@ -16,8 +16,11 @@ Monday UI plan, PR 2, requested by the project owner.
   amber on a break, grey when clocked out.
 - **Neon arcs.** Today's segments still sit at their real clock times,
   drawn in glowing colours.
-- **Rev-counter LED ring.** One LED lights per 15 minutes worked, and
-  the ring holds 12 hours. It turns amber past 8h and red past 10h.
+- **Seconds ring (owner request).** 60 green LEDs round the rim. One
+  lights for each second of the running session, so the ring sweeps
+  once a minute in step with the timer, and the whole ring shows at
+  each minute mark. The sweep turns amber past 8h worked and red past
+  10h. It is dark when clocked out and on past days.
 - **Glowing needle** at now. It points in from the rim and never
   crosses the readout. Past days have no needle.
 - **Seven-segment timer**, drawn in SVG (no font file). The text stays
