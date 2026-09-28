@@ -1,5 +1,6 @@
 //! Past days on the home screen (ADR-0016): fetches one working day
-//! from `GET /v1/me/days/{date}` and keeps what it fetched in memory,
+//! from `GET /v1/me/days/{date}`, or the day picker's totals from
+//! `GET /v1/me/days?from&to`, and keeps what it fetched in memory,
 //! so a day already seen still shows when the backend can't be reached.
 //! The cache belongs to one signed-in user and is emptied at sign-out.
 //! Nothing is written to disk.
@@ -35,18 +36,54 @@ pub fn fetch(http: &Client, base_url: &str, token: &str, date: &str) -> Result<V
     if !valid_date(date) {
         return Err(DayError::Refused("invalid_argument".into()));
     }
+    get_json(http, base_url, token, &format!("/v1/me/days/{date}"), |b| {
+        b["sessions"].is_array()
+    })
+}
+
+/// `GET {base}/v1/me/days?from&to`: totals per working day, for the
+/// day picker. The body is passed to the UI as is.
+pub fn fetch_range(
+    http: &Client,
+    base_url: &str,
+    token: &str,
+    from: &str,
+    to: &str,
+) -> Result<Value, DayError> {
+    if !valid_date(from) || !valid_date(to) || to < from {
+        return Err(DayError::Refused("invalid_argument".into()));
+    }
+    get_json(
+        http,
+        base_url,
+        token,
+        &format!("/v1/me/days?from={from}&to={to}"),
+        |b| b["days"].is_array(),
+    )
+}
+
+/// Range key for [`DayCache`], apart from single dates.
+pub fn range_key(from: &str, to: &str) -> String {
+    format!("{from}..{to}")
+}
+
+/// A signed-in GET whose success body must pass `well_formed`.
+fn get_json(
+    http: &Client,
+    base_url: &str,
+    token: &str,
+    path: &str,
+    well_formed: impl Fn(&Value) -> bool,
+) -> Result<Value, DayError> {
     let resp = http
-        .get(format!(
-            "{}/v1/me/days/{date}",
-            base_url.trim_end_matches('/')
-        ))
+        .get(format!("{}{path}", base_url.trim_end_matches('/')))
         .bearer_auth(token)
         .send()
         .map_err(|e| DayError::Unavailable(format!("http error: {e}")))?;
     let status = resp.status();
     let body: Value = resp.json().unwrap_or(Value::Null);
     if status.is_success() {
-        return if body["sessions"].is_array() {
+        return if well_formed(&body) {
             Ok(body)
         } else {
             Err(DayError::Unavailable("malformed day response".into()))
@@ -64,7 +101,8 @@ pub fn fetch(http: &Client, base_url: &str, token: &str, date: &str) -> Result<V
     }
 }
 
-/// Days fetched this run, for one user.
+/// Days and ranges fetched this run, for one user, keyed by date or
+/// [`range_key`].
 #[derive(Default)]
 pub struct DayCache {
     inner: Mutex<Option<(String, HashMap<String, Value>)>>,
@@ -170,6 +208,56 @@ mod tests {
             fetch(&client(), "http://127.0.0.1:9", "tok", "../x"),
             Err(DayError::Refused("invalid_argument".into()))
         );
+    }
+
+    #[test]
+    fn fetch_range_returns_the_totals_and_checks_its_dates() {
+        let server = MockServer::start();
+        let body = json!({ "days": [{ "date": "2026-09-24", "worked_ms": 1 }] });
+        let m = server.mock(|when, then| {
+            when.method(GET)
+                .path("/v1/me/days")
+                .query_param("from", "2026-08-29")
+                .query_param("to", "2026-09-28")
+                .header("authorization", "Bearer tok");
+            then.status(200).json_body(body.clone());
+        });
+        let got = fetch_range(
+            &client(),
+            &server.base_url(),
+            "tok",
+            "2026-08-29",
+            "2026-09-28",
+        );
+        assert_eq!(got.unwrap(), body);
+        m.assert();
+        for (from, to) in [
+            ("2026-09-28", "2026-08-29"),
+            ("x", "2026-09-28"),
+            ("2026-09-01", "&a=b"),
+        ] {
+            assert_eq!(
+                fetch_range(&client(), &server.base_url(), "tok", from, to),
+                Err(DayError::Refused("invalid_argument".into())),
+                "{from} {to}"
+            );
+        }
+        // A 200 without `days` is not trusted.
+        let bad = MockServer::start();
+        bad.mock(|when, then| {
+            when.method(GET).path("/v1/me/days");
+            then.status(200).json_body(json!({ "sessions": [] }));
+        });
+        assert!(matches!(
+            fetch_range(
+                &client(),
+                &bad.base_url(),
+                "tok",
+                "2026-09-01",
+                "2026-09-02"
+            ),
+            Err(DayError::Unavailable(_))
+        ));
     }
 
     #[test]

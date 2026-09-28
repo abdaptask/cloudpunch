@@ -529,30 +529,12 @@ pub async fn get_day(
     if !days::valid_date(&date) {
         return Err("invalid_argument".to_string());
     }
-    let base_url =
-        std::env::var(enroll::BACKEND_URL_ENV).map_err(|_| "not_configured".to_string())?;
-    let oid = auth.oid().ok_or_else(|| "not_signed_in".to_string())?;
     let this_device = recorder.device_id();
-    let auth = auth.inner().clone();
-    let (fetch_oid, fetch_date) = (oid.clone(), date.clone());
-    let fetched = tauri::async_runtime::spawn_blocking(move || {
-        let token = match auth.access_token(SystemTime::now()) {
-            Ok(t) => t,
-            Err(AuthError::NotSignedIn) => return Err(DayError::Refused("not_signed_in".into())),
-            Err(e) => return Err(DayError::Unavailable(format!("token {}", e.code()))),
-        };
-        // Signed out or switched user while waiting: don't answer for them.
-        if auth.oid().as_deref() != Some(fetch_oid.as_str()) {
-            return Err(DayError::Refused("not_signed_in".into()));
-        }
-        let http = reqwest::blocking::Client::builder()
-            .timeout(Duration::from_secs(15))
-            .build()
-            .map_err(|e| DayError::Unavailable(e.to_string()))?;
-        days::fetch(&http, &base_url, &token, &fetch_date)
+    let fetch_date = date.clone();
+    let (oid, fetched) = fetch_as_user(&auth, move |http, base_url, token| {
+        days::fetch(http, base_url, token, &fetch_date)
     })
-    .await
-    .map_err(|_| "internal".to_string())?;
+    .await?;
     match fetched {
         Ok(day) => {
             cache.put(&oid, &date, day.clone());
@@ -575,6 +557,85 @@ pub async fn get_day(
         }
         Err(DayError::Refused(code)) => Err(code),
     }
+}
+
+/// The day picker's totals (ADR-0016).
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DaysResult {
+    /// The backend's `GET /v1/me/days?from&to` body, unchanged.
+    days: serde_json::Value,
+    /// The backend couldn't be reached; this is the copy fetched earlier.
+    stale: bool,
+}
+
+/// Totals per working day from `from` to `to` (`YYYY-MM-DD`, at most
+/// 31 days) for the day picker. Offline, the same range fetched earlier
+/// this run; with none, fails with `offline`.
+#[tauri::command]
+pub async fn get_days(
+    auth: State<'_, Arc<Auth>>,
+    cache: State<'_, DayCache>,
+    from: String,
+    to: String,
+) -> Result<DaysResult, String> {
+    if !days::valid_date(&from) || !days::valid_date(&to) || to < from {
+        return Err("invalid_argument".to_string());
+    }
+    let key = days::range_key(&from, &to);
+    let (oid, fetched) = fetch_as_user(&auth, move |http, base_url, token| {
+        days::fetch_range(http, base_url, token, &from, &to)
+    })
+    .await?;
+    match fetched {
+        Ok(days) => {
+            cache.put(&oid, &key, days.clone());
+            Ok(DaysResult { days, stale: false })
+        }
+        Err(DayError::Unavailable(e)) => {
+            eprintln!("[cloudpunch] days {key} not fetched: {e}");
+            cache
+                .get(&oid, &key)
+                .map(|days| DaysResult { days, stale: true })
+                .ok_or_else(|| "offline".to_string())
+        }
+        Err(DayError::Refused(code)) => Err(code),
+    }
+}
+
+/// Run a backend GET off the UI thread with the signed-in user's access
+/// token. Returns that user's oid with the result, so the caller caches
+/// it under the right user.
+async fn fetch_as_user(
+    auth: &State<'_, Arc<Auth>>,
+    get: impl FnOnce(&reqwest::blocking::Client, &str, &str) -> Result<serde_json::Value, DayError>
+        + Send
+        + 'static,
+) -> Result<(String, Result<serde_json::Value, DayError>), String> {
+    let base_url =
+        std::env::var(enroll::BACKEND_URL_ENV).map_err(|_| "not_configured".to_string())?;
+    let oid = auth.oid().ok_or_else(|| "not_signed_in".to_string())?;
+    let auth = auth.inner().clone();
+    let fetch_oid = oid.clone();
+    let fetched = tauri::async_runtime::spawn_blocking(move || {
+        let token = match auth.access_token(SystemTime::now()) {
+            Ok(t) => t,
+            Err(AuthError::NotSignedIn) => return Err(DayError::Refused("not_signed_in".into())),
+            Err(e) => return Err(DayError::Unavailable(format!("token {}", e.code()))),
+        };
+        // Signed out or switched user while waiting: don't answer for them.
+        if auth.oid().as_deref() != Some(fetch_oid.as_str()) {
+            return Err(DayError::Refused("not_signed_in".into()));
+        }
+        let http = reqwest::blocking::Client::builder()
+            .timeout(Duration::from_secs(15))
+            .build()
+            .map_err(|e| DayError::Unavailable(e.to_string()))?;
+        get(&http, &base_url, &token)
+    })
+    .await
+    .map_err(|_| "internal".to_string())?;
+    Ok((oid, fetched))
 }
 
 /// Close dialog: "Keep running in tray" (ADR-0013 §1).

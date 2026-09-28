@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 
 import { api, type StateView } from './api.js';
 import { ClockOutDialog } from './ClockOutDialog.js';
 import { DayDial } from './DayDial.js';
+import { DayPicker } from './DayPicker.js';
 import {
   dayEnd,
   dayLabel,
@@ -183,6 +184,8 @@ export function App(): JSX.Element {
 
   // Past days (ADR-0016): null shows today, live.
   const [viewDate, setViewDate] = useState<string | null>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const showDate = (d: string): void => setViewDate(d >= todayDate ? null : d);
   const todayDate = localDateOf(now);
   const pastDate = viewDate !== null && viewDate < todayDate ? viewDate : null;
   const past = useDay(signedIn ? pastDate : null);
@@ -190,7 +193,10 @@ export function App(): JSX.Element {
   const pastSegs: Segment[] = pastDay ? daySegments(pastDay.day) : [];
   const pastEnd = dayEnd(pastSegs);
   useEffect(() => {
-    if (!signedIn) setViewDate(null);
+    if (!signedIn) {
+      setViewDate(null);
+      setPickerOpen(false);
+    }
   }, [signedIn]);
   // What the stats and details show: today live, or the past day whole.
   // Today is the current working day, so a night shift isn't cut at midnight.
@@ -285,7 +291,7 @@ export function App(): JSX.Element {
           onCancel={() => setClockOutAsked(false)}
         />
       )}
-      {signedIn && view?.longShift && view.sessionStartedAt !== null && (
+      {signedIn && !pastDate && view?.longShift && view.sessionStartedAt !== null && (
         <LongShiftBanner
           hours={formatHours(now - view.sessionStartedAt)}
           onStillWorking={() => run(api.ackLongShift)}
@@ -325,9 +331,26 @@ export function App(): JSX.Element {
             <DayNav
               date={pastDate ?? todayDate}
               today={todayDate}
-              onChange={(d) => setViewDate(d >= todayDate ? null : d)}
+              pickerOpen={pickerOpen}
+              onTogglePicker={() => setPickerOpen((o) => !o)}
+              onChange={(d) => {
+                setPickerOpen(false);
+                showDate(d);
+              }}
             />
-            {pastDate ? (
+            {pickerOpen ? (
+              <DayPicker
+                today={todayDate}
+                selected={pastDate ?? todayDate}
+                onPick={(d) => {
+                  // A tap opens the day with its sessions and totals (owner request).
+                  setPickerOpen(false);
+                  setDetailsOpen(true);
+                  showDate(d);
+                }}
+                onClose={() => setPickerOpen(false)}
+              />
+            ) : pastDate ? (
               <PastDial
                 state={past}
                 segments={pastSegs}
@@ -401,7 +424,7 @@ export function App(): JSX.Element {
                 )}
               </DayDial>
             )}
-            {!pastDate && view?.status === 'clocked_out' && (
+            {!pastDate && !pickerOpen && view?.status === 'clocked_out' && (
               <div style={{ fontSize: 12, color: t.muted, marginTop: 6, lineHeight: 1.4 }}>
                 {clockedOutHint(view, now)}
               </div>
@@ -431,7 +454,19 @@ export function App(): JSX.Element {
               aria-label="actions"
               style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
             >
-              <Actions view={view} run={run} onClockOut={askClockOut} />
+              {/* A past day is for looking back: no clock or break actions (owner request). */}
+              {pastDate ? (
+                <BackToToday
+                  view={view}
+                  now={now}
+                  onClick={() => {
+                    setPickerOpen(false);
+                    setViewDate(null);
+                  }}
+                />
+              ) : (
+                <Actions view={view} run={run} onClockOut={askClockOut} />
+              )}
             </section>
           )}
 
@@ -568,6 +603,51 @@ function Actions({
         </>,
       );
   }
+}
+
+/** On a past day, the one action: back to today, with the live status under it. */
+function BackToToday({
+  view,
+  now,
+  onClick,
+}: {
+  view: StateView;
+  now: number;
+  onClick: () => void;
+}): JSX.Element {
+  const t = useTheme();
+  const live =
+    view.sessionStartedAt !== null
+      ? `${statusLabel(view, now)} · ${formatTimer(now - view.sessionStartedAt)}`
+      : statusLabel(view, now);
+  return (
+    <Button
+      variant="primary"
+      onClick={onClick}
+      aria-label="Back to today"
+      style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}
+    >
+      <span>Back to today</span>
+      <span
+        aria-label="live-status"
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 6,
+          fontSize: 12,
+          fontWeight: 500,
+          opacity: 0.85,
+          fontVariantNumeric: 'tabular-nums',
+        }}
+      >
+        <span
+          aria-hidden
+          style={{ width: 7, height: 7, borderRadius: 999, background: statusColor(t, view) }}
+        />
+        {live}
+      </span>
+    </Button>
+  );
 }
 
 /** Compact figure for the stats strip: "0m", "<1m", "25m", "6h 12m". */
@@ -745,14 +825,21 @@ const totalValue: CSSProperties = {
   fontVariantNumeric: 'tabular-nums',
 };
 
-/** ‹ Today › — step through today and the previous 30 days (ADR-0016). */
+/**
+ * ‹ Today ▾ › — step through today and the previous 30 days, or tap the
+ * date for the heat-calendar picker (ADR-0016).
+ */
 function DayNav({
   date,
   today,
+  pickerOpen,
+  onTogglePicker,
   onChange,
 }: {
   date: string;
   today: string;
+  pickerOpen: boolean;
+  onTogglePicker: () => void;
   onChange: (date: string) => void;
 }): JSX.Element {
   const t = useTheme();
@@ -782,21 +869,31 @@ function DayNav({
       >
         ‹
       </button>
-      {date === today ? (
-        <span aria-label="day-shown" style={{ fontSize: 12, fontWeight: 600, color: t.muted }}>
-          Today
+      <button
+        type="button"
+        aria-label="day-shown"
+        aria-haspopup="dialog"
+        aria-expanded={pickerOpen}
+        title="Pick a day"
+        onClick={onTogglePicker}
+        style={{
+          ...linkButton(t),
+          display: 'flex',
+          alignItems: 'center',
+          gap: 5,
+          padding: '4px 10px',
+          borderRadius: 999,
+          background: pickerOpen ? t.surfaceAlt : 'none',
+          fontSize: 12,
+          fontWeight: 600,
+          color: date === today ? t.muted : t.text,
+        }}
+      >
+        {dayLabel(date, today)}
+        <span aria-hidden style={{ fontSize: 9 }}>
+          {pickerOpen ? '▲' : '▼'}
         </span>
-      ) : (
-        <button
-          type="button"
-          aria-label="day-shown"
-          title="Back to today"
-          onClick={() => onChange(today)}
-          style={{ ...linkButton(t), fontSize: 12, fontWeight: 600, color: t.text }}
-        >
-          {dayLabel(date, today)}
-        </button>
-      )}
+      </button>
       <button
         type="button"
         aria-label="Next day"

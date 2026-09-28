@@ -239,6 +239,7 @@ pub fn run() {
             commands::mark_back,
             commands::respond_to_prompt,
             commands::get_day,
+            commands::get_days,
         ])
         .setup(move |app| {
             setup_agent.attach(agent::TauriUi::new(app.handle().clone()));
