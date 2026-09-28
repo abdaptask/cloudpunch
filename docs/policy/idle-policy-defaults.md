@@ -259,6 +259,13 @@ computer is in use, then every this many minutes. There are no nudges
 once anything has been tracked today, in quiet hours, or while the
 CloudPunch window is showing. ADR-0013 §7.
 
+**Setting:** `reminders.long_day_hours`
+**Default:** `8` · **Range:** 4 – 16
+**Effect:** End-of-day summary. A clock-out or sign-out after at least
+this many hours worked today shows the "Trip complete" animation (the
+needle parks, an odometer rolls up the day, "See you tomorrow").
+Shorter days get a quiet one-line summary. Display only. ADR-0013 §8.
+
 The break-cap nudges (§6, §7) use the same notifications and respect
 quiet hours.
 

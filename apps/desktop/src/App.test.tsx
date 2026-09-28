@@ -56,6 +56,7 @@ function view(over: Partial<StateView> = {}): StateView {
     sessionStartedAt: null,
     timeline: [],
     longShift: false,
+    longDayMs: 8 * 3_600_000,
     ...over,
   };
 }
@@ -1048,5 +1049,85 @@ describe('pinned mini strip (ADR-0017)', () => {
     expect(mocks.unpinWindow).toHaveBeenCalled();
     act(() => pushPinned(false));
     expect(screen.getByRole('dialog', { name: 'close-dialog' })).toBeInTheDocument();
+  });
+});
+
+describe('end-of-day summary (ADR-0013 §8)', () => {
+  const H = 3_600_000;
+  function day(workedHours: number, status: StateView['status'] = 'active'): StateView {
+    const now = Date.now();
+    const start = now - workedHours * H - 30 * 60_000;
+    return view({
+      status,
+      sessionStartedAt: status === 'clocked_out' ? null : start,
+      timeline: [
+        { kind: 'working', startedAt: start, endedAt: now - 30 * 60_000 - H, session: 1 },
+        { kind: 'meal_break', startedAt: now - 30 * 60_000 - H, endedAt: now - H, session: 1 },
+        { kind: 'call_teams', startedAt: now - H, endedAt: now - 30 * 60_000, session: 1 },
+        {
+          kind: 'working',
+          startedAt: now - 30 * 60_000,
+          endedAt: status === 'clocked_out' ? now : null,
+          session: 1,
+        },
+      ],
+    });
+  }
+
+  it('a long day: Trip complete with the totals, and the needle parks', async () => {
+    mocks.getState.mockResolvedValue(day(8.5));
+    render(<App />);
+    await screen.findByRole('button', { name: 'Clock out' });
+    act(() => pushState(day(8.5, 'clocked_out')));
+    const trip = await screen.findByRole('dialog', { name: 'trip-complete' });
+    expect(within(trip).getByLabelText('odometer')).toHaveTextContent('08:30');
+    expect(within(trip).getByLabelText('trip-line')).toHaveTextContent('8h 30m · 1 call · 1 break');
+    expect(trip).toHaveTextContent('See you tomorrow');
+    expect(screen.getByLabelText('needle')).toHaveAttribute('data-parked', 'true');
+    // Clocking in again clears it.
+    act(() => pushState(day(8.5)));
+    expect(screen.queryByRole('dialog', { name: 'trip-complete' })).not.toBeInTheDocument();
+  });
+
+  it('a shorter day: a quiet summary, no animation', async () => {
+    mocks.getState.mockResolvedValue(day(3));
+    const user = userEvent.setup();
+    render(<App />);
+    await screen.findByRole('button', { name: 'Clock out' });
+    act(() => pushState(day(3, 'clocked_out')));
+    const card = await screen.findByRole('status', { name: 'day-summary' });
+    expect(card).toHaveTextContent('Clocked out · 3h 00m · 1 call · 1 break today');
+    expect(screen.queryByRole('dialog', { name: 'trip-complete' })).not.toBeInTheDocument();
+    expect(screen.getByLabelText('needle')).toHaveAttribute('data-parked', 'false');
+    await user.click(within(card).getByRole('button', { name: 'Dismiss' }));
+    expect(screen.queryByRole('status', { name: 'day-summary' })).not.toBeInTheDocument();
+  });
+
+  it('the long day follows policy', async () => {
+    mocks.getState.mockResolvedValue({ ...day(3), longDayMs: 2 * H });
+    render(<App />);
+    await screen.findByRole('button', { name: 'Clock out' });
+    act(() => pushState({ ...day(3, 'clocked_out'), longDayMs: 2 * H }));
+    expect(await screen.findByRole('dialog', { name: 'trip-complete' })).toBeInTheDocument();
+  });
+
+  it('not after the idle auto clock-out, and not on first load', async () => {
+    mocks.getState.mockResolvedValue(day(9, 'clocked_out'));
+    render(<App />);
+    await screen.findByRole('button', { name: 'Clock in' });
+    expect(screen.queryByRole('dialog', { name: 'trip-complete' })).not.toBeInTheDocument();
+    act(() => pushState(day(9)));
+    act(() => pushState({ ...day(9, 'clocked_out'), autoClockedOutAt: Date.now() }));
+    expect(screen.queryByRole('dialog', { name: 'trip-complete' })).not.toBeInTheDocument();
+  });
+
+  it('sign-out shows the day on the sign-in screen', async () => {
+    mocks.getState.mockResolvedValue(day(9, 'clocked_out'));
+    mocks.signOut.mockResolvedValue(SIGNED_OUT);
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole('button', { name: 'Sign out' }));
+    const trip = await screen.findByRole('dialog', { name: 'trip-complete' });
+    expect(trip).toHaveTextContent('Signed out · See you tomorrow');
   });
 });

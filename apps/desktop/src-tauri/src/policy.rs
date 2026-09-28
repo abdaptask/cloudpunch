@@ -106,6 +106,8 @@ pub struct Reminders {
     pub long_shift_repeat_hours: u64,
     /// `null` disables the nudge.
     pub clock_in_nudge_minutes: Option<u64>,
+    /// End-of-day summary threshold (ADR-0013 §8).
+    pub long_day_hours: u64,
 }
 
 // Schema defaults (packages/policy-schema/idle-policy.schema.json).
@@ -174,6 +176,7 @@ impl Default for Reminders {
             long_shift_hours: 9,
             long_shift_repeat_hours: 2,
             clock_in_nudge_minutes: Some(30),
+            long_day_hours: 8,
         }
     }
 }
@@ -248,6 +251,7 @@ impl PolicyDoc {
                 .reminders
                 .clock_in_nudge_minutes
                 .map(|m| Duration::from_secs(m * 60)),
+            long_day: Duration::from_secs(self.reminders.long_day_hours * 3600),
         }
     }
 
@@ -404,8 +408,17 @@ mod tests {
             "away": { "require_note": { "working_away": true, "phone_call": true,
                                         "meeting": true } },
             "notifications": { "quiet_hours_start": "21:30", "quiet_hours_end": "bad" },
-            "reminders": { "on_clock_minutes": 60 }
+            "reminders": { "on_clock_minutes": 60, "long_day_hours": 10 }
         }));
+        assert_eq!(
+            doc.reminder_config().long_day,
+            Duration::from_secs(10 * 3600)
+        );
+        assert_eq!(
+            PolicyDoc::default().reminder_config().long_day,
+            Duration::from_secs(8 * 3600),
+            "schema default"
+        );
         let core = doc.core_config();
         assert_eq!(core.idle_threshold, Duration::from_secs(600));
         assert_eq!(core.grace, Duration::from_secs(60));

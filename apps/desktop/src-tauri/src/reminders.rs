@@ -27,6 +27,9 @@ pub struct ReminderConfig {
     pub quiet_end: u16,
     /// "Ready to clock in?" cadence; None disables (ADR-0013 §7).
     pub clock_in_nudge: Option<Duration>,
+    /// `reminders.long_day_hours`: the end-of-day summary's long day
+    /// (ADR-0013 §8). Display only; the webview decides what to show.
+    pub long_day: Duration,
 }
 
 impl Default for ReminderConfig {
@@ -40,6 +43,7 @@ impl Default for ReminderConfig {
             quiet_start: 22 * 60,
             quiet_end: 7 * 60,
             clock_in_nudge: Some(Duration::from_secs(30 * 60)),
+            long_day: Duration::from_secs(8 * 3600),
         }
     }
 }

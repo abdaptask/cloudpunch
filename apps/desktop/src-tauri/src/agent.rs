@@ -66,11 +66,18 @@ pub struct StateView {
     pub timeline: Vec<SegmentView>,
     /// Long-shift check showing (ADR-0013 §5).
     pub long_shift: bool,
+    /// Policy's long day for the end-of-day summary, ms (ADR-0013 §8).
+    pub long_day_ms: u64,
 }
 
 impl StateView {
     pub fn with_long_shift(mut self, long_shift: bool) -> Self {
         self.long_shift = long_shift;
+        self
+    }
+
+    pub fn with_long_day(mut self, long_day: Duration) -> Self {
+        self.long_day_ms = u64::try_from(long_day.as_millis()).unwrap_or(u64::MAX);
         self
     }
 
@@ -114,6 +121,7 @@ pub fn view_of(
         session_started_at: None,
         timeline: Vec::new(),
         long_shift: false,
+        long_day_ms: 8 * 3_600_000,
     }
 }
 
@@ -283,6 +291,7 @@ impl Inner {
         .with_call_type(self.driver.core().call_type())
         .with_timeline(&self.timeline)
         .with_long_shift(self.long_shift)
+        .with_long_day(self.reminder_cfg.long_day)
     }
 
     fn tooltip(&self, snapshot: TrayStateSnapshot, now: SystemTime) -> String {

@@ -112,6 +112,28 @@ banner) opens "Clock out now?".
 - The tray's Clock out and the close dialog's "Clock out & quit" are
   already deliberate choices and don't ask again.
 
+### 8. End-of-day summary (2026-09-28, owner request)
+
+When the employee **clocks out themselves** (not the idle auto clock-out,
+which has its own notice), the window sums up the working day so far.
+It does the same at **sign-out**. The desktop can't tell a lunch
+clock-out from the last one of the day, so the summary is always "so
+far today".
+
+- **A long day**, at least `reminders.long_day_hours` worked (default 8,
+  range 4–16), gets **"Trip complete"**:
+  - the dial's needle sweeps back to 12 ("engine off");
+  - an odometer rolls the worked total up from 00:00;
+  - a line such as "8h 12m · 3 calls · 2 breaks · See you tomorrow".
+- **A shorter day** gets a quiet one-line card, e.g. "Clocked out ·
+  3h 10m · 1 break today".
+- Both close with Done / ✕, and on the next clock-in.
+- Animation uses the Web Animations API (the CSP blocks `<style>`).
+  With `prefers-reduced-motion` it is skipped and the final numbers show
+  at once.
+- The summary is display only. It is built from the device's own
+  timeline, like the rest of the home screen, and is not payable hours.
+
 ## Consequences
 
 ### Positive

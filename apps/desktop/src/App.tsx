@@ -16,6 +16,8 @@ import {
 } from './dayHistory.js';
 import { CloseDialog, LongShiftBanner, rememberedKeepRunning } from './CloseDialog.js';
 import { TimelineView } from './TimelineView.js';
+import { TripCard } from './TripCard.js';
+import { tripSummary, type TripSummary } from './tripModel.js';
 import {
   formatClock,
   formatDuration,
@@ -227,6 +229,38 @@ export function App(): JSX.Element {
   const showStrip = signedIn && pinned && view !== null;
   const todayTotals = totals(todaySegs, now, todaySince);
 
+  // End-of-day summary (ADR-0013 §8): on the employee's own clock-out
+  // (not the idle auto clock-out, which explains itself) and at sign-out.
+  const [trip, setTrip] = useState<{ summary: TripSummary; signedOut: boolean } | null>(null);
+  const summarise = (): TripSummary | null =>
+    view ? tripSummary(todaySegs, now, todaySince, view.longDayMs) : null;
+  const prevStatus = useRef<string | null>(null);
+  const status = view?.status ?? null;
+  useEffect(() => {
+    const prev = prevStatus.current;
+    prevStatus.current = status;
+    if (status !== 'clocked_out') {
+      setTrip(null);
+      return;
+    }
+    if (prev !== null && prev !== 'clocked_out' && view?.autoClockedOutAt === null) {
+      const summary = summarise();
+      if (summary && summary.worked > 0) setTrip({ summary, signedOut: false });
+    }
+    // Only the status change matters; the summary is taken at that moment.
+  }, [status]);
+  useEffect(() => {
+    if (signedIn) setTrip((p) => (p?.signedOut ? null : p));
+  }, [signedIn]);
+  const signOutWithSummary = (): void => {
+    const summary = summarise();
+    setTrip(summary && summary.worked > 0 ? { summary, signedOut: true } : null);
+    signOut();
+  };
+  const tripCard = trip && (
+    <TripCard trip={trip.summary} signedOut={trip.signedOut} onDone={() => setTrip(null)} />
+  );
+
   return (
     <main
       ref={mainRef}
@@ -276,7 +310,7 @@ export function App(): JSX.Element {
                 {view?.status === 'clocked_out' && (
                   <>
                     {' · '}
-                    <button type="button" onClick={signOut} style={linkButton(t)}>
+                    <button type="button" onClick={signOutWithSummary} style={linkButton(t)}>
                       Sign out
                     </button>
                   </>
@@ -327,6 +361,7 @@ export function App(): JSX.Element {
             />
           )}
           {!auth && <p style={{ margin: 0, fontSize: 13, color: t.muted }}>Loading…</p>}
+          {auth && !signedIn && tripCard}
           {auth && !signedIn && (
             <SignIn busy={busy} error={authError} onSignIn={signIn} onCancel={cancelSignIn} />
           )}
@@ -403,6 +438,7 @@ export function App(): JSX.Element {
                     <DayDial
                       segments={todaySegs}
                       now={now}
+                      park={trip?.summary.long === true}
                       tint={view ? t.tint[tintFor(view.status)] : undefined}
                       glow={view ? t.gauge.glow[tintFor(view.status)] : undefined}
                       worked={todayTotals.working}
@@ -472,6 +508,8 @@ export function App(): JSX.Element {
                     </div>
                   )}
                 </section>
+
+                {!pastDate && signedIn && tripCard}
 
                 {!pastDate && view?.status === 'clocked_out' && view.autoClockedOutAt !== null && (
                   <p

@@ -209,6 +209,13 @@
           "maximum": 240,
           "default": 30,
           "description": "Signed in but not clocked in yet today, and using the computer: remind every this many minutes. null disables. ADR-0013 §7."
+        },
+        "long_day_hours": {
+          "type": "integer",
+          "minimum": 4,
+          "maximum": 16,
+          "default": 8,
+          "description": "End-of-day summary: a clock-out or sign-out after at least this many hours worked today plays the 'Trip complete' animation; shorter days get a quiet summary. ADR-0013 §8."
         }
       },
       "additionalProperties": false
