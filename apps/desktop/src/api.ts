@@ -20,6 +20,12 @@ export type Status =
 /** `USER_IDLE_EXPLAINED.explanation` (ADR-0018 §2). */
 export type IdleExplanation = 'working_away' | 'meeting' | 'phone_call' | 'break' | 'idle';
 
+/** `GET /v1/admin/policy/{global|departments/:id}` (ADR-0018 §5). */
+export interface AdminPolicy {
+  override: { document: Record<string, unknown> } | null;
+  effective: { policy: Record<string, unknown> };
+}
+
 /** An idle stretch that just ended, epoch ms. */
 export interface IdleReturn {
   since: number;
@@ -96,6 +102,19 @@ export const api = {
   /** Start from the computer sign-in time; rejects `start_out_of_range`. */
   clockInFromSignIn: (): Promise<StateView> => invoke<StateView>('clock_in_from_sign_in'),
   dismissClockInPrompt: (): Promise<StateView> => invoke<StateView>('dismiss_clock_in_prompt'),
+  /** The signed-in user's capabilities, e.g. `admin.policy.write`. */
+  myCapabilities: (): Promise<string[]> => invoke<string[]>('my_capabilities'),
+  adminDepartments: (): Promise<{ departments: { id: string; name: string }[] }> =>
+    invoke('admin_departments'),
+  adminPolicyGet: (scope: 'global' | 'department', id: string | null): Promise<AdminPolicy> =>
+    invoke<AdminPolicy>('admin_policy_get', { scope, id }),
+  adminPolicyPut: (
+    scope: 'global' | 'department',
+    id: string | null,
+    document: Record<string, unknown>,
+    reason: string,
+  ): Promise<AdminPolicy> =>
+    invoke<AdminPolicy>('admin_policy_put', { scope, id, document, reason: reason || null }),
   clockOut: (): Promise<StateView> => invoke<StateView>('clock_out'),
   startBreak: (kind: 'bio' | 'meal'): Promise<StateView> =>
     invoke<StateView>('start_break', { kind }),

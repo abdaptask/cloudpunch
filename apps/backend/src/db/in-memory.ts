@@ -43,7 +43,7 @@ export class InMemoryDb implements DbRepositories {
   readonly departments: DepartmentRepo;
 
   private readonly policyByScope = new Map<string, PolicyOverride>();
-  private readonly departmentIds = new Set<string>();
+  private readonly departmentById = new Map<string, { code: string; name: string }>();
   /** audit_log rows written by policy changes, for tests. */
   readonly audit: InMemoryAuditRow[] = [];
   private readonly employeeById = new Map<string, Employee>();
@@ -82,7 +82,11 @@ export class InMemoryDb implements DbRepositories {
       },
     };
     this.departments = {
-      exists: async (id) => this.departmentIds.has(id),
+      exists: async (id) => this.departmentById.has(id),
+      list: async () =>
+        [...this.departmentById.entries()]
+          .map(([id, d]) => ({ id, ...d }))
+          .sort((a, b) => a.name.localeCompare(b.name)),
     };
     this.employees = {
       findById: async (id) => this.employeeById.get(id) ?? null,
@@ -165,8 +169,8 @@ export class InMemoryDb implements DbRepositories {
   // Seed helpers — used by tests to set up a starting state
   // ---------------------------------------------------------------
 
-  seedDepartment(id: string): this {
-    this.departmentIds.add(id);
+  seedDepartment(id: string, name = `Department ${id.slice(0, 4)}`): this {
+    this.departmentById.set(id, { code: name.toUpperCase().replace(/\W+/g, '_'), name });
     return this;
   }
 

@@ -218,6 +218,31 @@ describe('policy admin routes', () => {
     expect(db.audit).toEqual([]);
   });
 
+  it('ADR-0018 §5: global and department reads include what that scope resolves to', async () => {
+    const admin = [AppRole.Administrator];
+    await call(admin, 'PUT', GLOBAL, { document: { idle: { threshold_seconds: 180 } } });
+    await call(admin, 'PUT', dept(), { document: { reminders: { long_day_hours: 9 } } });
+    const g = (await call(admin, 'GET', GLOBAL)).json() as {
+      effective: {
+        policy: { idle: { threshold_seconds: number }; reminders: { long_day_hours: number } };
+      };
+    };
+    expect(g.effective.policy.idle.threshold_seconds).toBe(180);
+    expect(g.effective.policy.reminders.long_day_hours).toBe(8);
+    const d = (await call([AppRole.HR], 'GET', dept())).json() as typeof g;
+    expect(d.effective.policy.idle.threshold_seconds).toBe(180);
+    expect(d.effective.policy.reminders.long_day_hours).toBe(9);
+  });
+
+  it('lists departments for the HR picker; employees cannot', async () => {
+    const res = await call([AppRole.HR], 'GET', '/v1/admin/departments');
+    expect(res.statusCode).toBe(200);
+    expect((res.json() as { departments: { id: string }[] }).departments.map((x) => x.id)).toEqual([
+      departmentId,
+    ]);
+    expect((await call([AppRole.Employee], 'GET', '/v1/admin/departments')).statusCode).toBe(403);
+  });
+
   it("shows an employee's effective policy with every layer applied", async () => {
     const admin = [AppRole.Administrator];
     await call(admin, 'PUT', GLOBAL, { document: { idle: { threshold_seconds: 600 } } });

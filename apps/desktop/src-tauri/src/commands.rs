@@ -13,6 +13,7 @@ use std::time::{Duration, SystemTime};
 
 use tauri::{AppHandle, Emitter, LogicalSize, Manager, State, WebviewWindow};
 
+use crate::admin;
 use crate::agent::{parse_away_tag, parse_break_kind, rejection_code, Agent, StateView};
 use crate::auth::{open_system_browser, AuthError, AuthManager, AuthStatus};
 use crate::days::{self, DayCache, DayError};
@@ -678,6 +679,69 @@ pub async fn get_days(
         }
         Err(DayError::Refused(code)) => Err(code),
     }
+}
+
+/// A backend answer as a command result: `offline`, or the server's code.
+fn answer(fetched: Result<serde_json::Value, DayError>) -> Result<serde_json::Value, String> {
+    fetched.map_err(|e| match e {
+        DayError::Unavailable(why) => {
+            eprintln!("[cloudpunch] admin call not answered: {why}");
+            "offline".to_string()
+        }
+        DayError::Refused(code) => code,
+    })
+}
+
+/// The signed-in user's capabilities (`GET /v1/me`), to decide whether
+/// to offer Settings. The server re-checks every admin call.
+#[tauri::command]
+pub async fn my_capabilities(auth: State<'_, Arc<Auth>>) -> Result<serde_json::Value, String> {
+    let (_, fetched) = fetch_as_user(&auth, admin::capabilities).await?;
+    answer(fetched)
+}
+
+/// Departments for the HR settings picker.
+#[tauri::command]
+pub async fn admin_departments(auth: State<'_, Arc<Auth>>) -> Result<serde_json::Value, String> {
+    let (_, fetched) = fetch_as_user(&auth, admin::departments).await?;
+    answer(fetched)
+}
+
+/// A scope's override and what it resolves to (ADR-0018 §5).
+#[tauri::command]
+pub async fn admin_policy_get(
+    auth: State<'_, Arc<Auth>>,
+    scope: String,
+    id: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let scope =
+        admin::Scope::parse(&scope, id.as_deref()).ok_or_else(|| "invalid_argument".to_string())?;
+    let (_, fetched) = fetch_as_user(&auth, move |http, base, token| {
+        admin::get_policy(http, base, token, &scope)
+    })
+    .await?;
+    answer(fetched)
+}
+
+/// Replace a scope's override document. Audited server-side.
+#[tauri::command]
+pub async fn admin_policy_put(
+    auth: State<'_, Arc<Auth>>,
+    scope: String,
+    id: Option<String>,
+    document: serde_json::Value,
+    reason: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let scope =
+        admin::Scope::parse(&scope, id.as_deref()).ok_or_else(|| "invalid_argument".to_string())?;
+    if !document.is_object() {
+        return Err("invalid_argument".to_string());
+    }
+    let (_, fetched) = fetch_as_user(&auth, move |http, base, token| {
+        admin::put_policy(http, base, token, &scope, &document, reason.as_deref())
+    })
+    .await?;
+    answer(fetched)
 }
 
 /// Run a backend GET off the UI thread with the signed-in user's access

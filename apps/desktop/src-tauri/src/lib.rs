@@ -28,6 +28,7 @@
 //!   - Phase 2b.9: signed Windows installer + notarised macOS DMG +
 //!     Tauri updater signature verification.
 
+pub mod admin;
 pub mod agent;
 pub mod auth;
 pub mod call_type;
@@ -250,6 +251,10 @@ pub fn run() {
             commands::respond_to_prompt,
             commands::explain_idle,
             commands::clock_in_from_sign_in,
+            commands::my_capabilities,
+            commands::admin_departments,
+            commands::admin_policy_get,
+            commands::admin_policy_put,
             commands::dismiss_clock_in_prompt,
             commands::dismiss_idle_return,
             commands::get_day,

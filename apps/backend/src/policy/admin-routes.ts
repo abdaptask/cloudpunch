@@ -6,7 +6,7 @@ import { z } from 'zod';
 import type { DbRepositories, PolicyOverride, PolicyScope } from '../db/index.js';
 import { requireCapability } from '../auth/require.js';
 import { PolicyInvalidError, policyIssues } from './resolve.js';
-import { effectivePolicyFor } from './service.js';
+import { effectivePolicyFor, effectivePolicyForScope } from './service.js';
 
 export interface PolicyAdminRoutesOptions {
   db: DbRepositories;
@@ -19,6 +19,10 @@ export interface PolicyAdminRoutesOptions {
  *   GET|PUT|DELETE /v1/admin/policy/departments/:id
  *   GET|PUT|DELETE /v1/admin/policy/employees/:id
  *   GET            /v1/admin/policy/employees/:id/effective
+ *   GET            /v1/admin/departments        (for the HR settings picker)
+ *
+ * The global and department GETs also return `effective`: what that
+ * scope resolves to, for the settings screen (ADR-0018 §5).
  *
  * Global needs `admin.policy.write`; department and employee scopes also
  * accept HR's `hr.policy.write`. Anyone who can write may read, and so
@@ -125,7 +129,19 @@ const policyAdminRoutesImpl: FastifyPluginAsync<PolicyAdminRoutesOptions> = asyn
     app.get(path, { preHandler: [requireCapability(READ)] }, async (req, reply) => {
       const t = await target(scope, req, reply);
       if (!t) return reply;
-      return reply.code(200).send(view(t, await db.policies.find(t.scope, t.scopeId)));
+      const body = view(t, await db.policies.find(t.scope, t.scopeId));
+      if (t.scope === 'employee') return reply.code(200).send(body);
+      try {
+        const effective = await effectivePolicyForScope(db, t.scope, t.scopeId);
+        return reply.code(200).send({ ...body, effective });
+      } catch (err) {
+        if (err instanceof PolicyInvalidError) {
+          return problem(reply, 500, 'policy_invalid', 'a stored override is invalid', {
+            issues: err.issues,
+          });
+        }
+        throw err;
+      }
     });
 
     app.put(path, { preHandler: [requireCapability(write)] }, async (req, reply) => {
@@ -193,6 +209,10 @@ const policyAdminRoutesImpl: FastifyPluginAsync<PolicyAdminRoutesOptions> = asyn
       return reply.code(204).send();
     });
   }
+
+  app.get('/v1/admin/departments', { preHandler: [requireCapability(READ)] }, async (_req, reply) =>
+    reply.code(200).send({ departments: await db.departments.list() }),
+  );
 
   app.get(
     '/v1/admin/policy/employees/:id/effective',

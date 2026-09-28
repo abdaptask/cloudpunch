@@ -264,8 +264,16 @@ export interface PolicyRepo {
   remove(change: PolicyChange): Promise<PolicyOverride | null>;
 }
 
+export interface Department {
+  id: string;
+  code: string;
+  name: string;
+}
+
 export interface DepartmentRepo {
   exists(id: string): Promise<boolean>;
+  /** Every department, by name (for the HR settings picker). */
+  list(): Promise<Department[]>;
 }
 
 export interface DbRepositories {
