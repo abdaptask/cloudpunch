@@ -44,7 +44,7 @@ export async function buildApp(opts: BuildAppOptions) {
   });
 
   // A friendly page for anyone opening the address in a browser.
-  await app.register(landingRoutes);
+  await app.register(landingRoutes, { downloadsDir: opts.env.DOWNLOADS_DIR });
 
   await app.register(healthPlugin, {
     version: opts.env.APP_VERSION,

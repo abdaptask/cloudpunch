@@ -88,6 +88,23 @@ laptop behind an SSH tunnel. AWS is not ready.
      (invariant 6).
    - Follow-up: add a Cloudflare rate-limiting rule in front of `/v1/*`.
 
+9. **The installer is published at the service address** (added
+   2026-09-28, owner request: "put the setup file online, ApTask only").
+   - `https://cloudpunch.aptask.com` shows the CloudPunch page (brand
+     logo, reversed in dark mode). It has a **Download for Windows**
+     button for the newest release, **What's new** notes, and the
+     earlier versions.
+   - The server serves `/download/windows` from
+     `/opt/cloudpunch/downloads/windows` (`DOWNLOADS_DIR`), described by
+     `releases.json`.
+   - **Cloudflare Access protects `/download*`** so only ApTask accounts
+     can download. Access sits only on that path; the app's `/v1`
+     traffic and the page itself are not behind it.
+   - `scripts/publish-installer.sh "note" …` publishes a build. It
+     refuses a build that doesn't point at the public address, and
+     refuses to re-publish a version with a different file, so every
+     update must bump the version. It keeps the newest 3 installers.
+
 ## Consequences
 
 - **Positive:** real use without waiting for AWS. The setup is small,

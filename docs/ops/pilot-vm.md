@@ -98,6 +98,31 @@ The output is `target\release\bundle\nsis\CloudPunch_<version>_x64-setup.exe`.
 It is unsigned, so Windows shows "unknown publisher" once: **More info
 → Run anyway**. It installs per user, and no admin rights are needed.
 
+## Publish an installer (the website's Download button)
+
+Every release that people should get is published, so it shows on
+`https://cloudpunch.aptask.com` with its notes:
+
+1. **Bump the version.** Set the same new version in
+   `apps/desktop/src-tauri/tauri.conf.json`,
+   `apps/desktop/src-tauri/Cargo.toml` and `apps/desktop/package.json`.
+   The script refuses to re-publish a version with a different file.
+2. **Build the pilot installer** (above).
+3. **Publish it** with one line per change:
+   ```sh
+   scripts/publish-installer.sh "Idle popup after 2 minutes" "Clock-in popup at 8 am ET"
+   ```
+   It checks the build points at `https://cloudpunch.aptask.com`,
+   uploads the file, and adds the release to
+   `/opt/cloudpunch/downloads/windows/releases.json`. The page shows it
+   straight away, and the newest 3 installers are kept.
+
+**Cloudflare Access (ApTask only).** Go to Zero Trust → Access →
+Applications → **cloudpunch-download**. It covers
+`cloudpunch.aptask.com/download` and allows emails ending in
+`@aptask.com`. Keep it on `/download` only: putting Access in front of
+`/v1` would break the app.
+
 ## Restore a backup
 
 ```sh

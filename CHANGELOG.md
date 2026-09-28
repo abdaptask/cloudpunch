@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Website: logo, Download for Windows, what's new (ADR-0019 §9, 2026-09-28)
+
+Owner request: the setup file online, ApTask only, with every update
+showing on the page.
+
+- **`https://cloudpunch.aptask.com`** now shows:
+  - the **CloudPunch logo** (reversed in dark mode) and the brand
+    favicon;
+  - a **Download for Windows** button for the newest release, with its
+    version, date, size, and SHA-256 to check the file;
+  - **What's new** in that release, and the **earlier versions** with
+    their notes.
+- **`/download/windows`** serves the newest installer from
+  `DOWNLOADS_DIR`. Cloudflare Access on `/download*` limits it to ApTask
+  accounts.
+- **`scripts/publish-installer.sh`** publishes a build with its notes. It
+  refuses dev builds and refuses to re-publish a version with a
+  different file, and keeps the newest 3 installers.
+- The page is still static and script-free, with a strict CSP (images
+  from the same site only).
+
 ### Backend: a friendly page at the service address (2026-09-28)
 
 - Opening `https://cloudpunch.aptask.com` in a browser now shows a short
