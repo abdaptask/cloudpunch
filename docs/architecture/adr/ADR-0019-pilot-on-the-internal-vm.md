@@ -1,6 +1,8 @@
 # ADR-0019 — Pilot on the internal VM
 
-- **Status:** Accepted (2026-09-28, decisions set by the project owner)
+- **Status:** Accepted (2026-09-28, decisions set by the project owner);
+  §8 added the same day: remote testers reach it through a Cloudflare
+  Tunnel at `https://cloudpunch.aptask.com`
 - **Date:** 2026-09-28
 - **Deciders:** Abdulla Sheikh (project owner), Architecture (Claude)
 - **Builds on:** ADR-0002 (Entra), ADR-0007 (secrets; the dev-only
@@ -64,6 +66,27 @@ laptop behind an SSH tunnel. AWS is not ready.
    - An unsigned NSIS installer, per-user, so no admin rights are
      needed. Windows shows "unknown publisher" once, which the owner
      accepted.
+
+8. **Remote access through a Cloudflare Tunnel** (added 2026-09-28).
+   The testers work from home and nobody uses the company VPN, so
+   172.16.46.54 is out of their reach.
+   - `aptask.com`'s DNS is on Cloudflare, so the VM runs **`cloudflared`**
+     (tunnel **cloudpunch**, id `e02aec2a-06b9-4b69-b795-c92e5c7b55a1`).
+     The owner installed it as a systemd service with its token.
+   - The tunnel publishes **`https://cloudpunch.aptask.com`** →
+     `http://localhost:8080`. It connects **outbound only**, so no inbound
+     port or public IP is needed.
+   - TLS for the testers is Cloudflare's publicly trusted certificate.
+     Cloudflare → VM runs inside the encrypted tunnel, and the last hop is
+     loopback inside the VM.
+   - The API still trusts only `127.0.0.1` as proxy; `cloudflared` is
+     that proxy.
+   - The **pilot build now points at `https://cloudpunch.aptask.com` and
+     carries no private CA**, since the system roots suffice. Caddy on
+     443 with its private CA stays for office-network use.
+   - Every request still needs a valid Entra token with a CloudPunch role
+     (invariant 6).
+   - Follow-up: add a Cloudflare rate-limiting rule in front of `/v1/*`.
 
 ## Consequences
 

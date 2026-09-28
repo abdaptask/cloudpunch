@@ -1,8 +1,9 @@
 # Pilot VM runbook (ADR-0019)
 
 Host `cloudpunch-abd`, `ssh aptask@172.16.46.54` (key only). The API is
-at `https://172.16.46.54`, reachable from the internal network and VPN
-only.
+public at **`https://cloudpunch.aptask.com`** through a Cloudflare Tunnel
+(ADR-0019 §8). On the office network it is also at `https://172.16.46.54`
+(Caddy, private CA).
 
 ## What runs where
 
@@ -13,6 +14,7 @@ only.
 | HTTPS | Caddy, `/etc/caddy/Caddyfile`, port 443 | `tls internal`. CA root at `/var/lib/caddy/.local/share/caddy/pki/authorities/local/root.crt`; the same file is in `apps/desktop/pilot/pilot-ca.pem` |
 | Database | Postgres 16, localhost only, DB `cloudpunch_dev` | roles `cloudpunch_migrator` (DDL) and `cloudpunch_app` (data) |
 | Backups | cron `/etc/cron.d/cloudpunch-backup`, 02:30 nightly | `/var/backups/cloudpunch/*.dump`, 14 days, **on the same disk** |
+| Public access | `cloudflared.service` (tunnel **cloudpunch**, id `e02aec2a-06b9-4b69-b795-c92e5c7b55a1`) | Cloudflare dashboard → Zero Trust → Networks → Tunnels → cloudpunch → Public Hostname: `cloudpunch.aptask.com` → **HTTP** `localhost:8080` (HTTPS here gives 502) |
 | Firewall | `ufw` | 22 from anywhere (key only); 443 from 10/8, 172.16/12, 192.168/16, 100.64/10 |
 | Node / pnpm | `/opt/node` (v20, SHA-256-verified tarball), pnpm 9.15.0 via corepack (`COREPACK_HOME=/opt/corepack`) | |
 
@@ -87,8 +89,8 @@ From PowerShell, so the vendored OpenSSL builds:
 
 ```powershell
 cd apps\desktop
-$env:CLOUDPUNCH_BACKEND_URL='https://172.16.46.54'
-$env:CLOUDPUNCH_BUILD_CA_PEM="$PWD\pilot\pilot-ca.pem"
+$env:CLOUDPUNCH_BACKEND_URL='https://cloudpunch.aptask.com'
+Remove-Item Env:CLOUDPUNCH_BUILD_CA_PEM -ErrorAction SilentlyContinue   # public cert: no pinned CA
 pnpm tauri build --config src-tauri/tauri.pilot.conf.json
 ```
 
