@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "main-window",
+  "description": "Pinned mini strip (ADR-0017): the main window may start an OS drag of itself, so the borderless strip can be moved. No other window API; sizing, pinning and always-on-top stay in Rust commands.",
+  "windows": ["main"],
+  "permissions": ["core:window:allow-start-dragging"]
+}

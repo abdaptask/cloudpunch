@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import type { DayResult } from './dayHistory.js';
 import type { DaysResult } from './dayPickerModel.js';
 import type { PromptResponse } from './IdlePrompt.js';
@@ -38,6 +39,9 @@ export interface StateView {
 export const CLOSE_REQUESTED_EVENT = 'cp://close-requested';
 
 /** Emitted by the agent after every state change. */
+/** Mirrors `strip::PIN_EVENT`. */
+export const PIN_EVENT = 'cp://pinned';
+
 export const STATE_EVENT = 'cp://state';
 
 /** Mirrors `auth::AuthStatus`. */
@@ -105,4 +109,12 @@ export const api = {
   /** Totals per working day for the day picker; rejects like `getDay`. */
   getDays: (from: string, to: string): Promise<DaysResult> =>
     invoke<DaysResult>('get_days', { from, to }),
+  /** Pinned mini strip (ADR-0017). Each resolves to the new pinned state. */
+  pinWindow: (): Promise<boolean> => invoke<boolean>('pin_window'),
+  unpinWindow: (): Promise<boolean> => invoke<boolean>('unpin_window'),
+  pinStatus: (): Promise<boolean> => invoke<boolean>('pin_status'),
+  onPinned: (cb: (pinned: boolean) => void): Promise<UnlistenFn> =>
+    listen<boolean>(PIN_EVENT, (e) => cb(e.payload)),
+  /** Move the borderless strip: an OS drag of this window. */
+  startDragging: (): Promise<void> => getCurrentWindow().startDragging(),
 };
