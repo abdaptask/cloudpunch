@@ -29,3 +29,24 @@ export async function effectivePolicyFor(
   const policy = resolvePolicy(layers);
   return { version: policyVersion(policy), policy };
 }
+
+/**
+ * What a scope's settings resolve to before anything narrower: defaults
+ * and global for `global`; plus the department's override for a
+ * department. The settings screen shows these as current values.
+ */
+export async function effectivePolicyForScope(
+  db: DbRepositories,
+  scope: 'global' | 'department',
+  departmentId: string | null,
+): Promise<EffectivePolicy> {
+  const layers: PolicyDocument[] = [];
+  const global = await db.policies.find('global', null);
+  if (global) layers.push(global.document);
+  if (scope === 'department' && departmentId) {
+    const dept = await db.policies.find('department', departmentId);
+    if (dept) layers.push(dept.document);
+  }
+  const policy = resolvePolicy(layers);
+  return { version: policyVersion(policy), policy };
+}

@@ -58,6 +58,10 @@ export class PostgresDb implements DbRepositories {
         const rows = await this.sql`SELECT 1 FROM department WHERE id = ${id} LIMIT 1`;
         return rows.length > 0;
       },
+      list: async () =>
+        this.sql<{ id: string; code: string; name: string }[]>`
+          SELECT id, code, name FROM department ORDER BY name
+        `,
     };
   }
 

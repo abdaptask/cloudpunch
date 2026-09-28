@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Desktop: Settings for HR and Administrators (ADR-0018 §5, 2026-09-28)
+
+Owner request: HR / Admin set the idle and clock-in rules without
+editing JSON.
+
+- **A Settings gear in the header**, shown only when `GET /v1/me` lists
+  `admin.policy.write` or `hr.policy.write`. The server still checks the
+  role on every read and save (invariant 6).
+- **Scopes:**
+  - an **Administrator** edits **Everyone (company-wide)** or any
+    department;
+  - **HR** edits a department.
+- **Fields, in plain units:**
+  - idle popup after (minutes);
+  - popup wait before logging idle (seconds);
+  - clock out after long idle, on/off plus minutes;
+  - the daily clock-in popup, on/off, time and zone;
+  - "Trip complete" long day (hours);
+  - long-shift check (hours).
+- The form shows the values **in force** for the scope, checks the
+  schema ranges before saving, and keeps any other settings already in
+  that override. An optional reason goes into the audit log, and every
+  save is audited as before.
+- Changes reach each person's app within 15 minutes and apply from
+  their next clock-in (ADR-0015 §6).
+- **Backend:** new `GET /v1/admin/departments` for the picker. The global
+  and department policy reads now also return `effective`, what that
+  scope resolves to.
+
 ### Desktop: daily clock-in popup, from the computer sign-in time (ADR-0018 §4, 2026-09-28)
 
 Owner request.

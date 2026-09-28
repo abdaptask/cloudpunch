@@ -40,6 +40,7 @@ import { Button } from './ui/Button.js';
 import { Logo } from './ui/Logo.js';
 import { SevenSegment } from './ui/SevenSegment.js';
 import { dark, useTheme, type Theme } from './ui/theme.js';
+import { SettingsScreen } from './SettingsScreen.js';
 import { SignIn } from './SignIn.js';
 import { Strip } from './Strip.js';
 import { useAgentState } from './useAgentState.js';
@@ -202,6 +203,29 @@ export function App(): JSX.Element {
   // Past days (ADR-0016): null shows today, live.
   const [viewDate, setViewDate] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
+  // Settings for HR / Administrators (ADR-0018 §5). The server checks
+  // the role on every call; this only decides whether to offer it.
+  const [capabilities, setCapabilities] = useState<string[]>([]);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  useEffect(() => {
+    if (!signedIn) {
+      setCapabilities([]);
+      setSettingsOpen(false);
+      return;
+    }
+    let current = true;
+    api.myCapabilities().then(
+      (c) => {
+        if (current) setCapabilities(c);
+      },
+      () => undefined,
+    );
+    return () => {
+      current = false;
+    };
+  }, [signedIn]);
+  const canEditCompany = capabilities.includes('admin.policy.write');
+  const canEditSettings = canEditCompany || capabilities.includes('hr.policy.write');
   const showDate = (d: string): void => setViewDate(d >= todayDate ? null : d);
   const todayDate = localDateOf(now);
   const pastDate = viewDate !== null && viewDate < todayDate ? viewDate : null;
@@ -339,6 +363,9 @@ export function App(): JSX.Element {
               </>
             )}
             {formatClock(now)}
+            {canEditSettings && (
+              <SettingsButton open={settingsOpen} onClick={() => setSettingsOpen((o) => !o)} />
+            )}
             <PinButton onClick={pin} />
           </span>
         </header>
@@ -433,7 +460,13 @@ export function App(): JSX.Element {
               {enrollText(enrollment.code)}
             </p>
           )}
-          {signedIn && (
+          {signedIn && settingsOpen && canEditSettings && (
+            <SettingsScreen
+              canEditCompany={canEditCompany}
+              onClose={() => setSettingsOpen(false)}
+            />
+          )}
+          {signedIn && !(settingsOpen && canEditSettings) && (
             <>
               {/* Status and actions stay put; the details below scroll. */}
               <div
@@ -673,6 +706,37 @@ export function App(): JSX.Element {
 }
 
 /** Header button: pin the window as the mini strip (ADR-0017). */
+/** Header button for HR / Administrators: open Settings (ADR-0018 §5). */
+function SettingsButton({ open, onClick }: { open: boolean; onClick: () => void }): JSX.Element {
+  const t = useTheme();
+  return (
+    <button
+      type="button"
+      aria-label="Settings"
+      aria-pressed={open}
+      title="Settings (HR and Administrators)"
+      onClick={onClick}
+      style={{
+        marginLeft: 8,
+        width: 24,
+        height: 24,
+        padding: 0,
+        border: 'none',
+        borderRadius: 6,
+        background: open ? t.surfaceAlt : 'none',
+        color: t.muted,
+        cursor: 'pointer',
+        verticalAlign: 'middle',
+      }}
+    >
+      <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden fill="currentColor">
+        <path d="M8 5.25A2.75 2.75 0 1 0 8 10.75 2.75 2.75 0 0 0 8 5.25ZM6.75 8a1.25 1.25 0 1 1 2.5 0 1.25 1.25 0 0 1-2.5 0Z" />
+        <path d="M6.9.9a.75.75 0 0 1 .74-.65h.72a.75.75 0 0 1 .74.65l.17 1.3c.37.12.72.27 1.05.46l1.04-.8a.75.75 0 0 1 .98.06l.51.51a.75.75 0 0 1 .07.98l-.8 1.04c.19.33.34.68.45 1.05l1.3.17a.75.75 0 0 1 .66.74v.72a.75.75 0 0 1-.66.74l-1.3.17c-.11.37-.26.72-.45 1.05l.8 1.04a.75.75 0 0 1-.07.98l-.51.51a.75.75 0 0 1-.98.07l-1.04-.8c-.33.19-.68.34-1.05.45l-.17 1.3a.75.75 0 0 1-.74.66h-.72a.75.75 0 0 1-.74-.66l-.17-1.3a4.8 4.8 0 0 1-1.05-.45l-1.04.8a.75.75 0 0 1-.98-.07l-.51-.51a.75.75 0 0 1-.07-.98l.8-1.04a4.8 4.8 0 0 1-.45-1.05l-1.3-.17A.75.75 0 0 1 .25 8.36v-.72a.75.75 0 0 1 .65-.74l1.3-.17c.12-.37.27-.72.46-1.05l-.8-1.04a.75.75 0 0 1 .06-.98l.51-.51a.75.75 0 0 1 .98-.06l1.04.8c.33-.19.68-.34 1.05-.46L6.9.9Zm.87.85-.14 1.1a.75.75 0 0 1-.57.63 3.3 3.3 0 0 0-1.35.56.75.75 0 0 1-.85-.02l-.88-.68-.16.16.68.88a.75.75 0 0 1 .02.85 3.3 3.3 0 0 0-.56 1.35.75.75 0 0 1-.63.57l-1.1.14v.22l1.1.14c.31.04.57.27.63.57.1.49.29.95.56 1.35a.75.75 0 0 1-.02.85l-.68.88.16.16.88-.68a.75.75 0 0 1 .85-.02c.4.27.86.46 1.35.56.3.06.53.32.57.63l.14 1.1h.22l.14-1.1a.75.75 0 0 1 .57-.63c.49-.1.95-.29 1.35-.56a.75.75 0 0 1 .85.02l.88.68.16-.16-.68-.88a.75.75 0 0 1-.02-.85c.27-.4.46-.86.56-1.35a.75.75 0 0 1 .63-.57l1.1-.14v-.22l-1.1-.14a.75.75 0 0 1-.63-.57 3.3 3.3 0 0 0-.56-1.35.75.75 0 0 1 .02-.85l.68-.88-.16-.16-.88.68a.75.75 0 0 1-.85.02 3.3 3.3 0 0 0-1.35-.56.75.75 0 0 1-.57-.63l-.14-1.1h-.22Z" />
+      </svg>
+    </button>
+  );
+}
+
 function PinButton({ onClick }: { onClick: () => void }): JSX.Element {
   const t = useTheme();
   return (

@@ -33,6 +33,10 @@ const mocks = vi.hoisted(() => ({
   getDay: vi.fn<(date: string) => Promise<DayResult>>(),
   getDays: vi.fn<(from: string, to: string) => Promise<DaysResult>>(),
   clockInFromSignIn: vi.fn<() => Promise<StateView>>(),
+  myCapabilities: vi.fn<() => Promise<string[]>>(),
+  adminDepartments: vi.fn<() => Promise<{ departments: { id: string; name: string }[] }>>(),
+  adminPolicyGet: vi.fn(),
+  adminPolicyPut: vi.fn(),
   dismissClockInPrompt: vi.fn<() => Promise<StateView>>(),
   explainIdle: vi.fn<(explanation: string, note: string | null) => Promise<StateView>>(),
   dismissIdleReturn: vi.fn<() => Promise<StateView>>(),
@@ -103,6 +107,8 @@ beforeEach(() => {
   mocks.quitApp.mockResolvedValue(undefined);
   mocks.clockOutAndQuit.mockResolvedValue(undefined);
   mocks.pinStatus.mockResolvedValue(false);
+  mocks.myCapabilities.mockResolvedValue([]);
+  mocks.adminDepartments.mockResolvedValue({ departments: [] });
   mocks.pinWindow.mockResolvedValue(true);
   mocks.unpinWindow.mockResolvedValue(false);
   mocks.startDragging.mockResolvedValue(undefined);
@@ -1357,5 +1363,103 @@ describe('daily clock-in popup (ADR-0018 §4)', () => {
       }),
     );
     expect(mocks.clockInFromSignIn).toHaveBeenCalledOnce();
+  });
+});
+
+describe('Settings for HR and Administrators (ADR-0018 §5)', () => {
+  const DEPT = '0f8fad5b-d9cb-469f-a165-70867728950e';
+  const effective = {
+    idle: { threshold_seconds: 120, grace_seconds: 30, max_idle_minutes: 120 },
+    reminders: {
+      clock_in_prompt_at: '08:00',
+      clock_in_prompt_tz: 'America/New_York',
+      long_day_hours: 8,
+      long_shift_hours: 9,
+    },
+  };
+
+  it('is not offered to employees', async () => {
+    render(<App />);
+    await screen.findByRole('button', { name: 'Clock in' });
+    expect(screen.queryByRole('button', { name: 'Settings' })).not.toBeInTheDocument();
+  });
+
+  it('an Administrator edits the company-wide values; other override keys are kept', async () => {
+    mocks.myCapabilities.mockResolvedValue(['admin.policy.write']);
+    mocks.adminDepartments.mockResolvedValue({ departments: [{ id: DEPT, name: 'Recruiting' }] });
+    mocks.adminPolicyGet.mockResolvedValue({
+      override: { document: { break: { bio: { max_minutes: 15 } } } },
+      effective: { policy: effective },
+    });
+    mocks.adminPolicyPut.mockImplementation((_s: string, _i: string | null, document: unknown) =>
+      Promise.resolve({ override: { document }, effective: { policy: effective } }),
+    );
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole('button', { name: 'Settings' }));
+    const settings = screen.getByRole('region', { name: 'settings' });
+    expect(mocks.adminPolicyGet).toHaveBeenCalledWith('global', null);
+    const prompt = await within(settings).findByLabelText('idle-prompt');
+    expect(prompt).toHaveValue(2);
+    const save = within(settings).getByRole('button', { name: 'Save' });
+    expect(save).toBeDisabled();
+
+    await user.clear(prompt);
+    await user.type(prompt, '3');
+    await user.click(within(settings).getByLabelText('idle-cap-on'));
+    await user.type(within(settings).getByLabelText('reason'), 'pilot feedback');
+    await user.click(save);
+    expect(mocks.adminPolicyPut).toHaveBeenCalledWith(
+      'global',
+      null,
+      {
+        break: { bio: { max_minutes: 15 } },
+        idle: { threshold_seconds: 180, grace_seconds: 30, max_idle_minutes: null },
+        reminders: {
+          clock_in_prompt_at: '08:00',
+          clock_in_prompt_tz: 'America/New_York',
+          long_day_hours: 8,
+          long_shift_hours: 9,
+        },
+      },
+      'pilot feedback',
+    );
+    expect(await within(settings).findByRole('status')).toHaveTextContent('within 15 minutes');
+  });
+
+  it('HR edits a department, and bad values block Save', async () => {
+    mocks.myCapabilities.mockResolvedValue(['hr.policy.write']);
+    mocks.adminDepartments.mockResolvedValue({ departments: [{ id: DEPT, name: 'Recruiting' }] });
+    mocks.adminPolicyGet.mockResolvedValue({ override: null, effective: { policy: effective } });
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole('button', { name: 'Settings' }));
+    const settings = screen.getByRole('region', { name: 'settings' });
+    const longDay = await within(settings).findByLabelText('long-day');
+    expect(mocks.adminPolicyGet).toHaveBeenCalledWith('department', DEPT);
+    expect(
+      within(settings).queryByRole('option', { name: /company-wide/ }),
+    ).not.toBeInTheDocument();
+    await user.clear(longDay);
+    await user.type(longDay, '20');
+    expect(settings).toHaveTextContent('Between 4 and 16 hours');
+    expect(within(settings).getByRole('button', { name: 'Save' })).toBeDisabled();
+  });
+
+  it('a refused save says why', async () => {
+    mocks.myCapabilities.mockResolvedValue(['admin.policy.write']);
+    mocks.adminPolicyGet.mockResolvedValue({ override: null, effective: { policy: effective } });
+    mocks.adminPolicyPut.mockRejectedValue('forbidden');
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole('button', { name: 'Settings' }));
+    const settings = screen.getByRole('region', { name: 'settings' });
+    const wait = await within(settings).findByLabelText('prompt-wait');
+    await user.clear(wait);
+    await user.type(wait, '45');
+    await user.click(within(settings).getByRole('button', { name: 'Save' }));
+    expect(await within(settings).findByRole('alert')).toHaveTextContent(
+      "Your role can't change this.",
+    );
   });
 });
