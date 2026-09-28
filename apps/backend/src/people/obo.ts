@@ -36,13 +36,11 @@ export class OboError extends Error {
 
 const GRAPH_SCOPE = 'https://graph.microsoft.com/.default';
 
-/** Graph access token for the user behind `userToken`. */
-export async function graphTokenOnBehalfOf(cfg: OboConfig, userToken: string): Promise<string> {
-  const authority = cfg.authority ?? 'https://login.microsoftonline.com';
-  const tokenUrl = `${authority}/${cfg.tenantId}/oauth2/v2.0/token`;
+/** A signed client assertion proving CloudPunch's identity (certificate). */
+export async function clientAssertion(cfg: OboConfig, tokenUrl: string): Promise<string> {
   const key = await importPKCS8(cfg.privateKeyPem, 'RS256');
   const now = Math.floor(Date.now() / 1000);
-  const assertion = await new SignJWT({})
+  return new SignJWT({})
     .setProtectedHeader({ alg: 'RS256', typ: 'JWT', x5t: cfg.thumbprint })
     .setIssuer(cfg.clientId)
     .setSubject(cfg.clientId)
@@ -52,6 +50,15 @@ export async function graphTokenOnBehalfOf(cfg: OboConfig, userToken: string): P
     .setIssuedAt(now)
     .setExpirationTime(now + 300)
     .sign(key);
+}
+
+const tokenUrlFor = (cfg: OboConfig): string =>
+  `${cfg.authority ?? 'https://login.microsoftonline.com'}/${cfg.tenantId}/oauth2/v2.0/token`;
+
+/** Graph access token for the user behind `userToken`. */
+export async function graphTokenOnBehalfOf(cfg: OboConfig, userToken: string): Promise<string> {
+  const tokenUrl = tokenUrlFor(cfg);
+  const assertion = await clientAssertion(cfg, tokenUrl);
 
   const body = new URLSearchParams({
     grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
@@ -86,4 +93,55 @@ export async function graphTokenOnBehalfOf(cfg: OboConfig, userToken: string): P
     throw new OboError('not_permitted', json.error ?? `HTTP ${res.status}`);
   }
   throw new OboError('unavailable', json.error ?? `HTTP ${res.status}`);
+}
+
+let appToken: { token: string; until: number } | null = null;
+
+/**
+ * CloudPunch's own Graph token (client credentials), for the welcome
+ * email (ADR-0021). What it may do is set in Exchange, not Entra:
+ * "Application Mail.Send" scoped to the noreply mailbox only. Cached
+ * until a minute before it expires.
+ */
+export async function graphTokenForApp(cfg: OboConfig): Promise<string> {
+  if (appToken && appToken.until > Date.now()) return appToken.token;
+  const tokenUrl = tokenUrlFor(cfg);
+  const body = new URLSearchParams({
+    grant_type: 'client_credentials',
+    client_id: cfg.clientId,
+    client_assertion_type: 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer',
+    client_assertion: await clientAssertion(cfg, tokenUrl),
+    scope: GRAPH_SCOPE,
+  });
+  let res: Response;
+  try {
+    res = await (cfg.fetch ?? fetch)(tokenUrl, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body,
+    });
+  } catch (err) {
+    throw new OboError('unavailable', `token endpoint unreachable: ${String(err)}`);
+  }
+  const json = (await res.json().catch(() => ({}))) as {
+    access_token?: string;
+    expires_in?: number;
+    error?: string;
+  };
+  if (!res.ok || typeof json.access_token !== 'string') {
+    throw new OboError(
+      res.status >= 400 && res.status < 500 ? 'not_permitted' : 'unavailable',
+      json.error ?? `HTTP ${res.status}`,
+    );
+  }
+  appToken = {
+    token: json.access_token,
+    until: Date.now() + Math.max(0, (json.expires_in ?? 3600) - 60) * 1000,
+  };
+  return appToken.token;
+}
+
+/** Tests only. */
+export function forgetAppToken(): void {
+  appToken = null;
 }

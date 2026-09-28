@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type {
   PeopleRepo,
   RoleChangeAudit,
+  WelcomeAudit,
   AppUser,
   AppUserRepo,
   DbRepositories,
@@ -46,6 +47,8 @@ export class InMemoryDb implements DbRepositories {
   readonly people: PeopleRepo;
   /** audit_log rows written by role changes, for tests. */
   readonly roleAudit: RoleChangeAudit[] = [];
+  /** audit_log rows written by welcome emails, for tests. */
+  readonly welcomeAudit: WelcomeAudit[] = [];
 
   private readonly policyByScope = new Map<string, PolicyOverride>();
   private readonly departmentById = new Map<string, { code: string; name: string }>();
@@ -120,6 +123,13 @@ export class InMemoryDb implements DbRepositories {
       auditRoleChange: async (entry) => {
         this.roleAudit.push(entry);
       },
+      auditWelcome: async (entry) => {
+        this.welcomeAudit.push(entry);
+      },
+      lastWelcomeAt: async (oid) =>
+        this.welcomeAudit
+          .filter((w) => w.targetOid === oid)
+          .reduce<Date | null>((a, w) => (a && a > w.at ? a : w.at), null),
     };
     this.departments = {
       exists: async (id) => this.departmentById.has(id),

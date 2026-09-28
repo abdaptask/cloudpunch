@@ -39,6 +39,8 @@ const mocks = vi.hoisted(() => ({
   adminPeople: vi.fn(),
   adminPeopleSearch: vi.fn(),
   adminPeopleSetRoles: vi.fn(),
+  adminWelcomePreview: vi.fn(),
+  adminWelcomeSend: vi.fn(),
   adminPolicyPut: vi.fn(),
   dismissClockInPrompt: vi.fn<() => Promise<StateView>>(),
   explainIdle: vi.fn<(explanation: string, note: string | null) => Promise<StateView>>(),
@@ -112,6 +114,12 @@ beforeEach(() => {
   mocks.pinStatus.mockResolvedValue(false);
   mocks.myCapabilities.mockResolvedValue([]);
   mocks.adminDepartments.mockResolvedValue({ departments: [] });
+  mocks.adminWelcomePreview.mockResolvedValue({
+    from: 'noreply@aptask.com',
+    to: 'someone@aptask.com',
+    cc: [],
+    subject: 'Welcome to CloudPunch: how to get started',
+  });
   mocks.pinWindow.mockResolvedValue(true);
   mocks.unpinWindow.mockResolvedValue(false);
   mocks.startDragging.mockResolvedValue(undefined);
@@ -1557,5 +1565,66 @@ describe('People (ADR-0020)', () => {
     expect(await within(people).findByRole('alert')).toHaveTextContent(
       'CloudPunch needs at least one Administrator.',
     );
+  });
+});
+
+describe('welcome email (ADR-0021)', () => {
+  const FARHEEN = '8afe98ae-5b43-4c12-86c5-b4473225f7f0';
+  const preview = {
+    from: 'noreply@aptask.com',
+    to: 'farheen@aptask.com',
+    cc: ['support@aptask.com', 'abdulla@aptask.com', 'nileshd@aptask.com'],
+    subject: 'Welcome to CloudPunch: how to get started',
+  };
+
+  it('giving someone Employee offers the welcome email, with a preview and a note', async () => {
+    mocks.myCapabilities.mockResolvedValue(['admin.role.assign']);
+    mocks.adminPeople.mockResolvedValue({ people: [] });
+    mocks.adminPeopleSearch.mockResolvedValue({
+      users: [{ oid: FARHEEN, name: 'Farheen Khanam', email: 'farheen@aptask.com' }],
+    });
+    mocks.adminPeopleSetRoles.mockResolvedValue({ changed: true });
+    mocks.adminWelcomePreview.mockResolvedValue(preview);
+    mocks.adminWelcomeSend.mockResolvedValue({ to: preview.to, cc: preview.cc });
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole('button', { name: 'Settings' }));
+    const people = screen.getByRole('region', { name: 'people' });
+    await user.type(within(people).getByLabelText('people-search'), 'farh');
+    await user.click(await within(people).findByRole('button', { name: /Farheen Khanam/ }));
+    await user.click(within(people).getByRole('button', { name: 'Save' }));
+    const panel = await within(people).findByRole('group', { name: 'welcome-email' });
+    expect(panel).toHaveTextContent('Send Farheen Khanam a welcome email?');
+    expect(
+      await within(panel).findByText('ApTask CloudPunch <noreply@aptask.com>'),
+    ).toBeInTheDocument();
+    expect(panel).toHaveTextContent('support@aptask.com, abdulla@aptask.com, nileshd@aptask.com');
+    await user.type(within(panel).getByLabelText('welcome-note'), 'Welcome aboard!');
+    await user.click(within(panel).getByRole('button', { name: 'Send welcome email' }));
+    expect(mocks.adminWelcomeSend).toHaveBeenCalledWith(FARHEEN, 'Welcome aboard!');
+    expect(await within(people).findByRole('status')).toHaveTextContent(
+      'Welcome email sent to farheen@aptask.com',
+    );
+  });
+
+  it('a refused send says why and keeps the panel open', async () => {
+    mocks.myCapabilities.mockResolvedValue(['hr.employee.write']);
+    mocks.adminPeople.mockResolvedValue({
+      people: [
+        { oid: FARHEEN, name: 'Farheen Khanam', roles: ['Employee'], has_employee_record: true },
+      ],
+    });
+    mocks.adminWelcomePreview.mockResolvedValue(preview);
+    mocks.adminWelcomeSend.mockRejectedValue('welcome_not_permitted');
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole('button', { name: 'Settings' }));
+    const people = screen.getByRole('region', { name: 'people' });
+    await user.click(await within(people).findByRole('button', { name: /Farheen Khanam/ }));
+    await user.click(within(people).getByRole('button', { name: 'Send welcome email' }));
+    const panel = await within(people).findByRole('group', { name: 'welcome-email' });
+    await within(panel).findByText('ApTask CloudPunch <noreply@aptask.com>');
+    await user.click(within(panel).getByRole('button', { name: 'Send welcome email' }));
+    expect(await within(panel).findByRole('alert')).toHaveTextContent('Exchange refused');
   });
 });

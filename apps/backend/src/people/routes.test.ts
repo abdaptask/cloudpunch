@@ -14,7 +14,8 @@ import { authPlugin } from '../auth/plugin.js';
 import { InMemoryDb } from '../db/in-memory.js';
 import { GraphError, type DirectoryUser, type Graph, type RoleAssignment } from './graph.js';
 import { OboError } from './obo.js';
-import { peopleRoutes } from './routes.js';
+import { peopleRoutes, type PeopleRoutesOptions } from './routes.js';
+import type { WelcomeMessage } from './welcome.js';
 
 const TENANT_ID = '12345678-1234-1234-1234-123456789012';
 const CLIENT_ID = 'abcdefab-abcd-abcd-abcd-abcdefabcdef';
@@ -61,6 +62,8 @@ class FakeGraph implements Graph {
 }
 
 let graph: FakeGraph;
+let sent: WelcomeMessage[];
+let welcome: NonNullable<PeopleRoutesOptions['welcome']> | null;
 
 beforeAll(async () => {
   const kp = await generateKeyPair('RS256');
@@ -75,6 +78,20 @@ beforeAll(async () => {
 beforeEach(() => {
   db = new InMemoryDb();
   graph = new FakeGraph();
+  sent = [];
+  welcome = {
+    settings: {
+      from: 'noreply@aptask.com',
+      cc: ['support@aptask.com', 'abdulla@aptask.com', 'nileshd@aptask.com'],
+      siteUrl: 'https://cloudpunch.aptask.com',
+      supportEmail: 'support@aptask.com',
+    },
+    version: () => Promise.resolve('0.1.0'),
+    send: (m) => {
+      sent.push(m);
+      return Promise.resolve();
+    },
+  };
   callerOid = randomUUID();
   db.seedUser(
     {
@@ -93,7 +110,7 @@ beforeEach(() => {
 
 async function call(
   roles: readonly string[],
-  method: 'GET' | 'PUT',
+  method: 'GET' | 'PUT' | 'POST',
   url: string,
   payload?: unknown,
   graphFor: ((t: string) => Promise<Graph>) | null = (t) => {
@@ -122,7 +139,7 @@ async function call(
     tenantId: TENANT_ID,
     requiredScope: 'api.access',
   });
-  await app.register(peopleRoutes, { db, graphFor });
+  await app.register(peopleRoutes, { db, graphFor, welcome });
   const res = await app.inject({
     method,
     url,
@@ -249,5 +266,47 @@ describe('People (ADR-0020)', () => {
     const denied = await call(ADMIN, 'GET', '/v1/admin/people');
     expect(denied.res.statusCode).toBe(403);
     expect(denied.res.json()).toMatchObject({ code: 'directory_forbidden' });
+  });
+
+  it('previews and sends the welcome email from noreply with the Cc list, audited once', async () => {
+    const url = `/v1/admin/people/${FARHEEN.oid}/welcome`;
+    const preview = await call(ADMIN, 'GET', url);
+    expect(preview.res.statusCode).toBe(200);
+    expect(preview.res.json()).toMatchObject({
+      from: 'noreply@aptask.com',
+      to: 'farheen@aptask.com',
+      cc: ['support@aptask.com', 'abdulla@aptask.com', 'nileshd@aptask.com'],
+      subject: 'Welcome to CloudPunch: how to get started',
+    });
+    expect(sent).toHaveLength(0);
+
+    const send = await call(HR, 'POST', url, { note: 'Welcome aboard!' });
+    expect(send.res.json()).toEqual({
+      sent: true,
+      to: 'farheen@aptask.com',
+      cc: ['support@aptask.com', 'abdulla@aptask.com', 'nileshd@aptask.com'],
+    });
+    expect(sent).toHaveLength(1);
+    expect(sent[0]?.html).toContain('Welcome to CloudPunch, Farheen');
+    expect(sent[0]?.html).toContain('Welcome aboard!');
+    expect(db.welcomeAudit).toHaveLength(1);
+    expect(db.welcomeAudit[0]).toMatchObject({ targetOid: FARHEEN.oid, to: 'farheen@aptask.com' });
+
+    // A double click doesn't send twice.
+    const again = await call(ADMIN, 'POST', url, {});
+    expect(again.res.statusCode).toBe(429);
+    expect(sent).toHaveLength(1);
+  });
+
+  it('welcome emails: not set up, send refused, and not for employees', async () => {
+    const url = `/v1/admin/people/${FARHEEN.oid}/welcome`;
+    expect((await call([AppRole.Employee], 'POST', url, {})).res.statusCode).toBe(403);
+    welcome!.send = () => Promise.reject(Object.assign(new Error('denied'), { status: 403 }));
+    const refused = await call(ADMIN, 'POST', url, {});
+    expect(refused.res.json()).toMatchObject({ code: 'welcome_not_permitted' });
+    expect(db.welcomeAudit).toHaveLength(0);
+    welcome = null;
+    const off = await call(ADMIN, 'GET', url);
+    expect(off.res.json()).toMatchObject({ code: 'welcome_not_configured' });
   });
 });

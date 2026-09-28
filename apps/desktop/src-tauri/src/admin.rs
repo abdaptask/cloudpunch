@@ -135,6 +135,39 @@ pub fn people_set_roles(
     send(http, base, token, reqwest::Method::PUT, &path, Some(&body))
 }
 
+/// Welcome email (ADR-0021): what would be sent to `oid`.
+pub fn welcome_preview(
+    http: &Client,
+    base: &str,
+    token: &str,
+    oid: &str,
+) -> Result<Value, DayError> {
+    if !is_uuid(oid) {
+        return Err(DayError::Refused("invalid_argument".into()));
+    }
+    let path = format!("/v1/admin/people/{oid}/welcome");
+    send(http, base, token, reqwest::Method::GET, &path, None)
+}
+
+/// Welcome email: send it, with an optional personal note.
+pub fn welcome_send(
+    http: &Client,
+    base: &str,
+    token: &str,
+    oid: &str,
+    note: Option<&str>,
+) -> Result<Value, DayError> {
+    if !is_uuid(oid) {
+        return Err(DayError::Refused("invalid_argument".into()));
+    }
+    let mut body = serde_json::json!({});
+    if let Some(n) = note.map(str::trim).filter(|n| !n.is_empty()) {
+        body["note"] = Value::String(n.to_string());
+    }
+    let path = format!("/v1/admin/people/{oid}/welcome");
+    send(http, base, token, reqwest::Method::POST, &path, Some(&body))
+}
+
 /// One signed-in call. 401/429/5xx and network trouble are
 /// `Unavailable`; other 4xx carry the server's `code`.
 fn send(

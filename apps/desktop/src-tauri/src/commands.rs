@@ -759,6 +759,33 @@ pub async fn admin_people_set_roles(
     answer(fetched)
 }
 
+/// Welcome email (ADR-0021): preview for one person.
+#[tauri::command]
+pub async fn admin_welcome_preview(
+    auth: State<'_, Arc<Auth>>,
+    oid: String,
+) -> Result<serde_json::Value, String> {
+    let (_, fetched) = fetch_as_user(&auth, move |http, base, token| {
+        admin::welcome_preview(http, base, token, &oid)
+    })
+    .await?;
+    answer(fetched)
+}
+
+/// Welcome email: send it. Audited server-side.
+#[tauri::command]
+pub async fn admin_welcome_send(
+    auth: State<'_, Arc<Auth>>,
+    oid: String,
+    note: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let (_, fetched) = fetch_as_user(&auth, move |http, base, token| {
+        admin::welcome_send(http, base, token, &oid, note.as_deref())
+    })
+    .await?;
+    answer(fetched)
+}
+
 /// Replace a scope's override document. Audited server-side.
 #[tauri::command]
 pub async fn admin_policy_put(

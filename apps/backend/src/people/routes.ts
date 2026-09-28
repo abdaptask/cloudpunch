@@ -8,6 +8,7 @@ import type { DbRepositories } from '../db/index.js';
 import { GraphError, type Graph } from './graph.js';
 import { OboError } from './obo.js';
 import { checkRoleChange, diffRoles } from './rules.js';
+import { welcomeMessage, type WelcomeMessage, type WelcomeSettings } from './welcome.js';
 
 /**
  * People (ADR-0020): Administrators and HR find someone in the company
@@ -27,7 +28,17 @@ export interface PeopleRoutesOptions {
   db: DbRepositories;
   /** Graph as the caller, from their bearer token; null when not configured. */
   graphFor: ((userToken: string) => Promise<Graph>) | null;
+  /** Welcome emails (ADR-0021); null when not configured. */
+  welcome?: {
+    settings: WelcomeSettings;
+    /** Newest published version, for the email. */
+    version: () => Promise<string | null>;
+    send: (m: WelcomeMessage) => Promise<void>;
+  } | null;
 }
+
+/** No second welcome email to the same person within this long. */
+const WELCOME_GAP_MS = 10 * 60_000;
 
 const READ = [Capability.AdminEmployeeAssignRole, Capability.HrEmployeeWrite];
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -56,6 +67,7 @@ function splitName(name: string): [string, string] {
 
 const peopleRoutesImpl: FastifyPluginAsync<PeopleRoutesOptions> = async (app, opts) => {
   const { db, graphFor } = opts;
+  const welcome = opts.welcome ?? null;
 
   /** Run `fn` with Graph as the caller, mapping failures to replies. */
   async function withGraph(
@@ -127,6 +139,89 @@ const peopleRoutesImpl: FastifyPluginAsync<PeopleRoutesOptions> = async (app, op
       return withGraph(req, reply, async (g) =>
         reply.code(200).send({ users: await g.searchUsers(q) }),
       );
+    },
+  );
+
+  /** The welcome email for `oid`, built from their directory entry. */
+  async function draft(
+    req: FastifyRequest,
+    reply: FastifyReply,
+    note: string | null,
+  ): Promise<WelcomeMessage | FastifyReply> {
+    const oid = String((req.params as { oid?: string }).oid ?? '').toLowerCase();
+    if (!UUID.test(oid)) return problem(reply, 400, 'validation', 'oid must be a UUID');
+    if (!welcome) {
+      return problem(reply, 503, 'welcome_not_configured', 'welcome emails are not set up');
+    }
+    let message: WelcomeMessage | null = null;
+    const answered = await withGraph(req, reply, async (g) => {
+      const user = await g.getUser(oid);
+      if (!user) return problem(reply, 404, 'unknown_person', 'no such person in the directory');
+      if (!user.email) return problem(reply, 400, 'no_email', 'this person has no email address');
+      message = welcomeMessage(welcome.settings, {
+        firstName: user.givenName ?? splitName(user.name)[0],
+        to: user.email,
+        version: await welcome.version(),
+        note,
+      });
+      return null;
+    });
+    return message ?? (answered as FastifyReply);
+  }
+
+  app.get(
+    '/v1/admin/people/:oid/welcome',
+    { preHandler: [requireCapability(READ)] },
+    async (req, reply) => {
+      const m = await draft(req, reply, null);
+      if (!('html' in m)) return m;
+      return reply.code(200).send(m);
+    },
+  );
+
+  app.post(
+    '/v1/admin/people/:oid/welcome',
+    { preHandler: [requireCapability(READ)] },
+    async (req, reply) => {
+      const body = z
+        .object({ note: z.string().trim().max(500).optional().nullable() })
+        .strict()
+        .safeParse(req.body ?? {});
+      if (!body.success) return problem(reply, 400, 'validation', 'body must be {note?}');
+      const auth = req.auth;
+      if (!auth) return problem(reply, 401, 'unauthorized', 'authentication required');
+      const actor = await db.users.findByEntraObjectId(auth.oid);
+      if (!actor)
+        return problem(reply, 403, 'no_user_for_oid', 'your account has no CloudPunch user');
+      const oid = String((req.params as { oid?: string }).oid ?? '').toLowerCase();
+      // From the audit log, so it holds across restarts and servers.
+      const last = UUID.test(oid) ? await db.people.lastWelcomeAt(oid) : null;
+      if (last && Date.now() - last.getTime() < WELCOME_GAP_MS) {
+        return problem(reply, 429, 'welcome_recently_sent', 'a welcome email was just sent');
+      }
+      const m = await draft(req, reply, body.data.note?.trim() || null);
+      if (!('html' in m) || !welcome) return m;
+      try {
+        await welcome.send(m);
+      } catch (err) {
+        const status = (err as { status?: number }).status ?? 0;
+        req.log.warn({ status, code: (err as { code?: string }).code }, 'welcome: send failed');
+        return problem(
+          reply,
+          status === 403 || status === 401 ? 503 : 502,
+          status === 403 || status === 401 ? 'welcome_not_permitted' : 'welcome_send_failed',
+          'the email could not be sent',
+        );
+      }
+      await db.people.auditWelcome({
+        actorUserId: actor.id,
+        targetOid: oid,
+        to: m.to,
+        cc: m.cc,
+        correlationId: randomUUID(),
+        at: new Date(),
+      });
+      return reply.code(200).send({ sent: true, to: m.to, cc: m.cc });
     },
   );
 
@@ -205,6 +300,8 @@ const peopleRoutesImpl: FastifyPluginAsync<PeopleRoutesOptions> = async (app, op
     },
   );
 };
+
+export const _welcomeGapMs = WELCOME_GAP_MS;
 
 export const peopleRoutes = fp(peopleRoutesImpl, { name: 'cloudpunch-people', fastify: '4.x' });
 export default peopleRoutes;

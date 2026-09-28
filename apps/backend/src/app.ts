@@ -12,14 +12,18 @@ import { landingRoutes } from './landing/routes.js';
 import { meRoutes } from './me/routes.js';
 import { readFileSync } from 'node:fs';
 import { createGraph, type Graph } from './people/graph.js';
-import { graphTokenOnBehalfOf } from './people/obo.js';
-import { peopleRoutes } from './people/routes.js';
+import { graphTokenForApp, graphTokenOnBehalfOf } from './people/obo.js';
+import { addressList, sendWelcome } from './people/welcome.js';
+import { readReleases } from './landing/routes.js';
+import { peopleRoutes, type PeopleRoutesOptions } from './people/routes.js';
 import { policyAdminRoutes } from './policy/admin-routes.js';
 import { policyRoutes } from './policy/routes.js';
 
 export interface BuildAppOptions {
   /** Tests inject a fake Graph; otherwise built from the OBO certificate. */
   graphFor?: ((userToken: string) => Promise<Graph>) | null;
+  /** Tests inject welcome sending; otherwise built from WELCOME_* settings. */
+  welcome?: PeopleRoutesOptions['welcome'];
   env: Env;
   logger: Logger;
   db?: DbRepositories | undefined;
@@ -90,6 +94,7 @@ export async function buildApp(opts: BuildAppOptions) {
     await app.register(peopleRoutes, {
       db: opts.db,
       graphFor: opts.graphFor ?? graphFromEnv(opts),
+      welcome: opts.welcome === undefined ? welcomeFromEnv(opts) : opts.welcome,
     });
   } else {
     opts.logger.warn(
@@ -130,4 +135,45 @@ function graphFromEnv(opts: BuildAppOptions): ((userToken: string) => Promise<Gr
   const apiAppId = env.ENTRA_API_CLIENT_ID;
   return async (userToken) =>
     createGraph({ token: await graphTokenOnBehalfOf(cfg, userToken), apiAppId });
+}
+
+/**
+ * Welcome emails (ADR-0021): sent as WELCOME_FROM with CloudPunch's own
+ * token, which Exchange limits to that one mailbox. Off unless
+ * WELCOME_FROM and the certificate are configured.
+ */
+function welcomeFromEnv(opts: BuildAppOptions): NonNullable<PeopleRoutesOptions['welcome']> | null {
+  const { env } = opts;
+  if (
+    !env.WELCOME_FROM ||
+    !env.ENTRA_TENANT_ID ||
+    !env.ENTRA_API_CLIENT_ID ||
+    !env.ENTRA_OBO_CERT_KEY_PATH ||
+    !env.ENTRA_OBO_CERT_THUMBPRINT
+  ) {
+    return null;
+  }
+  let privateKeyPem: string;
+  try {
+    privateKeyPem = readFileSync(env.ENTRA_OBO_CERT_KEY_PATH, 'utf8');
+  } catch {
+    return null;
+  }
+  const cfg = {
+    tenantId: env.ENTRA_TENANT_ID,
+    clientId: env.ENTRA_API_CLIENT_ID,
+    privateKeyPem,
+    thumbprint: env.ENTRA_OBO_CERT_THUMBPRINT,
+  };
+  const downloadsDir = env.DOWNLOADS_DIR;
+  return {
+    settings: {
+      from: env.WELCOME_FROM,
+      cc: addressList(env.WELCOME_CC),
+      siteUrl: env.PUBLIC_SITE_URL,
+      supportEmail: env.SUPPORT_EMAIL,
+    },
+    version: async () => (await readReleases(downloadsDir))[0]?.version ?? null,
+    send: async (m) => sendWelcome(await graphTokenForApp(cfg), m),
+  };
 }

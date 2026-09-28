@@ -84,6 +84,20 @@ export class PostgresDb implements DbRepositories {
                   ${this.sql.json({ roles: [...e.newRoles] })},
                   ${e.reason}, ${e.correlationId}, ${e.at})`;
       },
+      auditWelcome: async (e) => {
+        await this.sql`
+          INSERT INTO audit_log (actor_type, actor_user_id, entity_type, entity_id, action,
+                                 previous_value, new_value, reason, correlation_id, occurred_at)
+          VALUES ('user', ${e.actorUserId}, 'welcome_email', ${e.targetOid}, 'welcome_sent',
+                  NULL, ${this.sql.json({ to: e.to, cc: [...e.cc] })}, NULL,
+                  ${e.correlationId}, ${e.at})`;
+      },
+      lastWelcomeAt: async (oid) => {
+        const [row] = await this.sql<{ at: Date | null }[]>`
+          SELECT max(occurred_at) AS at FROM audit_log
+          WHERE entity_type = 'welcome_email' AND entity_id = ${oid}`;
+        return row?.at ?? null;
+      },
     };
     this.departments = {
       exists: async (id) => {

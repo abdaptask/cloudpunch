@@ -295,6 +295,16 @@ export interface RoleChangeAudit {
   at: Date;
 }
 
+/** A welcome email sent (ADR-0021), for audit_log. */
+export interface WelcomeAudit {
+  actorUserId: string;
+  targetOid: string;
+  to: string;
+  cc: readonly string[];
+  correlationId: string;
+  at: Date;
+}
+
 export interface PeopleRepo {
   /**
    * Make sure `input.oid` has an app_user linked to an active employee
@@ -303,6 +313,10 @@ export interface PeopleRepo {
   provision(input: ProvisionInput): Promise<{ employeeId: string; created: boolean }>;
   /** Write the audit_log row (action `roles_set`). */
   auditRoleChange(entry: RoleChangeAudit): Promise<void>;
+  /** Write the audit_log row (action `welcome_sent`). */
+  auditWelcome(entry: WelcomeAudit): Promise<void>;
+  /** When `oid` was last sent a welcome email, from audit_log. */
+  lastWelcomeAt(oid: string): Promise<Date | null>;
 }
 
 export interface DbRepositories {
