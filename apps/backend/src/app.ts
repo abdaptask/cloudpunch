@@ -8,6 +8,7 @@ import { dayRoutes } from './days/routes.js';
 import { devicesRoutes } from './devices/routes.js';
 import { eventsRoutes } from './events/routes.js';
 import { healthPlugin, type HealthProbe } from './health/routes.js';
+import { landingRoutes } from './landing/routes.js';
 import { meRoutes } from './me/routes.js';
 import { readFileSync } from 'node:fs';
 import { createGraph, type Graph } from './people/graph.js';
@@ -41,6 +42,9 @@ export async function buildApp(opts: BuildAppOptions) {
       (opts.env.CLOUDPUNCH_ENV === 'pilot' ? '127.0.0.1' : false),
     bodyLimit: 1024 * 1024, // 1 MB — event batches are the largest bodies, and they cap at 100 events
   });
+
+  // A friendly page for anyone opening the address in a browser.
+  await app.register(landingRoutes);
 
   await app.register(healthPlugin, {
     version: opts.env.APP_VERSION,
