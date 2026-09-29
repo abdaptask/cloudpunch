@@ -41,6 +41,8 @@ pub mod enroll;
 pub mod event;
 pub mod keystore;
 pub mod machine;
+#[cfg(target_os = "macos")]
+pub mod macos;
 pub mod outbox;
 pub mod policy;
 pub mod recorder;
@@ -91,12 +93,10 @@ impl Drop for WatchersGuard {
 }
 
 /// Boot every OS watcher and hand back a guard that owns their
-/// shutdown. Mic/camera changes are forwarded to `agent`. On
-/// non-Windows platforms this is currently a no-op — macOS parity
-/// lands in slice 2b.8.
+/// shutdown. Mic/camera changes are forwarded to `agent`.
 #[cfg(target_os = "windows")]
 pub fn start_watchers(agent: Arc<Agent>) -> WatchersGuard {
-    use watchers::{idle, mic_cam, network, power, session, OsSignal, Watcher};
+    use watchers::{idle, mic_cam, network, power, session, Watcher};
 
     let mut sup = Supervisor::new();
     let rx = sup
@@ -111,7 +111,44 @@ pub fn start_watchers(agent: Arc<Agent>) -> WatchersGuard {
     if let Some(at) = clock_in_prompt::os_logon_time() {
         agent.note_signed_in(at);
     }
-    let drain = std::thread::Builder::new()
+    let drain = spawn_drain(agent, rx, is_online_drain);
+
+    let idle_h = idle::IdleWatcher::new(idle::IdleConfig::default(), idle::WindowsLastInput)
+        .start(sup.sender());
+    let session_h = session::SessionWatcher::new().start(sup.sender());
+    let power_h = power::PowerWatcher::new().start(sup.sender());
+    let miccam_h =
+        mic_cam::MicCamWatcher::new(mic_cam::MicCamConfig::default(), mic_cam::WindowsMediaState)
+            .start(sup.sender());
+    let network_h = network::NetworkWatcher::new(
+        network::NetworkConfig::default(),
+        network::WindowsConnectivityProbe,
+    )
+    .start(sup.sender());
+
+    sup.attach(idle_h);
+    sup.attach(session_h);
+    sup.attach(power_h);
+    sup.attach(miccam_h);
+    sup.attach(network_h);
+
+    WatchersGuard {
+        inner: Some((sup, drain)),
+        is_online,
+    }
+}
+
+/// Signals into the agent: network state for sync, sign-in / unlock /
+/// wake for the 8 am popup, and mic/camera (ADR-0012). Windows and
+/// macOS share it.
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+fn spawn_drain(
+    agent: Arc<Agent>,
+    rx: std::sync::mpsc::Receiver<watchers::OsSignal>,
+    is_online_drain: Arc<AtomicBool>,
+) -> std::thread::JoinHandle<()> {
+    use watchers::OsSignal;
+    std::thread::Builder::new()
         .name("cp-watcher-drain".into())
         .spawn(move || {
             while let Ok(signal) = rx.recv() {
@@ -142,37 +179,40 @@ pub fn start_watchers(agent: Arc<Agent>) -> WatchersGuard {
                 let _ = signal;
             }
         })
-        .expect("failed to spawn cp-watcher-drain thread");
+        .expect("failed to spawn cp-watcher-drain thread")
+}
 
-    let idle_h = idle::IdleWatcher::new(idle::IdleConfig::default(), idle::WindowsLastInput)
-        .start(sup.sender());
-    let session_h = session::SessionWatcher::new().start(sup.sender());
-    let power_h = power::PowerWatcher::new().start(sup.sender());
-    let miccam_h =
-        mic_cam::MicCamWatcher::new(mic_cam::MicCamConfig::default(), mic_cam::WindowsMediaState)
-            .start(sup.sender());
-    let network_h = network::NetworkWatcher::new(
-        network::NetworkConfig::default(),
-        network::WindowsConnectivityProbe,
-    )
-    .start(sup.sender());
+/// macOS watchers (ADR-0026 §2): lock, sleep/wake and network from one
+/// poller; idle is read by the core's tick. Mic/camera follow in step 3.
+#[cfg(target_os = "macos")]
+pub fn start_watchers(agent: Arc<Agent>) -> WatchersGuard {
+    use watchers::Watcher;
 
-    sup.attach(idle_h);
-    sup.attach(session_h);
-    sup.attach(power_h);
-    sup.attach(miccam_h);
-    sup.attach(network_h);
-
+    let mut sup = Supervisor::new();
+    let rx = sup
+        .take_receiver()
+        .expect("fresh Supervisor has a Receiver");
+    let is_online = Arc::new(AtomicBool::new(true));
+    if let Some(at) = clock_in_prompt::os_logon_time() {
+        agent.note_signed_in(at);
+    }
+    let drain = spawn_drain(agent, rx, is_online.clone());
+    let host = backend_http::base_url()
+        .and_then(|u| url::Url::parse(&u).ok())
+        .and_then(|u| u.host_str().map(str::to_string))
+        .unwrap_or_else(|| "cloudpunch.aptask.com".to_string());
+    let poller = watchers::mac_poller::MacPoller { host }.start(sup.sender());
+    sup.attach(poller);
     WatchersGuard {
         inner: Some((sup, drain)),
         is_online,
     }
 }
 
-/// Non-Windows stub. Returns an inert guard so callers can hold it
-/// without conditionally-typed variables. `is_online` defaults to
-/// true so a sync loop wired on a non-Windows dev host still runs.
-#[cfg(not(target_os = "windows"))]
+/// Other platforms: an inert guard so callers can hold it without
+/// conditionally-typed variables. `is_online` defaults to true so a
+/// sync loop on a dev host still runs.
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
 pub fn start_watchers(_agent: Arc<Agent>) -> WatchersGuard {
     WatchersGuard {
         inner: None,

@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### macOS app, step 2: idle, lock, sleep, network, local time (ADR-0026)
+
+- **Idle:** on macOS the core's tick reads CoreGraphics' seconds since the
+  last input. Before this, macOS reported "input just now", so idle and
+  the presence check never fired.
+- **Lock / unlock:** from `CGSessionCopyCurrentDictionary`.
+- **Sleep / wake:** from a wall-clock jump.
+- **Network:** from `SCNetworkReachability` for the API host.
+- **How:** a 1 Hz poller (`watchers/mac_poller.rs`) feeds a pure,
+  cross-platform step (`watchers/poll.rs`, tested everywhere).
+- **Local time** uses `localtime_r` (it was UTC), and the **login time**
+  for the 8 am popup comes from utmpx's console entry.
+- **The shared event-handling thread** (network, unlock/wake, mic) now
+  serves Windows and macOS.
+- **Nothing new is read:** metadata only, and no permission prompts.
+  Mic/camera and call type follow in step 3.
+
 ### macOS app, step 1: CI (ADR-0026, 2026-09-29)
 
 - **ADR-0026 accepted** (owner):
