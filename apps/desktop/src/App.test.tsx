@@ -2000,3 +2000,39 @@ describe('presence check (ADR-0024)', () => {
     expect(sent.idle.input_pattern_check.enabled).toBe(true);
   });
 });
+
+describe('reporting lines warn about a manager without the Manager role', () => {
+  it('offers to give the role in one click', async () => {
+    mocks.myCapabilities.mockResolvedValue(['hr.employee.write']);
+    mocks.adminPeople.mockResolvedValue({
+      people: [
+        { oid: 'o-mona', name: 'Mona Test', roles: ['Employee'], has_employee_record: true },
+        { oid: 'o-far', name: 'Farheen Test', roles: ['Employee'], has_employee_record: true },
+      ],
+    });
+    mocks.adminEmployees.mockResolvedValue({
+      employees: [
+        { id: 'a1', name: 'Mona Test', email: null, reporting_manager_id: null, oid: 'o-mona' },
+        { id: 'b2', name: 'Farheen Test', email: null, reporting_manager_id: 'a1', oid: 'o-far' },
+      ],
+    });
+    mocks.adminPeopleSetRoles.mockResolvedValue({});
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole('button', { name: 'Settings' }));
+    const lines = await screen.findByRole('region', { name: 'reporting-lines' });
+    expect(await within(lines).findByRole('note')).toHaveTextContent(
+      "Mona Test doesn't have the Manager role yet",
+    );
+    await user.click(
+      within(lines).getByRole('button', { name: 'Give Mona Test the Manager role' }),
+    );
+    expect(mocks.adminPeopleSetRoles).toHaveBeenCalledWith(
+      'o-mona',
+      ['Employee', 'Manager'],
+      'Manager for reporting lines',
+    );
+    expect(await within(lines).findByText(/now has the Manager role/)).toBeInTheDocument();
+    expect(within(lines).queryByRole('note')).not.toBeInTheDocument();
+  });
+});

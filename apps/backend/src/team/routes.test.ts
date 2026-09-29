@@ -408,6 +408,9 @@ describe('reporting lines (ADR-0025 §1)', () => {
       list.json() as { employees: { name: string; reporting_manager_id: string | null }[] }
     ).employees;
     expect(rows.find((r) => r.name === 'Farheen Test')?.reporting_manager_id).toBe(manager);
+    expect(
+      (rows as { name: string; oid?: string | null }[]).find((r) => r.name === 'Mona Test')?.oid,
+    ).toBe(oidOf[manager]);
     const admin = await call(manager, [AppRole.Administrator], 'GET', '/v1/admin/employees');
     expect(admin.statusCode).toBe(200);
   });

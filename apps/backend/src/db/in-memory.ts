@@ -152,7 +152,12 @@ export class InMemoryDb implements DbRepositories {
       },
       listReports: async (managerId) =>
         this.activeByName().filter((e) => e.reportingManagerId === managerId),
-      listActive: async () => this.activeByName(),
+      listActive: async () =>
+        this.activeByName().map((e) => ({
+          ...e,
+          entraObjectId:
+            [...this.employeeByOid.entries()].find(([, id]) => id === e.id)?.[0] ?? null,
+        })),
       setReportingManager: async (input) => {
         const e = this.employeeById.get(input.employeeId);
         if (e) this.employeeById.set(e.id, { ...e, reportingManagerId: input.managerId });

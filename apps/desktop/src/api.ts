@@ -132,6 +132,8 @@ export interface EmployeeRow {
   name: string;
   email: string | null;
   reporting_manager_id: string | null;
+  /** Entra object id, to match People's roles. */
+  oid?: string | null;
 }
 
 /** Versions: an enrolled device (ADR-0025 §3). */
