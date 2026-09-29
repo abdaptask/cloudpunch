@@ -143,6 +143,27 @@ removed but never renamed — the state-machine transitions in
 ADR-0003 reference them by identifier. Adding a new option requires
 an ADR update.
 
+## 5b. Presence check (ADR-0024)
+
+**Setting:** `idle.input_pattern_check`
+**Default:** `{ "enabled": false, "continuous_minutes": 20, "periodic_minutes": 10, "min_gap_seconds": 3 }`
+
+**Effect:** when enabled, CloudPunch asks "Are you there?" after:
+- `continuous_minutes` of input with no gap of `min_gap_seconds` (a
+  held key); or
+- `periodic_minutes` of input at a fixed rhythm (10+ inputs, gaps 2 s
+  or more and within 1 s of each other: a jiggler).
+
+Only input timing is used. Typing doesn't answer the check, and it runs
+at most once every 30 minutes.
+
+Unanswered, the time is idle from when the pattern began (ADR-0018),
+and only "I'm back" in the app ends it. The Settings switch is under
+Idle.
+
+**Ranges:** `continuous_minutes` 10–120, `periodic_minutes` 5–60,
+`min_gap_seconds` 2–10.
+
 ## 6. Break types (ADR-0023)
 
 Five fixed types. Events record only the id, never the label.

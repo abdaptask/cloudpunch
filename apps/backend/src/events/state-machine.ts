@@ -183,6 +183,12 @@ export function nextState(
       const trigger = payload && 'trigger' in payload ? payload['trigger'] : 'input_idle';
       if (trigger === 'input_idle') return current === 'ACTIVE' ? 'IDLE_PENDING' : null;
       if (trigger === 'silent_call') return current === 'ON_CALL' ? 'IDLE_PENDING' : null;
+      // ADR-0024: a presence check, from ACTIVE, naming the pattern.
+      if (trigger === 'input_pattern') {
+        const pattern = payload?.['pattern'];
+        if (pattern !== 'continuous' && pattern !== 'periodic') return null;
+        return current === 'ACTIVE' ? 'IDLE_PENDING' : null;
+      }
       return null;
     }
 

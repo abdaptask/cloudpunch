@@ -161,3 +161,23 @@ describe('IdlePrompt — countdown (core owns the timer, ADR-0008 §2)', () => {
     expect(onRespond).not.toHaveBeenCalled();
   });
 });
+
+describe('IdlePrompt — presence check (ADR-0024)', () => {
+  it('asks "Are you there?", says what was noticed, and that typing does not answer', () => {
+    render(
+      <IdlePrompt
+        deadline={Date.now() + 30_000}
+        onRespond={() => undefined}
+        presence="continuous"
+      />,
+    );
+    expect(screen.getByRole('heading', { name: 'Are you there?' })).toBeInTheDocument();
+    expect(screen.getByText(/without the usual pauses/)).toBeInTheDocument();
+    expect(screen.getByText(/Typing doesn't answer it/)).toBeInTheDocument();
+  });
+
+  it('an ordinary prompt keeps its wording', () => {
+    render(<IdlePrompt deadline={Date.now() + 30_000} onRespond={() => undefined} />);
+    expect(screen.getByRole('heading', { name: 'Are you still there?' })).toBeInTheDocument();
+  });
+});

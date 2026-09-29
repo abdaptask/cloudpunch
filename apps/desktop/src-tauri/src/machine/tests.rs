@@ -1227,3 +1227,127 @@ fn clock_in_from_sign_in_is_bounded() {
         "already clocked in"
     );
 }
+
+// ── presence check (ADR-0024) ─────────────────────────────────────
+
+/// Checks on, with a short window so the tests stay small.
+fn presence_cfg() -> CoreConfig {
+    CoreConfig {
+        input_pattern: Some(pattern::PatternConfig {
+            continuous: Duration::from_secs(120),
+            ..pattern::PatternConfig::default()
+        }),
+        ..cfg()
+    }
+}
+
+/// Clocked in at t(0) with a key held from t(1): input every second.
+fn held_key_until(core: &mut Core, from: u64, to: u64) -> Vec<Effect> {
+    let mut fx = Vec::new();
+    for s in from..=to {
+        fx.extend(tick(core, s, s));
+    }
+    fx
+}
+
+fn payload_of(fx: &[Effect], event_type: &str) -> Option<serde_json::Value> {
+    fx.iter().find_map(|e| match e {
+        Effect::Emit { event, .. } if event.event_type() == event_type => {
+            Some(event.transition_payload())
+        }
+        _ => None,
+    })
+}
+
+#[test]
+fn presence_check_is_off_unless_policy_turns_it_on() {
+    let mut core = clocked_in();
+    held_key_until(&mut core, 1, 3_000);
+    assert_eq!(core.state(), CoreState::Active);
+}
+
+#[test]
+fn a_held_key_gets_a_presence_check_and_idle_from_when_it_began() {
+    let mut core = Core::new(presence_cfg(), t(0));
+    core.handle(Input::ClockIn, t(0)).unwrap();
+    let fx = held_key_until(&mut core, 1, 121);
+    assert!(matches!(core.state(), CoreState::IdlePending { .. }));
+    assert_eq!(
+        payload_of(&fx, "INPUT_IDLE_5M"),
+        Some(serde_json::json!({ "trigger": "input_pattern", "pattern": "continuous" }))
+    );
+    assert_eq!(core.presence(), Some(pattern::InputPattern::Continuous));
+
+    // The key keeps "typing": the countdown isn't pushed, idle is logged
+    // from t(1), and the key doesn't end it.
+    let fx = held_key_until(&mut core, 122, 600);
+    assert_eq!(emitted_at(&fx, "IDLE_STARTED"), Some(t(151)));
+    assert_eq!(core.state(), CoreState::Idle { since: t(1) });
+    assert!(emitted(&fx).iter().all(|e| *e != "IDLE_ENDED"));
+
+    // The person comes back and says so.
+    let fx = core.handle(Input::ConfirmPresence, t(610)).unwrap();
+    assert_eq!(emitted(&fx), ["IDLE_ENDED"]);
+    assert_eq!(core.state(), CoreState::Active);
+    assert_eq!(core.presence(), None);
+    assert_eq!(
+        core.idle_return(),
+        Some(IdleStretch {
+            since: t(1),
+            until: t(610)
+        })
+    );
+}
+
+#[test]
+fn answering_the_check_carries_on_and_it_waits_30_minutes_to_ask_again() {
+    let mut core = Core::new(presence_cfg(), t(0));
+    core.handle(Input::ClockIn, t(0)).unwrap();
+    held_key_until(&mut core, 1, 121);
+    core.handle(
+        Input::RespondToPrompt {
+            response: PromptResponse::StillWorking,
+            note: None,
+        },
+        t(125),
+    )
+    .unwrap();
+    assert_eq!(core.state(), CoreState::Active);
+    assert_eq!(core.presence(), None);
+    // Still typing non-stop: no new check inside the cooldown.
+    held_key_until(&mut core, 126, 121 + 1_799);
+    assert_eq!(core.state(), CoreState::Active);
+    let fx = held_key_until(&mut core, 121 + 1_800, 121 + 1_950);
+    assert_eq!(
+        emitted(&fx)[0],
+        "INPUT_IDLE_5M",
+        "asked again after 30 minutes"
+    );
+}
+
+#[test]
+fn a_person_who_pauses_is_never_checked() {
+    let mut core = Core::new(presence_cfg(), t(0));
+    core.handle(Input::ClockIn, t(0)).unwrap();
+    // Types 30 s, pauses 5 s, for an hour.
+    let mut last = 0;
+    for s in 1..3_600 {
+        if s % 35 < 30 {
+            last = s;
+        }
+        tick(&mut core, last, s);
+    }
+    assert_eq!(core.state(), CoreState::Active);
+}
+
+#[test]
+fn an_ordinary_prompt_still_ends_on_input() {
+    // The presence rules don't change ordinary idle (ADR-0018).
+    let mut core = Core::new(presence_cfg(), t(0));
+    core.handle(Input::ClockIn, t(0)).unwrap();
+    tick(&mut core, 0, 300);
+    tick(&mut core, 0, 330);
+    assert_eq!(core.state(), CoreState::Idle { since: t(0) });
+    let fx = tick(&mut core, 400, 400);
+    assert_eq!(emitted(&fx), ["IDLE_ENDED"]);
+}

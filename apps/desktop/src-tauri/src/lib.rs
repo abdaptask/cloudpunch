@@ -259,6 +259,7 @@ pub fn run() {
             commands::clock_out,
             commands::start_break,
             commands::end_break,
+            commands::confirm_presence,
             commands::mark_away,
             commands::mark_back,
             commands::respond_to_prompt,

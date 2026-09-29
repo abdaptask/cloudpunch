@@ -51,6 +51,29 @@ pub struct Idle {
     pub prompt_options: Vec<String>,
     pub call_type_apps: Vec<CallApp>,
     pub call_type_ignored: Vec<String>,
+    /// ADR-0024: presence check for propped keys and jigglers.
+    pub input_pattern_check: InputPatternCheck,
+}
+
+/// `idle.input_pattern_check` (ADR-0024 §4). Off until HR turns it on.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(default)]
+pub struct InputPatternCheck {
+    pub enabled: bool,
+    pub continuous_minutes: u64,
+    pub periodic_minutes: u64,
+    pub min_gap_seconds: u64,
+}
+
+impl Default for InputPatternCheck {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            continuous_minutes: 20,
+            periodic_minutes: 10,
+            min_gap_seconds: 3,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -247,6 +270,7 @@ impl Default for Idle {
                 })
                 .collect(),
             call_type_ignored: Rules::builtin().ignored,
+            input_pattern_check: InputPatternCheck::default(),
         }
     }
 }
@@ -344,6 +368,14 @@ impl PolicyDoc {
             },
             note_required_for,
             away_note_required,
+            input_pattern: {
+                let c = &self.idle.input_pattern_check;
+                c.enabled.then(|| crate::machine::pattern::PatternConfig {
+                    continuous: Duration::from_secs(c.continuous_minutes.max(1) * 60),
+                    periodic: Duration::from_secs(c.periodic_minutes.max(1) * 60),
+                    min_gap: Duration::from_secs(c.min_gap_seconds.max(1)),
+                })
+            },
         }
     }
 

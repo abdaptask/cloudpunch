@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   clockIn: vi.fn<() => Promise<StateView>>(),
   clockOut: vi.fn<() => Promise<StateView>>(),
   installUpdateNow: vi.fn<() => Promise<void>>(),
+  confirmPresence: vi.fn<() => Promise<StateView>>(),
   startBreak: vi.fn<(kind: string, planned?: number | null) => Promise<StateView>>(),
   endBreak: vi.fn<() => Promise<StateView>>(),
   markBack: vi.fn<() => Promise<StateView>>(),
@@ -93,6 +94,7 @@ function view(over: Partial<StateView> = {}): StateView {
     plannedBreakMinutes: null,
     appVersion: '0.1.4',
     updateReady: null,
+    presenceCheck: null,
     ...over,
   };
 }
@@ -1557,7 +1559,12 @@ describe('Settings for HR and Administrators (ADR-0018 §5)', () => {
       'global',
       null,
       expect.objectContaining({
-        idle: { threshold_seconds: 180, grace_seconds: 30, max_idle_minutes: null },
+        idle: {
+          threshold_seconds: 180,
+          grace_seconds: 30,
+          max_idle_minutes: null,
+          input_pattern_check: { enabled: false },
+        },
         reminders: {
           clock_in_prompt_at: '08:00',
           clock_in_prompt_tz: 'America/New_York',
@@ -1951,5 +1958,45 @@ describe('Reporting lines and Versions (ADR-0025)', () => {
       '0.1.4 × 1 · 0.1.2 × 1',
     );
     expect(screen.getByRole('region', { name: 'versions' })).toHaveTextContent('0.1.2 · behind');
+  });
+});
+
+describe('presence check (ADR-0024)', () => {
+  it("after an unanswered check, only I'm back ends the idle", async () => {
+    mocks.getState.mockResolvedValue(
+      view({ status: 'idle', idleSince: Date.now() - 20 * 60_000, presenceCheck: 'continuous' }),
+    );
+    mocks.confirmPresence.mockResolvedValue(view({ status: 'active' }));
+    const user = userEvent.setup();
+    render(<App />);
+    expect(await screen.findByText('Idle: presence check not answered')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: "I'm back" }));
+    expect(mocks.confirmPresence).toHaveBeenCalledOnce();
+  });
+
+  it('an ordinary idle has no I am back button', async () => {
+    mocks.getState.mockResolvedValue(view({ status: 'idle', idleSince: Date.now() - 60_000 }));
+    render(<App />);
+    await screen.findByRole('button', { name: 'Clock out' });
+    expect(screen.queryByRole('button', { name: "I'm back" })).not.toBeInTheDocument();
+  });
+
+  it('HR can turn it on in Settings', async () => {
+    mocks.myCapabilities.mockResolvedValue(['admin.policy.write']);
+    mocks.adminPolicyGet.mockResolvedValue({ override: null, effective: { policy: {} } });
+    mocks.adminPolicyPut.mockImplementation((_s: string, _i: string | null, document: unknown) =>
+      Promise.resolve({ override: { document }, effective: { policy: {} } }),
+    );
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole('button', { name: 'Settings' }));
+    const settings = screen.getByRole('region', { name: 'settings' });
+    await user.click(await within(settings).findByLabelText('presence-check'));
+    expect(within(settings).getByText(/Only input timing is used, never keys/)).toBeInTheDocument();
+    await user.click(within(settings).getByRole('button', { name: 'Save' }));
+    const sent = mocks.adminPolicyPut.mock.calls[0]?.[2] as {
+      idle: { input_pattern_check: { enabled: boolean } };
+    };
+    expect(sent.idle.input_pattern_check.enabled).toBe(true);
   });
 });

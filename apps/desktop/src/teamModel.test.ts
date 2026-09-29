@@ -139,3 +139,33 @@ describe('a team member day as rows', () => {
     expect(rows[1]).toMatchObject({ label: 'Idle', detail: 'No explanation given', late: false });
   });
 });
+
+describe('presence checks in the Team views (ADR-0024)', () => {
+  it('says whether it was answered', () => {
+    const base: TeamException = {
+      employee_id: 'e',
+      name: 'Farheen Test',
+      date: '2026-09-29',
+      kind: 'presence_check',
+      at: new Date(2026, 8, 29, 11, 0).toISOString(),
+      minutes: null,
+      over_minutes: null,
+      segment: 'prompt',
+      explanation: null,
+      pattern: 'periodic',
+      answered: true,
+    };
+    expect(exceptionText(base).text).toMatch(
+      /Presence check at .* \(input in a fixed rhythm\): answered/,
+    );
+    expect(
+      exceptionText({
+        ...base,
+        pattern: 'continuous',
+        answered: false,
+        minutes: 25,
+        segment: 'idle',
+      }).text,
+    ).toMatch(/^Presence check \(non-stop input with no pauses\): not answered · idle 25 min/);
+  });
+});

@@ -23,6 +23,7 @@ describe('settings form (ADR-0018 §5)', () => {
       idlePromptMinutes: 3,
       promptWaitSeconds: 45,
       idleCapMinutes: null,
+      presenceCheck: false,
       clockInPromptAt: null,
       clockInPromptTz: 'Asia/Kolkata',
       longDayHours: 9,
@@ -78,6 +79,7 @@ describe('settings form (ADR-0018 §5)', () => {
         threshold_seconds: 180,
         grace_seconds: 45,
         max_idle_minutes: null,
+        input_pattern_check: { enabled: false },
       },
       reminders: {
         clock_in_prompt_at: null,

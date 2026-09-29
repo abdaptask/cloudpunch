@@ -27,6 +27,7 @@ export function PromptWindow(): JSX.Element | null {
         deadline={view.promptDeadline}
         options={view.promptOptions}
         noteRequiredFor={view.noteRequiredFor}
+        presence={view.presenceCheck}
         onRespond={(response, note) => run(() => api.respondToPrompt(response, note))}
       />
       {error && (

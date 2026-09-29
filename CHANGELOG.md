@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Presence check for propped keys and mouse jigglers (ADR-0024, in desktop 0.1.5)
+
+- **Detection:** CloudPunch spots either of these from input **timing**
+  only (never keys):
+  - 20 minutes of input with no 3-second pause (a held key);
+  - input at a fixed rhythm for 10 minutes (a jiggler).
+- **The check:** it asks **"Are you there?"**. Typing doesn't answer it,
+  and it asks at most once every 30 minutes.
+- **Unanswered:** the time is idle from when the pattern began. Only
+  **I'm back** ends it, and the idle cap still applies.
+- **Records:** `INPUT_IDLE_5M` gains `trigger: input_pattern` and
+  `pattern`. The day view marks the check (`presence_check`), and Team →
+  Exceptions lists answered and unanswered checks.
+- **Off by default:** Settings → Idle → "Presence check for propped keys
+  and mouse jigglers" (`idle.input_pattern_check`).
+- **The privacy notice** has a section on it. Tell employees before
+  turning it on.
+
 ### Team tab, reporting lines, Versions: desktop 0.1.5 (ADR-0025 PR 2, 2026-09-29)
 
 - **Team** (Managers and HR; a **Team** button in the header):

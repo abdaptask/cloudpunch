@@ -78,6 +78,18 @@ export function exceptionText(e: TeamException): { text: string; said: string | 
       return { text: `Worked ${hm(len)} (${hm(over)} over the long-shift mark)`, said: null };
     case 'auto_clock_out':
       return { text: `Clocked out automatically after long idle at ${clock(e.at)}`, said: null };
+    case 'presence_check': {
+      const what =
+        e.pattern === 'periodic' ? 'input in a fixed rhythm' : 'non-stop input with no pauses';
+      return e.answered
+        ? { text: `Presence check at ${clock(e.at)} (${what}): answered`, said: null }
+        : {
+            text: `Presence check (${what}): not answered · idle ${hm(len)} from ${clock(e.at)}`,
+            said: e.explanation
+              ? `Said: ${EXPLANATION[e.explanation.explanation] ?? e.explanation.explanation}`
+              : null,
+          };
+    }
     case 'reconstructed':
       return {
         text: `Session from ${clock(e.at)} recovered after the app closed unexpectedly`,
@@ -110,13 +122,23 @@ export function dayRows(day: TeamDay): DayRow[] {
       if (g.planned_minutes !== undefined) {
         late = took > g.planned_minutes;
         detail = `Planned ${hm(g.planned_minutes)} · took ${hm(took)}`;
+      } else if (g.presence_check && g.kind === 'prompt') {
+        detail = 'Presence check · answered';
       } else if (g.kind === 'idle') {
         const x = g.explanation;
         detail = x
           ? `Said: ${EXPLANATION[x.explanation] ?? x.explanation}${x.note ? ` · “${x.note}”` : ''}`
           : 'No explanation given';
+        if (g.presence_check) detail = `Presence check not answered · ${detail}`;
       }
-      return { kind: g.kind, label: label(g.kind), from, to, detail, late };
+      return {
+        kind: g.kind,
+        label: g.presence_check && g.kind === 'prompt' ? 'Presence check' : label(g.kind),
+        from,
+        to,
+        detail,
+        late: late || (g.kind === 'idle' && !!g.presence_check),
+      };
     }),
   );
 }

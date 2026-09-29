@@ -13,6 +13,8 @@ export interface SettingsForm {
   promptWaitSeconds: number;
   /** idle.max_idle_minutes; null = never clock out for idle. */
   idleCapMinutes: number | null;
+  /** idle.input_pattern_check.enabled (ADR-0024). */
+  presenceCheck: boolean;
   /** reminders.clock_in_prompt_at, "HH:MM"; null = off. */
   clockInPromptAt: string | null;
   /** reminders.clock_in_prompt_tz. */
@@ -85,6 +87,7 @@ export function formFrom(policy: Doc): SettingsForm {
     idlePromptMinutes: Math.round(num(idle['threshold_seconds'], 120) / 60),
     promptWaitSeconds: num(idle['grace_seconds'], 30),
     idleCapMinutes: cap === null ? null : num(cap, 120),
+    presenceCheck: obj(idle['input_pattern_check'])['enabled'] === true,
     clockInPromptAt: at === null ? null : typeof at === 'string' ? at : '08:00',
     clockInPromptTz:
       typeof reminders['clock_in_prompt_tz'] === 'string'
@@ -166,6 +169,10 @@ export function overrideWith(current: Doc | null, f: SettingsForm): Doc {
       threshold_seconds: f.idlePromptMinutes * 60,
       grace_seconds: f.promptWaitSeconds,
       max_idle_minutes: f.idleCapMinutes,
+      input_pattern_check: {
+        ...obj(obj(base['idle'])['input_pattern_check']),
+        enabled: f.presenceCheck,
+      },
     },
     reminders: {
       ...obj(base['reminders']),

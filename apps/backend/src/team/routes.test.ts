@@ -291,6 +291,43 @@ describe("a person's day", () => {
   });
 });
 
+describe('presence checks (ADR-0024)', () => {
+  it('marks the prompt and its idle, and lists answered and unanswered checks', async () => {
+    const since = (ago: number) => new Date(Date.now() - ago * MIN).toISOString();
+    await seedOpen(report, 300, [
+      // Answered: a check, then "still working".
+      ['INPUT_IDLE_5M', 200, { trigger: 'input_pattern', pattern: 'periodic' }],
+      ['USER_PROMPT_RESPONSE', 199, { response: 'still_working' }],
+      // Unanswered: idle from when the held key began (20 min before).
+      ['INPUT_IDLE_5M', 100, { trigger: 'input_pattern', pattern: 'continuous' }],
+      ['IDLE_STARTED', 99, { idle_since: since(120) }],
+      ['IDLE_ENDED', 60, { idle_since: since(120) }],
+    ]);
+    const day = await call(manager, MANAGER, 'GET', `/v1/team/${report}/days/${dateOf(300)}`);
+    const segs = (
+      day.json() as { sessions: { segments: { kind: string; presence_check?: string }[] }[] }
+    ).sessions[0]?.segments;
+    expect(segs?.filter((g) => g.presence_check).map((g) => [g.kind, g.presence_check])).toEqual([
+      ['prompt', 'periodic'],
+      ['idle', 'continuous'],
+    ]);
+
+    const res = await call(
+      manager,
+      MANAGER,
+      'GET',
+      `/v1/team/exceptions?from=${yesterday()}&to=${today()}`,
+    );
+    const checks = (res.json() as { exceptions: TeamException[] }).exceptions
+      .filter((e) => e.kind === 'presence_check')
+      .map((e) => [e.pattern, e.answered]);
+    expect(checks.sort()).toEqual([
+      ['continuous', false],
+      ['periodic', true],
+    ]);
+  });
+});
+
 describe('exceptions', () => {
   it('lists long idle, breaks over plan and limit, and idle clock-outs, and audits each person', async () => {
     await seedOpen(report, 300, [
