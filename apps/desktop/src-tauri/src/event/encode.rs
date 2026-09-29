@@ -580,7 +580,9 @@ pub(crate) mod tests {
 
     #[test]
     fn tz_iana_is_a_valid_zone_name() {
+        // A real tz database name: `Asia/Kolkata`, or `GMT` / `UTC` as
+        // CI Macs report (ADR-0026).
         let tz = tz_iana();
-        assert!(tz.contains('/') || tz == "UTC", "{tz}");
+        assert!(tz.parse::<chrono_tz::Tz>().is_ok(), "{tz}");
     }
 }

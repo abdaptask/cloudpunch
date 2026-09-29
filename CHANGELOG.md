@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### macOS app, step 1: CI (ADR-0026, 2026-09-29)
+
+- **ADR-0026 accepted** (owner):
+  - macOS 14+;
+  - ApTask's existing Apple Developer account;
+  - builds on the owner's Mac;
+  - a macOS CI job on every PR.
+- **CI:** a new `rust-macos` job builds, lints (clippy `-D warnings`) and
+  tests the desktop Rust crate on `macos-latest` (Apple Silicon).
+
 ### Away check-in: back at the computer, calls, long aways (ADR-0027, in desktop 0.1.6)
 
 Owner report: Roshni showed "On a phone call" for 2 h 6 min after
