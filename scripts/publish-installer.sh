@@ -9,7 +9,8 @@
 #   - the installer for the version in tauri.conf.json exists;
 #   - the app inside it points at the public address (not a dev build);
 #   - that version isn't already published with a different file
-#     (every update needs a new version number).
+#     (every update needs a new version number);
+#   - the installer is signed for auto-update (`<file>.sig`, ADR-0022).
 # Then it copies the file to the VM and adds the release to
 # releases.json in one step. The newest 3 installers are kept.
 set -euo pipefail
@@ -33,6 +34,12 @@ if ! grep -qa "$PUBLIC_URL" target/release/cloudpunch-desktop.exe; then
   exit 1
 fi
 
+if [ ! -f "$INSTALLER.sig" ] || [ "$INSTALLER" -nt "$INSTALLER.sig" ]; then
+  echo "publish-installer: $INSTALLER isn't signed for auto-update; build with TAURI_SIGNING_PRIVATE_KEY_PATH and _PASSWORD set (docs/ops/pilot-vm.md)" >&2
+  exit 1
+fi
+SIG="$(tr -d '\r\n' < "$INSTALLER.sig")"
+
 SHA="$(sha256sum "$INSTALLER" | cut -c1-64)"
 SIZE="$(wc -c < "$INSTALLER" | tr -d ' ')"
 NOTES_JSON="$(node -e 'console.log(JSON.stringify(process.argv.slice(1)))' -- "$@")"
@@ -46,9 +53,9 @@ DIR=/opt/cloudpunch/downloads/windows
 sudo install -d -m 0755 -o root -g root /opt/cloudpunch/downloads "$DIR"
 got="$(sha256sum "/tmp/$FILE" | cut -c1-64)"
 [ "$got" = "$SHA" ] || { echo "publish-installer: upload corrupted" >&2; exit 1; }
-sudo python3 - "$DIR" "$FILE" "$VERSION" "$SHA" "$SIZE" "$NOTES_JSON" <<'PY'
+sudo python3 - "$DIR" "$FILE" "$VERSION" "$SHA" "$SIZE" "$NOTES_JSON" "$SIG" <<'PY'
 import json, os, sys, datetime
-d, file, version, sha, size, notes = sys.argv[1:7]
+d, file, version, sha, size, notes, sig = sys.argv[1:8]
 path = os.path.join(d, "releases.json")
 try:
     releases = json.load(open(path))
@@ -62,6 +69,7 @@ releases.insert(0, {
     "version": version, "file": file, "size": int(size), "sha256": sha,
     "published_at": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
     "notes": json.loads(notes),
+    "signature": sig,
 })
 releases = releases[:10]
 tmp = path + ".tmp"
@@ -80,4 +88,4 @@ echo "publish-installer: $VERSION is live"
 REMOTE
 
 ssh -o BatchMode=yes "$HOST" \
-  "FILE=$(printf '%q' "$FILE") VERSION=$(printf '%q' "$VERSION") SHA=$SHA SIZE=$SIZE NOTES_JSON=$(printf '%q' "$NOTES_JSON") bash -c $(printf '%q' "$REMOTE")"
+  "FILE=$(printf '%q' "$FILE") VERSION=$(printf '%q' "$VERSION") SHA=$SHA SIZE=$SIZE NOTES_JSON=$(printf '%q' "$NOTES_JSON") SIG=$(printf '%q' "$SIG") bash -c $(printf '%q' "$REMOTE")"

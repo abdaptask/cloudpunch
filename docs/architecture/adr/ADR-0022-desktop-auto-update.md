@@ -8,9 +8,9 @@
   the day), ADR-0019 (pilot VM, website, `publish-installer.sh`).
 - **Confidence:** Medium-high (about 85%). The Tauri 2 updater plugin is
   the documented mechanism and the pilot installer already installs per
-  user (no admin prompt). Not yet verified: a real 0.1.x → 0.1.y update on
-  a pilot laptop, and that the plugin sends our `Authorization` header on
-  the download as well as the check (§3).
+  user (no admin prompt). The plugin's source (2.12) confirms it keeps
+  our `Authorization` header for the download as well as the check (§3).
+  Not yet verified: a real 0.1.x → 0.1.y update on a pilot laptop.
 
 ## Context
 
@@ -38,7 +38,8 @@ That last point decides *when* an update may install.
 1. **Use the Tauri 2 updater plugin** (`tauri-plugin-updater`), as
    ADR-0001 planned. Every update is signed with our Ed25519 key, and the
    app refuses any file whose signature doesn't match the public key
-   built into it.
+   built into it. `requireSignedVersion` is on, so a replayed older
+   release can't be passed off as a newer one (no downgrades).
 2. **Download early, install only at a safe moment.**
    - The app checks at start and every 4 hours, and downloads a new
      version quietly in the background.
@@ -66,10 +67,9 @@ That last point decides *when* an update may install.
    - The installer itself is served from `/v1/desktop/update/files/...`
      with the same token.
    - So no Cloudflare rule changes, and no public path.
-   - **Fallback, if the plugin won't send our header on the download:**
-     serve the signed file from a public `/updates/*` path that skips
-     Access. That's acceptable because it's the same installer anyone at
-     ApTask can download, and the app won't run anything unsigned.
+   - The plugin sends our header on the download too (checked in its
+     source), so the public `/updates/*` fallback first considered here
+     isn't needed.
 4. **Publishing stays one command.** The pilot build signs the update
    (the `TAURI_SIGNING_PRIVATE_KEY` environment variable), and
    `scripts/publish-installer.sh` also uploads the signature and records

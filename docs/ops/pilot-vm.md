@@ -120,8 +120,15 @@ From PowerShell, so the vendored OpenSSL builds:
 cd apps\desktop
 $env:CLOUDPUNCH_BACKEND_URL='https://cloudpunch.aptask.com'
 Remove-Item Env:CLOUDPUNCH_BUILD_CA_PEM -ErrorAction SilentlyContinue   # public cert: no pinned CA
+# Sign the update (ADR-0022 §5); the key never leaves this machine.
+$env:TAURI_SIGNING_PRIVATE_KEY_PATH="$env:USERPROFILE\.cloudpunch\updater.key"
+$env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = Read-Host 'Updater key password'
 pnpm tauri build --config src-tauri/tauri.pilot.conf.json
 ```
+
+Next to the installer you'll get `CloudPunch_<version>_x64-setup.exe.sig`,
+the update signature. `publish-installer.sh` refuses an installer without
+a fresh one.
 
 The output is `target\release\bundle\nsis\CloudPunch_<version>_x64-setup.exe`.
 It is unsigned, so Windows shows "unknown publisher" once: **More info
@@ -145,6 +152,17 @@ Every release that people should get is published, so it shows on
    uploads the file, and adds the release to
    `/opt/cloudpunch/downloads/windows/releases.json`. The page shows it
    straight away, and the newest 3 installers are kept.
+
+   Installed apps pick it up within 4 hours and install it at the next
+   Windows sign-in, unlock or wake, when the person is clocked out with
+   nothing recorded yet that day (ADR-0022). Nobody is restarted while
+   clocked in.
+
+**Updater signing key (ADR-0022 §5).** Made once with
+`pnpm --dir apps/desktop tauri signer generate -w %USERPROFILE%\.cloudpunch\updater.key`.
+Keep the key file and its password in your password manager. If it is
+lost, installed apps can't take updates until everyone reinstalls by
+hand. The public key is in `tauri.pilot.conf.json` (`plugins.updater`).
 
 **Cloudflare Access (ApTask only).** Go to Zero Trust → Access →
 Applications → **cloudpunch-download**. It covers
