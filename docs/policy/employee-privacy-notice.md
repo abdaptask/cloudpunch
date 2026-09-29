@@ -35,7 +35,13 @@ The desktop app records **only the events needed to track working
 time**. These are:
 
 - The time you **clock in** and the time you **clock out**.
-- The time you **start a break** and the time you **end a break**.
+- The time you **start a break** and the time you **end a break**,
+  the **type of break** (for example Bio break, Meal break, Tea break
+  or Personal; your HR team sets the list and names), and, if you choose
+  to say, **when you expect to be back** ("Back in 20 minutes").
+  CloudPunch never asks or records *why* you take a break.
+- When you tag yourself **in a meeting** or **in training** (away
+  from the computer, still working).
 - Whether your **screen is locked or your computer is asleep**
   (yes / no + when the state changed).
 - Whether your **keyboard or mouse has been used recently** (yes / no
@@ -137,6 +143,9 @@ Access is on a strict need-to-know basis:
   reasons for every edit.
 - **Your reporting manager** can see your daily timeline (clock-in,
   clock-out, breaks, states) but not the underlying raw event stream.
+  That includes the **type of each break** and, if you gave one, the
+  time you said you'd be back next to how long the break took (for
+  example "Personal · planned 20 min · took 24 min").
   Your manager sees "you were active", "you were on break", and the
   kind of call you were on (for example "Teams call, 3:15–3:45 pm") —
   never what was said.

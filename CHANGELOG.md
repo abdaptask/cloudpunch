@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Privacy notice: break types and planned breaks (ADR-0023 PR 4, 2026-09-29)
+
+- "What CloudPunch records" now includes:
+  - the break type (with the names HR sets);
+  - the optional "Back in?" time, with the statement that the reason for
+    a break is never asked or recorded;
+  - the In a meeting / In training tags.
+- "Who can see your data" now says the manager sees each break's type,
+  and planned vs. actual time.
+
 ### Desktop 0.1.4: version on screen, Restart to update (2026-09-29)
 
 Owner request after the first live update test (the update downloaded,
