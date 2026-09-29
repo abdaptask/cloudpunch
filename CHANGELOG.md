@@ -28,6 +28,10 @@ ideally when people sign in for the day.
   restart. `requireSignedVersion` blocks downgrades. The tray tooltip
   says when an update is ready. It's on only in builds whose config
   carries the public key (the pilot config).
+- **Desktop 0.1.2, the first version that updates itself:** the pilot
+  config carries the updater public key (`plugins.updater`, passive
+  install, `requireSignedVersion`) and `createUpdaterArtifacts`. Testers
+  install 0.1.2 by hand once; later versions arrive on their own.
 - **Publishing:** `publish-installer.sh` requires a fresh `.sig` and
   records it in `releases.json`. `docs/ops/pilot-vm.md` covers signing
   the build and the key.
