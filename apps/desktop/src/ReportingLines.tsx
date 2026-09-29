@@ -1,5 +1,5 @@
 import { useEffect, useState, type CSSProperties } from 'react';
-import { api, type EmployeeRow } from './api.js';
+import { api, type EmployeeRow, type Person } from './api.js';
 import { useTheme, type Theme } from './ui/theme.js';
 
 const ERROR_TEXT: Record<string, string> = {
@@ -22,8 +22,16 @@ export function ReportingLines(): JSX.Element {
   const [reason, setReason] = useState('');
   const [status, setStatus] = useState<{ kind: 'error' | 'saved'; text: string } | null>(null);
   const [saving, setSaving] = useState<string | null>(null);
+  // Roles by Entra id, to warn about managers without the Manager role.
+  const [people, setPeople] = useState<Person[] | null>(null);
   useEffect(() => {
     let current = true;
+    api.adminPeople().then(
+      (r) => {
+        if (current) setPeople(r.people);
+      },
+      () => undefined,
+    );
     api.adminEmployees().then(
       (r) => {
         if (current) setRows(r.employees);
@@ -36,6 +44,34 @@ export function ReportingLines(): JSX.Element {
       current = false;
     };
   }, []);
+
+  /** A manager whose Team tab won't show: no Manager (or HR) role. */
+  const lacksRole = (managerId: string | null): Person | null => {
+    const m = rows?.find((r) => r.id === managerId);
+    const p = m?.oid ? people?.find((x) => x.oid === m.oid) : undefined;
+    if (!p) return null;
+    return p.roles.includes('Manager') || p.roles.includes('HR') ? null : p;
+  };
+
+  const giveManager = (p: Person): void => {
+    setSaving(p.oid);
+    setStatus(null);
+    const roles = [...new Set([...p.roles, 'Manager'])];
+    api.adminPeopleSetRoles(p.oid, roles, reason || 'Manager for reporting lines').then(
+      () => {
+        setSaving(null);
+        setPeople((ps) => ps?.map((x) => (x.oid === p.oid ? { ...x, roles } : x)) ?? ps);
+        setStatus({
+          kind: 'saved',
+          text: `${p.name} now has the Manager role. They see the Team tab after signing in again.`,
+        });
+      },
+      (e: unknown) => {
+        setSaving(null);
+        setStatus({ kind: 'error', text: errorText(String(e)) });
+      },
+    );
+  };
 
   const change = (row: EmployeeRow, managerId: string | null): void => {
     setSaving(row.id);
@@ -93,27 +129,53 @@ export function ReportingLines(): JSX.Element {
         />
       </label>
       {!rows && !status && <span style={{ fontSize: 13, color: t.muted }}>Loading…</span>}
-      {rows?.map((row) => (
-        <label key={row.id} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
-          <span style={{ flex: 1, minWidth: 0 }}>{row.name}</span>
-          <select
-            aria-label={`manager of ${row.name}`}
-            value={row.reporting_manager_id ?? ''}
-            disabled={saving === row.id}
-            onChange={(e) => change(row, e.target.value || null)}
-            style={{ ...input(t), maxWidth: 180 }}
-          >
-            <option value="">No manager</option>
-            {rows
-              .filter((m) => m.id !== row.id)
-              .map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.name}
-                </option>
-              ))}
-          </select>
-        </label>
-      ))}
+      {rows?.map((row) => {
+        const missing = lacksRole(row.reporting_manager_id);
+        return (
+          <div key={row.id} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
+              <span style={{ flex: 1, minWidth: 0 }}>{row.name}</span>
+              <select
+                aria-label={`manager of ${row.name}`}
+                value={row.reporting_manager_id ?? ''}
+                disabled={saving === row.id}
+                onChange={(e) => change(row, e.target.value || null)}
+                style={{ ...input(t), maxWidth: 180 }}
+              >
+                <option value="">No manager</option>
+                {rows
+                  .filter((m) => m.id !== row.id)
+                  .map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.name}
+                    </option>
+                  ))}
+              </select>
+            </label>
+            {missing && (
+              <span role="note" style={{ fontSize: 12, color: t.warnText }}>
+                {missing.name} doesn&apos;t have the Manager role yet, so they won&apos;t see the
+                Team tab.{' '}
+                <button
+                  type="button"
+                  disabled={saving === missing.oid}
+                  onClick={() => giveManager(missing)}
+                  style={{
+                    padding: 0,
+                    border: 'none',
+                    background: 'none',
+                    color: t.accent,
+                    font: 'inherit',
+                    cursor: 'pointer',
+                  }}
+                >
+                  Give {missing.name} the Manager role
+                </button>
+              </span>
+            )}
+          </div>
+        );
+      })}
       {status && (
         <p
           role={status.kind === 'error' ? 'alert' : 'status'}

@@ -39,6 +39,8 @@ export interface Employee {
   departmentId?: string | null;
   /** Direct manager (ADR-0005, ADR-0025 §1). Absent means none. */
   reportingManagerId?: string | null;
+  /** The linked user's Entra object id, where a list includes it. */
+  entraObjectId?: string | null;
 }
 
 /** Setting someone's manager (ADR-0025 §1), audited. */

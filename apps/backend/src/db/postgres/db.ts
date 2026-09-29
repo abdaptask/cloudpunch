@@ -203,6 +203,7 @@ export class PostgresDb implements DbRepositories {
       id: row.id,
       departmentId: row.departmentId,
       reportingManagerId: row.reportingManagerId,
+      ...(row.entraObjectId !== undefined ? { entraObjectId: row.entraObjectId } : {}),
       source: row.source,
       greythrEmployeeId: row.greythrEmployeeId,
       employeeNumber: row.employeeNumber,
@@ -260,7 +261,7 @@ export class PostgresDb implements DbRepositories {
           SELECT
             e.id, e.source, e.greythr_employee_id, e.employee_number,
             e.given_name, e.family_name, e.display_name, e.status,
-            e.department_id, e.reporting_manager_id, u.work_email
+            e.department_id, e.reporting_manager_id, u.work_email, u.entra_object_id
           FROM employee e
           LEFT JOIN app_user u ON u.employee_id = e.id
           WHERE e.status = 'active'
@@ -694,6 +695,7 @@ interface EmployeeRow {
   workEmail: string | null;
   departmentId: string | null;
   reportingManagerId: string | null;
+  entraObjectId?: string | null;
 }
 
 interface AppUserRow {

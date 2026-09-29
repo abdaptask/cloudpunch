@@ -193,6 +193,7 @@ const teamRoutesImpl: FastifyPluginAsync<TeamRoutesOptions> = async (app, opts) 
           name: nameOf(e),
           email: e.workEmail || null,
           reporting_manager_id: e.reportingManagerId ?? null,
+          oid: e.entraObjectId ?? null,
         })),
       });
     },

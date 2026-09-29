@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Reporting lines warn about a manager without the Manager role (desktop 0.1.6)
+
+- **The problem (owner request):** picking someone as a manager didn't
+  give them the Team tab, which needs the Manager (or HR) role.
+- **The warning:** Reporting lines now says "Mona Test doesn't have the
+  Manager role yet", with a **Give Mona Test the Manager role** button.
+  The button keeps their other roles and is audited like any role
+  change.
+- **Plumbing:** `GET /v1/admin/employees` now includes each person's
+  Entra `oid`, to match People's roles.
+
 ### Presence check for propped keys and mouse jigglers (ADR-0024, in desktop 0.1.5)
 
 - **Detection:** CloudPunch spots either of these from input **timing**
