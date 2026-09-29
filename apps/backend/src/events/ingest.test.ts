@@ -3,7 +3,7 @@ import { randomUUID, webcrypto } from 'node:crypto';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { InMemoryDb } from '../db/in-memory.js';
 import type { CanonicalJsonValue } from '@cloudpunch/event-schema';
-import { MAX_SEQUENCE_GAP, ingestBatch, recoveredCloseTime } from './ingest.js';
+import { MAX_SEQUENCE_GAP, eventCloseTime, ingestBatch, recoveredCloseTime } from './ingest.js';
 import type { EventItem } from './schemas.js';
 
 interface Ctx {
@@ -599,6 +599,41 @@ describe('ingestBatch — happy paths', () => {
     expect(session?.closedReason).toBe('user_clock_out');
   });
 
+  it('an offline clock-out closes the session when it happened, not when it arrived', async () => {
+    const hours = (h: number) => new Date(Date.now() - h * 3_600_000).toISOString();
+    const in1 = await signedEvent(ctx, {
+      event_type: 'USER_CLOCK_IN',
+      sequence_number: 1,
+      client_ts: hours(8),
+    });
+    await ingestBatch({
+      db: ctx.db,
+      authOid: ctx.userOid,
+      deviceId: ctx.deviceId,
+      sessionId: ctx.sessionId,
+      employeeId: ctx.employeeId,
+      correlationId: ctx.correlationId,
+      events: [in1],
+    });
+    // Clocked out 3 hours ago while offline; the batch arrives now.
+    const out = await signedEvent(ctx, {
+      event_type: 'USER_CLOCK_OUT',
+      sequence_number: 2,
+      client_ts: hours(3),
+    });
+    await ingestBatch({
+      db: ctx.db,
+      authOid: ctx.userOid,
+      deviceId: ctx.deviceId,
+      sessionId: ctx.sessionId,
+      employeeId: ctx.employeeId,
+      correlationId: ctx.correlationId,
+      events: [out],
+    });
+    const session = await ctx.db.timeSessions.findById(ctx.sessionId);
+    expect(session?.closedAt?.toISOString()).toBe(out.client_ts);
+  });
+
   it('is idempotent — retry of same event returns duplicate_noop', async () => {
     const evt = await signedEvent(ctx, { event_type: 'USER_CLOCK_IN', sequence_number: 1 });
     await ingestBatch({
@@ -987,6 +1022,18 @@ describe('ingestBatch — per-event rejections', () => {
       expect(r.results[1]?.status).toBe('duplicate_noop');
       expect(r.results[2]?.status).toBe('rejected');
     }
+  });
+});
+
+describe('eventCloseTime', () => {
+  const opened = new Date('2026-09-25T09:00:00Z');
+  const now = new Date('2026-09-25T18:00:00Z');
+  it("uses the event's own time, clamped to [opened, now]", () => {
+    const at = (v: string) => eventCloseTime(v, opened, now).toISOString();
+    expect(at('2026-09-25T13:30:00Z')).toBe('2026-09-25T13:30:00.000Z');
+    expect(at('2026-09-25T08:00:00Z')).toBe(opened.toISOString());
+    expect(at('2026-09-26T08:00:00Z')).toBe(now.toISOString());
+    expect(at('garbage')).toBe(now.toISOString());
   });
 });
 
