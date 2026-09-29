@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   getState: vi.fn<() => Promise<StateView>>(),
   clockIn: vi.fn<() => Promise<StateView>>(),
   clockOut: vi.fn<() => Promise<StateView>>(),
+  installUpdateNow: vi.fn<() => Promise<void>>(),
   startBreak: vi.fn<(kind: string, planned?: number | null) => Promise<StateView>>(),
   endBreak: vi.fn<() => Promise<StateView>>(),
   markBack: vi.fn<() => Promise<StateView>>(),
@@ -84,6 +85,8 @@ function view(over: Partial<StateView> = {}): StateView {
     ],
     offerTraining: true,
     plannedBreakMinutes: null,
+    appVersion: '0.1.4',
+    updateReady: null,
     ...over,
   };
 }
@@ -1334,6 +1337,26 @@ describe('break during a call asks first (owner request)', () => {
     expect(mocks.startBreak).not.toHaveBeenCalled();
     await user.click(within(ask).getByRole('button', { name: "Start break: I've left the call" }));
     expect(mocks.startBreak).toHaveBeenCalledWith('bio', 10);
+  });
+});
+
+describe('version and Restart to update (owner request)', () => {
+  it('shows the version, and Restart to update only while clocked out', async () => {
+    mocks.getState.mockResolvedValue(view({ updateReady: '0.1.5' }));
+    mocks.installUpdateNow.mockRejectedValueOnce('not_clocked_out');
+    const user = userEvent.setup();
+    render(<App />);
+    expect(await screen.findByLabelText('app-version')).toHaveTextContent('CloudPunch 0.1.4');
+    const banner = screen.getByRole('status', { name: 'update-ready' });
+    expect(banner).toHaveTextContent('CloudPunch 0.1.5 is ready.');
+    await user.click(within(banner).getByRole('button', { name: 'Restart to update' }));
+    expect(mocks.installUpdateNow).toHaveBeenCalledOnce();
+    expect(
+      await within(banner).findByText('Clock out first, then restart to update.'),
+    ).toBeInTheDocument();
+
+    act(() => pushState(view({ status: 'active', updateReady: '0.1.5' })));
+    expect(screen.queryByRole('status', { name: 'update-ready' })).not.toBeInTheDocument();
   });
 });
 

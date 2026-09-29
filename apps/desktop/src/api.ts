@@ -101,6 +101,10 @@ export interface StateView {
   offerTraining: boolean;
   /** The break in progress's "Back in?" answer, minutes. */
   plannedBreakMinutes: number | null;
+  /** This build's version. */
+  appVersion: string;
+  /** A downloaded update's version, waiting to install (ADR-0022). */
+  updateReady: string | null;
 }
 
 /** The window's close button was pressed (ADR-0013 §1). */
@@ -165,6 +169,8 @@ export const api = {
   ): Promise<AdminPolicy> =>
     invoke<AdminPolicy>('admin_policy_put', { scope, id, document, reason: reason || null }),
   clockOut: (): Promise<StateView> => invoke<StateView>('clock_out'),
+  /** "Restart to update" while clocked out; the app exits and reopens. */
+  installUpdateNow: (): Promise<void> => invoke<void>('install_update_now'),
   /** `plannedMinutes`: the "Back in?" answer; null = Not sure. */
   startBreak: (kind: BreakId, plannedMinutes: number | null = null): Promise<StateView> =>
     invoke<StateView>('start_break', { kind, plannedMinutes }),

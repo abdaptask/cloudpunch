@@ -87,6 +87,23 @@ That last point decides *when* an update may install.
    the token it already sends on every call. Nothing new is collected.
    The API logs the version, which also tells us who is on an old build.
 
+### Amendment: "Restart to update" (owner request, 2026-09-29)
+
+In the first live test, the update downloaded, but the owner had already
+clocked in that day, so it waited for the next morning, as designed.
+The owner asked to see the version and to update on demand:
+
+- **The version** shows at the bottom of the main window and in the tray
+  tooltip.
+- **"CloudPunch 0.1.x is ready. Restart to update"** shows while an
+  update is downloaded **and the person is clocked out**.
+  - It installs straight away, even after work today. The person chose
+    it, and clocked out a restart loses nothing: the day's timeline comes
+    back from the journal.
+  - Clocked in, the button isn't shown, and the command refuses
+    (`not_clocked_out`).
+- The automatic install (§2) is unchanged.
+
 ## Consequences
 
 - **Positive:**

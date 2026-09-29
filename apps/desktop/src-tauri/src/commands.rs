@@ -900,6 +900,12 @@ pub fn ack_long_shift(agent: State<'_, Arc<Agent>>) -> StateView {
     agent.ack_long_shift()
 }
 
+/// "Restart to update": only while clocked out (ADR-0022 amendment).
+#[tauri::command]
+pub fn install_update_now(app: AppHandle) -> Result<(), String> {
+    crate::updater::install_now(&app)
+}
+
 #[tauri::command]
 pub fn clock_out(agent: State<'_, Arc<Agent>>) -> CommandResult {
     run(&agent, Input::ClockOut)

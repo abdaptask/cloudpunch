@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Desktop 0.1.4: version on screen, Restart to update (2026-09-29)
+
+Owner request after the first live update test (the update downloaded,
+but waited for the next morning because the owner had clocked in that
+day).
+
+- **The version** ("CloudPunch 0.1.4") shows at the bottom of the main
+  window and in the tray tooltip.
+- **Restart to update:** while an update is downloaded and you're
+  clocked out, a bar says "CloudPunch 0.1.x is ready" with a button that
+  installs now. It isn't offered while clocked in, and the command
+  refuses then too. The automatic morning install is unchanged
+  (ADR-0022 amendment).
+- The tray tooltip shows "Update ready" as soon as the download finishes.
+
 ### Break types, screens: desktop 0.1.3 (ADR-0023 PR 3, 2026-09-29)
 
 - **Take a break** replaces the Bio / Meal buttons, in the window, the

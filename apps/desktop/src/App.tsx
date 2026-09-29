@@ -209,6 +209,8 @@ export function App(): JSX.Element {
   // "Take a break": type, "Back in?", and a word about a call in
   // progress (ADR-0023; owner request).
   const [breakPicker, setBreakPicker] = useState(false);
+  // Why "Restart to update" didn't restart, if it didn't.
+  const [updateError, setUpdateError] = useState<string | null>(null);
 
   // Past days (ADR-0016): null shows today, live.
   const [viewDate, setViewDate] = useState<string | null>(null);
@@ -451,6 +453,40 @@ export function App(): JSX.Element {
               }}
               onCancel={() => setBreakPicker(false)}
             />
+          )}
+          {/* "Restart to update" (owner request): only while clocked out. */}
+          {signedIn && view?.updateReady && view.status === 'clocked_out' && (
+            <section
+              role="status"
+              aria-label="update-ready"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 8,
+                padding: '8px 12px',
+                borderRadius: 10,
+                background: t.surfaceAlt,
+                fontSize: 13,
+              }}
+            >
+              <span>
+                {updateError === null
+                  ? `CloudPunch ${view.updateReady} is ready.`
+                  : updateError === 'not_clocked_out'
+                    ? 'Clock out first, then restart to update.'
+                    : "The update didn't start. It will install the next time you sign in."}
+              </span>
+              <Button
+                variant="chip"
+                onClick={() => {
+                  setUpdateError(null);
+                  api.installUpdateNow().catch((e: unknown) => setUpdateError(String(e)));
+                }}
+              >
+                Restart to update
+              </Button>
+            </section>
           )}
           {signedIn && !pastDate && view?.longShift && view.sessionStartedAt !== null && (
             <LongShiftBanner
@@ -751,6 +787,14 @@ export function App(): JSX.Element {
             </>
           )}
         </>
+      )}
+      {!showStrip && view && (
+        <p
+          aria-label="app-version"
+          style={{ margin: '4px 0 0', fontSize: 11, color: t.muted, textAlign: 'center' }}
+        >
+          CloudPunch {view.appVersion}
+        </p>
       )}
     </main>
   );
