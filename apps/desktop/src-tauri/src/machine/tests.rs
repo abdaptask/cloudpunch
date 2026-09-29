@@ -1351,3 +1351,125 @@ fn an_ordinary_prompt_still_ends_on_input() {
     let fx = tick(&mut core, 400, 400);
     assert_eq!(emitted(&fx), ["IDLE_ENDED"]);
 }
+
+// ── away check-in (ADR-0027) ──────────────────────────────────────
+
+/// Clocked in at t(0), tagged "on a phone call" at t(10) via the prompt
+/// path's reason (a direct tag keeps the tests short).
+fn away_on_phone() -> Core {
+    let mut core = clocked_in();
+    core.handle(
+        Input::MarkAway {
+            reason: AwayReason::PhoneCall,
+            note: None,
+        },
+        t(10),
+    )
+    .unwrap();
+    assert!(matches!(core.state(), CoreState::Away { .. }));
+    core
+}
+
+/// Someone using the computer from `from` to `to` (input every second).
+fn using(core: &mut Core, from: u64, to: u64) -> Vec<Effect> {
+    let mut fx = Vec::new();
+    for s in from..=to {
+        fx.extend(tick(core, s, s));
+    }
+    fx
+}
+
+fn mark_back_payload(fx: &[Effect]) -> Option<(SystemTime, serde_json::Value)> {
+    fx.iter().find_map(|e| match e {
+        Effect::Emit { event, at } if event.event_type() == "USER_MARK_BACK" => {
+            Some((*at, event.transition_payload()))
+        }
+        _ => None,
+    })
+}
+
+#[test]
+fn a_minute_of_use_while_away_asks_welcome_back() {
+    let mut core = away_on_phone();
+    // Quiet away: nothing.
+    for s in 11..600 {
+        tick(&mut core, 0, s);
+    }
+    assert_eq!(core.away_check(), None);
+    // Back at the computer from t(600): asks at about t(660).
+    let fx = using(&mut core, 600, 660);
+    let check = core.away_check().expect("asked");
+    assert_eq!(check.input_since, t(600));
+    assert!(fx.iter().any(|e| matches!(e, Effect::AwayCheckOpened(_))));
+    assert!(
+        matches!(core.state(), CoreState::Away { .. }),
+        "still away until answered"
+    );
+}
+
+#[test]
+fn im_back_ends_away_from_when_the_use_began() {
+    let mut core = away_on_phone();
+    using(&mut core, 600, 660);
+    let fx = core
+        .handle(Input::AnswerAwayCheck { back: true }, t(665))
+        .unwrap();
+    let (at, payload) = mark_back_payload(&fx).expect("marked back");
+    assert_eq!(at, t(600));
+    assert_eq!(payload, serde_json::json!({}), "the person's own answer");
+    assert_eq!(core.state(), CoreState::Active);
+    assert_eq!(core.away_check(), None);
+}
+
+#[test]
+fn unanswered_while_use_continues_ends_away_by_itself() {
+    let mut core = away_on_phone();
+    using(&mut core, 600, 660);
+    let fx = using(&mut core, 661, 660 + 120);
+    let (at, payload) = mark_back_payload(&fx).expect("ended on its own");
+    assert_eq!(at, t(600));
+    assert_eq!(payload, serde_json::json!({ "ended_by": "input" }));
+    assert_eq!(core.state(), CoreState::Active);
+}
+
+#[test]
+fn still_on_the_call_keeps_away_and_asks_again_after_30_minutes_of_use() {
+    let mut core = away_on_phone();
+    using(&mut core, 600, 660);
+    core.handle(Input::AnswerAwayCheck { back: false }, t(662))
+        .unwrap();
+    assert!(matches!(core.state(), CoreState::Away { .. }));
+    assert_eq!(core.away_check(), None);
+    using(&mut core, 663, 663 + 29 * 60);
+    assert_eq!(core.away_check(), None, "not inside 30 minutes");
+    using(&mut core, 664 + 29 * 60, 670 + 30 * 60);
+    assert!(core.away_check().is_some());
+}
+
+#[test]
+fn a_pause_drops_the_question_quietly() {
+    let mut core = away_on_phone();
+    using(&mut core, 600, 660);
+    assert!(core.away_check().is_some());
+    // Stops using it: after the 30 s gap the question closes, Away stays.
+    let mut fx = Vec::new();
+    for s in 661..700 {
+        fx.extend(tick(&mut core, 660, s));
+    }
+    assert_eq!(core.away_check(), None);
+    assert!(fx.contains(&Effect::AwayCheckClosed));
+    assert!(matches!(core.state(), CoreState::Away { .. }));
+}
+
+#[test]
+fn a_call_starting_while_away_ends_away_and_tracks_the_call() {
+    let mut core = away_on_phone();
+    let fx = core
+        .handle(Input::MediaInUse(Some(CallType::Teams)), t(900))
+        .unwrap();
+    let (at, payload) = mark_back_payload(&fx).expect("ended by the call");
+    assert_eq!(at, t(900));
+    assert_eq!(payload, serde_json::json!({ "ended_by": "call" }));
+    assert_eq!(core.state(), CoreState::OnCall);
+    assert_eq!(core.call_type(), Some(CallType::Teams));
+}

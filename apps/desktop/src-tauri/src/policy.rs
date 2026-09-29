@@ -202,6 +202,8 @@ pub struct Away {
     pub require_note: RequireNote,
     /// Offer Training as an Away reason (ADR-0023 §1).
     pub offer_training: bool,
+    /// "Still away?" after this long (ADR-0027 §3).
+    pub check_after_minutes: u64,
 }
 
 impl Default for Away {
@@ -209,6 +211,7 @@ impl Default for Away {
         Self {
             require_note: RequireNote::default(),
             offer_training: true,
+            check_after_minutes: 60,
         }
     }
 }
@@ -394,6 +397,7 @@ impl PolicyDoc {
             rest_cap: cap(&self.breaks.rest).unwrap_or(d.rest_cap),
             personal_cap: cap(&self.breaks.personal).unwrap_or(d.personal_cap),
             other_cap: cap(&self.breaks.other),
+            away_check: Duration::from_secs(self.away.check_after_minutes.max(1) * 60),
             long_shift: Duration::from_secs(self.reminders.long_shift_hours * 3600),
             long_shift_repeat: Duration::from_secs(self.reminders.long_shift_repeat_hours * 3600),
             quiet_start: minutes_of_day(&self.notifications.quiet_hours_start)

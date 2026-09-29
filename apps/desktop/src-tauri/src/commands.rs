@@ -1005,6 +1005,12 @@ pub fn start_break(
     )
 }
 
+/// The answer to "Welcome back?" while Away (ADR-0027).
+#[tauri::command]
+pub fn answer_away_check(agent: State<'_, Arc<Agent>>, back: bool) -> CommandResult {
+    run(&agent, Input::AnswerAwayCheck { back })
+}
+
 /// "I'm back" after an unanswered presence check (ADR-0024).
 #[tauri::command]
 pub fn confirm_presence(agent: State<'_, Arc<Agent>>) -> CommandResult {

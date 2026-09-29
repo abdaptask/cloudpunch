@@ -47,6 +47,8 @@ export interface DaySegment {
   plannedMinutes?: number;
   /** A presence check's prompt and its idle (ADR-0024). */
   presenceCheck?: 'continuous' | 'periodic';
+  /** An Away that ended on its own: back at the computer, or a call (ADR-0027). */
+  endedBy?: 'input' | 'call';
 }
 
 export interface BuiltSession {
@@ -151,6 +153,7 @@ export function buildSession(
       offsetMinutes: number;
       plannedMinutes?: number;
       presenceCheck?: 'continuous' | 'periodic';
+      endedBy?: 'input' | 'call';
     } | null;
   } = {
     seg: null,
@@ -216,6 +219,8 @@ export function buildSession(
     state = next;
     if (kind === (cur.seg?.kind ?? null)) continue;
     const at = evt === clockInEvt ? clockIn : evt.clientTs;
+    const endedBy = evt.eventType === 'USER_MARK_BACK' ? evt.payload['ended_by'] : null;
+    if (cur.seg && (endedBy === 'input' || endedBy === 'call')) cur.seg.endedBy = endedBy;
     closeAt(at);
     const planned = evt.eventType === 'USER_START_BREAK' ? evt.payload['planned_minutes'] : null;
     if (kind) {

@@ -127,6 +127,28 @@ toward paid time.
 You can adjust these defaults through your admin if the settings do
 not fit your team's work.
 
+## When you're marked away
+
+When you tag yourself away (on a phone call, working away, in a
+meeting, in training), CloudPunch checks in:
+
+- **Back at the computer:** if you use the keyboard or mouse for about
+  a minute, it asks **"Welcome back. Still on your phone call?"**.
+  - **I'm back** ends the away from when you started using the
+    computer again.
+  - **Still on the call** keeps it.
+  - If you don't answer and keep working, the away ends on its own after
+    2 minutes.
+- **A Teams or Zoom call starts:** you're shown as on that call instead
+  of away.
+- **A long away:** after an hour (your HR team can change this), a
+  notification asks whether you're still away, and again every 30
+  minutes. Nothing changes if you don't answer.
+
+Your manager sees aways of an hour or more, and how each one ended.
+This uses the same signals as above: how long since your last input,
+and whether the microphone is in use. Nothing else.
+
 ## The presence check (only if your HR team turns it on)
 
 Some people keep an app "active" with a weight on a key or a mouse

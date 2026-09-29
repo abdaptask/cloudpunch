@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Away check-in: back at the computer, calls, long aways (ADR-0027, in desktop 0.1.6)
+
+Owner report: Roshni showed "On a phone call" for 2 h 6 min after
+answering the idle prompt. While Away, CloudPunch had no end signal, and
+it ignored both typing and a Teams call starting.
+
+- **Back at the computer:** about a minute of keyboard or mouse use
+  while Away asks **"Welcome back. Still on your phone call?"**.
+  - **I'm back** ends the Away from when the typing began.
+  - **Still on the call** asks again after 30 more minutes of use.
+  - Unanswered for 2 minutes while typing continues, the Away ends on its
+    own (`USER_MARK_BACK.ended_by: input`).
+- **A call starting while Away** ends it and shows the call (`ended_by:
+  call`).
+- **A long Away:** a "Still on your phone call?" notification after
+  `away.check_after_minutes` (default 60), then every 30 minutes.
+- **Records:** the day view says how an Away ended, and Team →
+  Exceptions lists long aways.
+- **Settings:** Away → "Ask 'Still away?' after (minutes)".
+- **The privacy notice** has a section on it.
+
 ### Reporting lines warn about a manager without the Manager role (desktop 0.1.6)
 
 - **The problem (owner request):** picking someone as a manager didn't

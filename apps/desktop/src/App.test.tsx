@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   clockOut: vi.fn<() => Promise<StateView>>(),
   installUpdateNow: vi.fn<() => Promise<void>>(),
   confirmPresence: vi.fn<() => Promise<StateView>>(),
+  answerAwayCheck: vi.fn<(back: boolean) => Promise<StateView>>(),
   startBreak: vi.fn<(kind: string, planned?: number | null) => Promise<StateView>>(),
   endBreak: vi.fn<() => Promise<StateView>>(),
   markBack: vi.fn<() => Promise<StateView>>(),
@@ -95,6 +96,7 @@ function view(over: Partial<StateView> = {}): StateView {
     appVersion: '0.1.4',
     updateReady: null,
     presenceCheck: null,
+    awayCheck: null,
     ...over,
   };
 }
@@ -1608,7 +1610,7 @@ describe('Settings for HR and Administrators (ADR-0018 §5)', () => {
       max_minutes: 15,
     });
     expect(sent.break['personal']?.['enabled']).toBe(false);
-    expect(sent.away).toEqual({ offer_training: false });
+    expect(sent.away).toEqual({ offer_training: false, check_after_minutes: 60 });
 
     for (const id of ['bio', 'meal', 'rest']) {
       await user.click(within(settings).getByLabelText(`${id}-enabled`));
@@ -2034,5 +2036,42 @@ describe('reporting lines warn about a manager without the Manager role', () => 
     );
     expect(await within(lines).findByText(/now has the Manager role/)).toBeInTheDocument();
     expect(within(lines).queryByRole('note')).not.toBeInTheDocument();
+  });
+});
+
+describe('Away check-in (ADR-0027)', () => {
+  it('asks Welcome back in the reason words; I am back answers yes', async () => {
+    mocks.getState.mockResolvedValue(
+      view({
+        status: 'away',
+        awayReason: 'phone_call',
+        awayCheck: { inputSince: Date.now() - 60_000, deadline: Date.now() + 120_000 },
+      }),
+    );
+    mocks.answerAwayCheck.mockResolvedValue(view({ status: 'active' }));
+    const user = userEvent.setup();
+    render(<App />);
+    const dialog = await screen.findByRole('dialog', { name: 'away-check' });
+    expect(dialog).toHaveTextContent('Welcome back. Still on your phone call?');
+    expect(dialog).toHaveTextContent('marks you back from then');
+    await user.click(within(dialog).getByRole('button', { name: "I'm back" }));
+    expect(mocks.answerAwayCheck).toHaveBeenCalledWith(true);
+  });
+
+  it('Still on the call keeps Away', async () => {
+    mocks.getState.mockResolvedValue(
+      view({
+        status: 'away',
+        awayReason: 'meeting',
+        awayCheck: { inputSince: Date.now() - 60_000, deadline: Date.now() + 120_000 },
+      }),
+    );
+    mocks.answerAwayCheck.mockResolvedValue(view({ status: 'away', awayReason: 'meeting' }));
+    const user = userEvent.setup();
+    render(<App />);
+    const dialog = await screen.findByRole('dialog', { name: 'away-check' });
+    expect(dialog).toHaveTextContent('Still in your meeting?');
+    await user.click(within(dialog).getByRole('button', { name: 'Still in the meeting' }));
+    expect(mocks.answerAwayCheck).toHaveBeenCalledWith(false);
   });
 });

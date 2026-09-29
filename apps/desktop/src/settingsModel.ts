@@ -27,6 +27,8 @@ export interface SettingsForm {
   breaks: BreakForm[];
   /** away.offer_training. */
   offerTraining: boolean;
+  /** away.check_after_minutes (ADR-0027). */
+  awayCheckMinutes: number;
 }
 
 export type BreakId = 'bio' | 'meal' | 'rest' | 'personal' | 'other';
@@ -116,6 +118,7 @@ export function formFrom(policy: Doc): SettingsForm {
       typeof obj(policy['away'])['offer_training'] === 'boolean'
         ? (obj(policy['away'])['offer_training'] as boolean)
         : true,
+    awayCheckMinutes: num(obj(policy['away'])['check_after_minutes'], 60),
   };
 }
 
@@ -151,6 +154,7 @@ export function formIssues(f: SettingsForm): Partial<Record<keyof SettingsForm, 
   }
   if (!whole(f.longDayHours, 4, 16)) out.longDayHours = 'Between 4 and 16 hours';
   if (!whole(f.longShiftHours, 4, 16)) out.longShiftHours = 'Between 4 and 16 hours';
+  if (!whole(f.awayCheckMinutes, 15, 240)) out.awayCheckMinutes = 'Between 15 and 240 minutes';
   if (Object.keys(breakIssues(f)).length > 0) out.breaks = 'Fix the break types marked below';
   else if (!f.breaks.some((b) => b.enabled)) out.breaks = 'Keep at least one break type on';
   return out;
@@ -195,6 +199,10 @@ export function overrideWith(current: Doc | null, f: SettingsForm): Doc {
         },
       ]),
     ]),
-    away: { ...obj(base['away']), offer_training: f.offerTraining },
+    away: {
+      ...obj(base['away']),
+      offer_training: f.offerTraining,
+      check_after_minutes: f.awayCheckMinutes,
+    },
   };
 }

@@ -178,6 +178,43 @@ impl IdleTrigger {
 /// At most one presence check this often (ADR-0024 §2).
 pub const PRESENCE_COOLDOWN: Duration = Duration::from_secs(30 * 60);
 
+/// ADR-0027 §1: this much keyboard or mouse use while Away asks
+/// "Welcome back?".
+pub const AWAY_CHECK_AFTER: Duration = Duration::from_secs(60);
+/// After "Still away", ask again only after this much more use.
+pub const AWAY_CHECK_AGAIN: Duration = Duration::from_secs(30 * 60);
+/// A pause this long ends a run of use.
+pub const AWAY_CHECK_GAP: Duration = Duration::from_secs(30);
+/// Unanswered this long while use continues: back at the computer.
+pub const AWAY_CHECK_WAIT: Duration = Duration::from_secs(120);
+
+/// How an Away ended on its own (ADR-0027), `USER_MARK_BACK.ended_by`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BackReason {
+    /// Used the computer and didn't answer "Welcome back?".
+    Input,
+    /// A call started on the computer.
+    Call,
+}
+
+impl BackReason {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            BackReason::Input => "input",
+            BackReason::Call => "call",
+        }
+    }
+}
+
+/// "Welcome back. Still on your phone call?" (ADR-0027 §1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AwayCheck {
+    /// When the use began: Away ends from here.
+    pub input_since: SystemTime,
+    /// Unanswered by then (and still in use): back at the computer.
+    pub deadline: SystemTime,
+}
+
 /// The person's account of an idle stretch (ADR-0018 §2). An
 /// annotation for the manager; it never turns idle into worked time.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -351,6 +388,11 @@ pub enum Input {
     /// person acting on the app, which ends the idle. A propped key
     /// cannot.
     ConfirmPresence,
+    /// The answer to "Welcome back?" while Away (ADR-0027): `back`
+    /// ends Away from when the use began; otherwise it stays.
+    AnswerAwayCheck {
+        back: bool,
+    },
     /// Raw mic-OR-camera state from the watcher, before debounce:
     /// `Some(kind of call)` while in use, `None` when not (ADR-0012).
     MediaInUse(Option<CallType>),
@@ -377,7 +419,10 @@ pub enum CoreEvent {
         planned_minutes: Option<u8>,
     },
     UserEndBreak,
-    UserMarkBack,
+    /// `ended_by`: set when Away ended on its own (ADR-0027).
+    UserMarkBack {
+        ended_by: Option<BackReason>,
+    },
     UserMarkAway {
         reason: AwayReason,
         note: Option<String>,
@@ -421,7 +466,7 @@ impl CoreEvent {
             CoreEvent::UserClockOut => "USER_CLOCK_OUT",
             CoreEvent::UserStartBreak { .. } => "USER_START_BREAK",
             CoreEvent::UserEndBreak => "USER_END_BREAK",
-            CoreEvent::UserMarkBack => "USER_MARK_BACK",
+            CoreEvent::UserMarkBack { .. } => "USER_MARK_BACK",
             CoreEvent::UserMarkAway { .. } => "USER_MARK_AWAY",
             CoreEvent::UserPromptResponse { .. } => "USER_PROMPT_RESPONSE",
             CoreEvent::InputIdle5m { .. } => "INPUT_IDLE_5M",
@@ -458,6 +503,7 @@ impl CoreEvent {
             CoreEvent::InputIdle5m {
                 trigger: IdleTrigger::InputPattern(p),
             } => json!({ "trigger": "input_pattern", "pattern": p.as_str() }),
+            CoreEvent::UserMarkBack { ended_by: Some(r) } => json!({ "ended_by": r.as_str() }),
             CoreEvent::InputIdle5m { trigger } => json!({ "trigger": trigger.as_str() }),
             CoreEvent::UserClockInFrom { started_at } => json!({
                 "start_source": "os_sign_in",
@@ -498,6 +544,11 @@ pub enum Effect {
     StateChanged(CoreState),
     /// Idle ended: ask "what were you doing?" (ADR-0018 §2).
     IdleReturned(IdleStretch),
+    /// "Welcome back?" opened while Away (ADR-0027): bring the window
+    /// forward.
+    AwayCheckOpened(AwayCheck),
+    /// The question went away (answered, typing stopped, or Away ended).
+    AwayCheckClosed,
 }
 
 /// Why an input was refused. The core's state is unchanged.
@@ -535,6 +586,12 @@ pub struct Core {
     presence: Option<pattern::InputPattern>,
     /// When the last presence check opened (the cooldown).
     last_presence_check: Option<SystemTime>,
+    /// ADR-0027: when the current Away began, the run of use since
+    /// then, the open question, and how much use asks it.
+    away_since: SystemTime,
+    back_run: Option<SystemTime>,
+    away_check: Option<AwayCheck>,
+    away_check_after: Duration,
 }
 
 impl Core {
@@ -550,7 +607,16 @@ impl Core {
             pattern: pattern::PatternDetector::default(),
             presence: None,
             last_presence_check: None,
+            away_since: now,
+            back_run: None,
+            away_check: None,
+            away_check_after: AWAY_CHECK_AFTER,
         }
+    }
+
+    /// "Welcome back?" while Away, if it is open (ADR-0027).
+    pub fn away_check(&self) -> Option<AwayCheck> {
+        self.away_check
     }
 
     /// The pattern behind the prompt or idle in progress, if it is a
@@ -646,7 +712,22 @@ impl Core {
                 self.apply(CoreEvent::UserEndBreak, now, &mut fx)?;
             }
             Input::MarkBack => {
-                self.apply(CoreEvent::UserMarkBack, now, &mut fx)?;
+                self.apply(CoreEvent::UserMarkBack { ended_by: None }, now, &mut fx)?;
+            }
+            Input::AnswerAwayCheck { back } => {
+                let Some(check) = self.away_check else {
+                    return Err(Rejected::InvalidTransition);
+                };
+                if back {
+                    // From when they started using the computer again.
+                    let at = check.input_since.min(now);
+                    self.apply(CoreEvent::UserMarkBack { ended_by: None }, at, &mut fx)?;
+                } else {
+                    self.away_check = None;
+                    self.back_run = None;
+                    self.away_check_after = AWAY_CHECK_AGAIN;
+                    fx.push(Effect::AwayCheckClosed);
+                }
             }
             Input::MarkAway { reason, note } => {
                 let required = self.cfg.away_note_required.contains(&reason);
@@ -779,6 +860,16 @@ impl Core {
             // An explanation can't be recorded once the session closed.
             self.idle_return = None;
         }
+        let was_away = matches!(self.state, CoreState::Away { .. });
+        let is_away = matches!(next, CoreState::Away { .. });
+        if is_away && !was_away {
+            self.away_since = now;
+            self.back_run = None;
+            self.away_check_after = AWAY_CHECK_AFTER;
+        }
+        if !is_away && self.away_check.take().is_some() {
+            fx.push(Effect::AwayCheckClosed);
+        }
         match next {
             CoreState::Active => self.enter_active(now, fx),
             CoreState::IdlePending { deadline, .. } => {
@@ -846,6 +937,15 @@ impl Core {
 
     fn media_edge(&mut self, now: SystemTime, fx: &mut Vec<Effect>) {
         if !self.cfg.suppress_prompt_when_media_active {
+            return;
+        }
+        // ADR-0027 §2: on a call at the computer, not away. Ending Away
+        // re-enters ACTIVE, which goes straight to ON_CALL.
+        if matches!(self.state, CoreState::Away { .. }) && self.media.is_some() {
+            let event = CoreEvent::UserMarkBack {
+                ended_by: Some(BackReason::Call),
+            };
+            let _ = self.apply(event, now, fx);
             return;
         }
         let event = CoreEvent::MediaDeviceState {
@@ -945,12 +1045,47 @@ impl Core {
                 }
             }
             CoreState::Idle { since } => self.idle_tick(since, last_input_at, now, fx),
+            CoreState::Away { .. } => self.away_tick(last_input_at, now, fx),
             _ => {}
         }
     }
 }
 
 impl Core {
+    /// ADR-0027 §1: about a minute of use while Away asks "Welcome
+    /// back?"; unanswered while use continues, Away ends from when the
+    /// use began.
+    fn away_tick(&mut self, last_input_at: SystemTime, now: SystemTime, fx: &mut Vec<Effect>) {
+        let in_use =
+            last_input_at > self.away_since && elapsed(last_input_at, now) < AWAY_CHECK_GAP;
+        if !in_use {
+            self.back_run = None;
+            if self.away_check.take().is_some() {
+                fx.push(Effect::AwayCheckClosed);
+            }
+            return;
+        }
+        let run = *self.back_run.get_or_insert(last_input_at);
+        match self.away_check {
+            Some(check) if now >= check.deadline => {
+                let event = CoreEvent::UserMarkBack {
+                    ended_by: Some(BackReason::Input),
+                };
+                let _ = self.apply(event, check.input_since.min(now), fx);
+            }
+            Some(_) => {}
+            None if elapsed(run, now) >= self.away_check_after => {
+                let check = AwayCheck {
+                    input_since: run,
+                    deadline: now + AWAY_CHECK_WAIT,
+                };
+                self.away_check = Some(check);
+                fx.push(Effect::AwayCheckOpened(check));
+            }
+            None => {}
+        }
+    }
+
     /// ADR-0024: open a presence check if the input looks propped or
     /// jiggled (and it is on, and none opened in the last 30 minutes).
     fn presence_check(

@@ -90,6 +90,15 @@ export function exceptionText(e: TeamException): { text: string; said: string | 
               : null,
           };
     }
+    case 'long_away': {
+      const how =
+        e.ended_by === 'input'
+          ? ' · ended when they were back at the computer'
+          : e.ended_by === 'call'
+            ? ' · ended when a call started'
+            : '';
+      return { text: `${label(e.segment)} ${hm(len)} from ${clock(e.at)}${how}`, said: null };
+    }
     case 'reconstructed':
       return {
         text: `Session from ${clock(e.at)} recovered after the app closed unexpectedly`,
@@ -122,6 +131,11 @@ export function dayRows(day: TeamDay): DayRow[] {
       if (g.planned_minutes !== undefined) {
         late = took > g.planned_minutes;
         detail = `Planned ${hm(g.planned_minutes)} · took ${hm(took)}`;
+      } else if (g.ended_by) {
+        detail =
+          g.ended_by === 'input'
+            ? 'Ended on its own: back at the computer'
+            : 'Ended on its own: a call started';
       } else if (g.presence_check && g.kind === 'prompt') {
         detail = 'Presence check · answered';
       } else if (g.kind === 'idle') {

@@ -284,6 +284,13 @@ export function SettingsScreen({
               on={form.offerTraining}
               onChange={(on) => set('offerTraining', on)}
             />
+            <NumberField
+              label="Ask “Still away?” after (minutes)"
+              name="away-check"
+              value={form.awayCheckMinutes}
+              issue={issues.awayCheckMinutes}
+              onChange={(v) => set('awayCheckMinutes', v)}
+            />
           </Group>
           <Field label="Why (kept in the audit log, optional)">
             <input

@@ -218,6 +218,14 @@ with each reason.
 **Effect:** Which away-reasons count toward payable time. `other` is
 excluded by default.
 
+**Setting:** `away.check_after_minutes`
+**Default:** `60` (range 15–240)
+**Effect:** after this long away with no activity, CloudPunch asks
+"Still on your phone call?" (in the reason's words), then every 30
+minutes. Team → Exceptions lists aways at least this long (ADR-0027).
+About a minute of keyboard or mouse use while away asks "Welcome back?"
+whatever this is set to.
+
 **Setting:** `away.offer_training`
 **Default:** `true`
 **Effect:** Whether the app offers Training as an Away reason
