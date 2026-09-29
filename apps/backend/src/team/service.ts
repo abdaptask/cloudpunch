@@ -132,7 +132,8 @@ export type ExceptionKind =
   | 'break_over_limit'
   | 'long_shift'
   | 'auto_clock_out'
-  | 'reconstructed';
+  | 'reconstructed'
+  | 'presence_check';
 
 export interface TeamException {
   employee_id: string;
@@ -149,6 +150,9 @@ export interface TeamException {
   segment: string | null;
   /** Idle: the person's own account (ADR-0018 §2). */
   explanation: { explanation: string; note: string | null } | null;
+  /** Presence check (ADR-0024): the pattern, and whether it was answered in time. */
+  pattern?: 'continuous' | 'periodic';
+  answered?: boolean;
 }
 
 /** Idle this long or longer is an exception (ADR-0025 §3). */
@@ -198,9 +202,28 @@ export function exceptionsIn(
           explanation: null,
         });
       }
-      for (const g of s.segments) {
+      for (const [i, g] of s.segments.entries()) {
         const len = mins(g.endedAt.getTime() - g.startedAt.getTime());
         const at = g.startedAt.toISOString();
+        // A check shows as its prompt if answered; unanswered, its idle
+        // (dated from when the pattern began) replaces the prompt.
+        if (g.presenceCheck && (g.kind === 'prompt' || g.kind === 'idle')) {
+          const answered = g.kind === 'prompt';
+          if (!(answered && s.segments[i + 1]?.presenceCheck)) {
+            out.push({
+              ...base,
+              date: day.date,
+              kind: 'presence_check',
+              at,
+              minutes: answered ? null : len,
+              over_minutes: null,
+              segment: g.kind,
+              explanation: answered ? null : (g.explanation ?? null),
+              pattern: g.presenceCheck,
+              answered,
+            });
+          }
+        }
         if (g.kind === 'idle' && len >= LONG_IDLE_MIN) {
           out.push({
             ...base,

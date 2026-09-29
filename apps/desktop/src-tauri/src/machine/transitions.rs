@@ -127,7 +127,9 @@ pub fn next_payroll_state(
                 Some(t) => t.as_str()?,
             };
             match (trigger, current) {
-                ("input_idle", Active) | ("silent_call", OnCall) => Some(IdlePending),
+                ("input_idle", Active) | ("silent_call", OnCall) | ("input_pattern", Active) => {
+                    Some(IdlePending)
+                }
                 _ => None,
             }
         }

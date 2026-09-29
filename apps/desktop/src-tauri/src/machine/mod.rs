@@ -39,6 +39,7 @@
 //! break-cap nudges are also deferred.
 
 pub mod driver;
+pub mod pattern;
 pub mod sink;
 pub mod transitions;
 
@@ -159,6 +160,9 @@ pub enum IdleTrigger {
     InputIdle,
     /// No input for `max_silent_call` while `ON_CALL`.
     SilentCall,
+    /// Input without people's pauses, or in a machine's rhythm, while
+    /// `ACTIVE`: a presence check (ADR-0024).
+    InputPattern(pattern::InputPattern),
 }
 
 impl IdleTrigger {
@@ -166,9 +170,13 @@ impl IdleTrigger {
         match self {
             IdleTrigger::InputIdle => "input_idle",
             IdleTrigger::SilentCall => "silent_call",
+            IdleTrigger::InputPattern(_) => "input_pattern",
         }
     }
 }
+
+/// At most one presence check this often (ADR-0024 §2).
+pub const PRESENCE_COOLDOWN: Duration = Duration::from_secs(30 * 60);
 
 /// The person's account of an idle stretch (ADR-0018 §2). An
 /// annotation for the manager; it never turns idle into worked time.
@@ -244,6 +252,8 @@ pub struct CoreConfig {
     pub prompt_options: Vec<PromptResponse>,
     /// Responses whose note is mandatory (`away.require_note`).
     pub note_required_for: Vec<PromptResponse>,
+    /// `idle.input_pattern_check` (ADR-0024); `None` = off.
+    pub input_pattern: Option<pattern::PatternConfig>,
 }
 
 impl Default for CoreConfig {
@@ -258,6 +268,7 @@ impl Default for CoreConfig {
             prompt_options: PromptResponse::ALL.to_vec(),
             note_required_for: vec![PromptResponse::WorkingAway],
             away_note_required: vec![AwayReason::WorkingAway],
+            input_pattern: None,
         }
     }
 }
@@ -336,6 +347,10 @@ pub enum Input {
     },
     /// Skip that question; the stretch stays unexplained idle.
     DismissIdleReturn,
+    /// "I'm back" after an unanswered presence check (ADR-0024): a
+    /// person acting on the app, which ends the idle. A propped key
+    /// cannot.
+    ConfirmPresence,
     /// Raw mic-OR-camera state from the watcher, before debounce:
     /// `Some(kind of call)` while in use, `None` when not (ADR-0012).
     MediaInUse(Option<CallType>),
@@ -440,6 +455,9 @@ impl CoreEvent {
             } => json!({ "in_use": true, "call_type": t.as_str() }),
             CoreEvent::MediaDeviceState { in_use, .. } => json!({ "in_use": in_use }),
             CoreEvent::UserMarkAway { reason, .. } => json!({ "away_reason": reason.as_str() }),
+            CoreEvent::InputIdle5m {
+                trigger: IdleTrigger::InputPattern(p),
+            } => json!({ "trigger": "input_pattern", "pattern": p.as_str() }),
             CoreEvent::InputIdle5m { trigger } => json!({ "trigger": trigger.as_str() }),
             CoreEvent::UserClockInFrom { started_at } => json!({
                 "start_source": "os_sign_in",
@@ -511,6 +529,12 @@ pub struct Core {
     on_call_since: SystemTime,
     /// The idle stretch waiting for an explanation, if any.
     idle_return: Option<IdleStretch>,
+    /// Watches input timing for propped keys and jigglers (ADR-0024).
+    pattern: pattern::PatternDetector,
+    /// The prompt or idle in progress came from a presence check.
+    presence: Option<pattern::InputPattern>,
+    /// When the last presence check opened (the cooldown).
+    last_presence_check: Option<SystemTime>,
 }
 
 impl Core {
@@ -523,7 +547,16 @@ impl Core {
             media_off_since: None,
             on_call_since: now,
             idle_return: None,
+            pattern: pattern::PatternDetector::default(),
+            presence: None,
+            last_presence_check: None,
         }
+    }
+
+    /// The pattern behind the prompt or idle in progress, if it is a
+    /// presence check (ADR-0024).
+    pub fn presence(&self) -> Option<pattern::InputPattern> {
+        self.presence
     }
 
     /// The idle stretch waiting for "what were you doing?", if any.
@@ -650,8 +683,17 @@ impl Core {
                 self.idle_return = None;
             }
             Input::DismissIdleReturn => self.idle_return = None,
+            // Acting on the app already ended the idle above.
+            Input::ConfirmPresence => {}
             Input::MediaInUse(raw) => self.media_raw(raw, now, &mut fx),
             Input::Tick { last_input_at } => self.tick(last_input_at, now, &mut fx),
+        }
+        // A presence check lasts only while its prompt or idle does.
+        if !matches!(
+            self.state,
+            CoreState::IdlePending { .. } | CoreState::Idle { .. }
+        ) {
+            self.presence = None;
         }
         Ok(fx)
     }
@@ -839,8 +881,14 @@ impl Core {
             }
         }
 
+        if self.state != CoreState::Active {
+            self.pattern.reset();
+        }
         match self.state {
             CoreState::Active => {
+                if self.presence_check(last_input_at, now, fx) {
+                    return;
+                }
                 let since = last_input_at.max(self.idle_armed_at);
                 if elapsed(since, now) >= self.cfg.idle_threshold {
                     let event = CoreEvent::InputIdle5m {
@@ -870,7 +918,9 @@ impl Core {
                 idle_since,
             } => {
                 let mut deadline = deadline;
-                if last_input_at > shown_at {
+                // Input answers an ordinary prompt's countdown, not a
+                // presence check: a propped key would keep it open.
+                if last_input_at > shown_at && self.presence.is_none() {
                     let pushed = last_input_at + self.cfg.grace;
                     if pushed > deadline {
                         deadline = pushed;
@@ -884,7 +934,12 @@ impl Core {
                 }
                 if now >= deadline {
                     // ADR-0018 §1: log idle from the last input, not clock out.
-                    let since = last_input_at.max(idle_since).min(now);
+                    // A presence check's idle runs from when the pattern began.
+                    let since = if self.presence.is_some() {
+                        idle_since.min(now)
+                    } else {
+                        last_input_at.max(idle_since).min(now)
+                    };
                     let _ = self.apply(CoreEvent::IdleStarted { since }, now, fx);
                     self.idle_tick(since, last_input_at, now, fx);
                 }
@@ -896,6 +951,39 @@ impl Core {
 }
 
 impl Core {
+    /// ADR-0024: open a presence check if the input looks propped or
+    /// jiggled (and it is on, and none opened in the last 30 minutes).
+    fn presence_check(
+        &mut self,
+        last_input_at: SystemTime,
+        now: SystemTime,
+        fx: &mut Vec<Effect>,
+    ) -> bool {
+        let Some(cfg) = self.cfg.input_pattern else {
+            return false;
+        };
+        let Some((p, since)) = self.pattern.observe(&cfg, last_input_at, now) else {
+            return false;
+        };
+        if self
+            .last_presence_check
+            .is_some_and(|t| elapsed(t, now) < PRESENCE_COOLDOWN)
+        {
+            return false;
+        }
+        let event = CoreEvent::InputIdle5m {
+            trigger: IdleTrigger::InputPattern(p),
+        };
+        if self.apply(event, now, fx).is_err() {
+            return false;
+        }
+        self.set_idle_since(since.max(self.idle_armed_at));
+        self.presence = Some(p);
+        self.last_presence_check = Some(now);
+        self.pattern.reset();
+        true
+    }
+
     /// Where idle starts if the prompt that just opened goes unanswered.
     fn set_idle_since(&mut self, since: SystemTime) {
         if let CoreState::IdlePending {
@@ -920,7 +1008,9 @@ impl Core {
         now: SystemTime,
         fx: &mut Vec<Effect>,
     ) {
-        if last_input_at > since {
+        // After a presence check only the person ends it (ConfirmPresence):
+        // the pattern's own input would.
+        if last_input_at > since && self.presence.is_none() {
             self.end_idle(since, last_input_at.min(now), fx);
             return;
         }

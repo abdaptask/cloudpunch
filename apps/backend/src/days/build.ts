@@ -45,6 +45,8 @@ export interface DaySegment {
   explanation?: { explanation: string; note: string | null };
   /** A break's "Back in?" answer, in minutes (ADR-0023 §2). */
   plannedMinutes?: number;
+  /** A presence check's prompt and its idle (ADR-0024). */
+  presenceCheck?: 'continuous' | 'periodic';
 }
 
 export interface BuiltSession {
@@ -148,10 +150,13 @@ export function buildSession(
       startedAt: Date;
       offsetMinutes: number;
       plannedMinutes?: number;
+      presenceCheck?: 'continuous' | 'periodic';
     } | null;
   } = {
     seg: null,
   };
+  // The prompt and idle in progress came from a presence check.
+  let presence: 'continuous' | 'periodic' | null = null;
   const closeAt = (at: Date): void => {
     const seg = cur.seg;
     if (seg && at > seg.startedAt) segments.push({ ...seg, endedAt: at });
@@ -190,10 +195,24 @@ export function buildSession(
       const last = segments[segments.length - 1];
       if (last && last.endedAt > since) last.endedAt = since;
       state = next;
-      cur.seg = { kind: 'idle', startedAt: since, offsetMinutes: evt.utcOffsetMinutes };
+      cur.seg = {
+        kind: 'idle',
+        startedAt: since,
+        offsetMinutes: evt.utcOffsetMinutes,
+        ...(presence ? { presenceCheck: presence } : {}),
+      };
       continue;
     }
     const kind = kindAfter(next, evt, cur.seg?.kind ?? null);
+    if (evt.eventType === 'INPUT_IDLE_5M') {
+      const p = evt.payload['pattern'];
+      presence =
+        evt.payload['trigger'] === 'input_pattern' && (p === 'continuous' || p === 'periodic')
+          ? p
+          : null;
+    } else if (next !== 'IDLE_PENDING' && next !== 'IDLE') {
+      presence = null;
+    }
     state = next;
     if (kind === (cur.seg?.kind ?? null)) continue;
     const at = evt === clockInEvt ? clockIn : evt.clientTs;
@@ -205,6 +224,7 @@ export function buildSession(
         startedAt: at,
         offsetMinutes: evt.utcOffsetMinutes,
         ...(typeof planned === 'number' ? { plannedMinutes: planned } : {}),
+        ...(presence && kind === 'prompt' ? { presenceCheck: presence } : {}),
       };
     }
   }

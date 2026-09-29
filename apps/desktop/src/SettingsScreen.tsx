@@ -188,6 +188,20 @@ export function SettingsScreen({
                 onChange={(v) => set('idleCapMinutes', v)}
               />
             )}
+            <Toggle
+              label="Presence check for propped keys and mouse jigglers"
+              name="presence-check"
+              on={form.presenceCheck}
+              onChange={(on) => set('presenceCheck', on)}
+            />
+            {form.presenceCheck && (
+              <p style={{ margin: 0, fontSize: 12, lineHeight: 1.4, color: t.muted }}>
+                After 20 minutes of input with no pauses, or input in a machine&apos;s fixed rhythm,
+                CloudPunch asks &ldquo;Are you there?&rdquo;. Unanswered, the time is idle and the
+                manager sees it. Only input timing is used, never keys. Tell employees before
+                turning this on (privacy notice).
+              </p>
+            )}
           </Group>
           <Group title="Clock-in popup" t={t}>
             <Toggle

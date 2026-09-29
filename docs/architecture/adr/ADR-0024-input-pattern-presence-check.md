@@ -85,6 +85,23 @@ antivirus tools flag them.
 - **Off by default,** so employees are told first (the privacy notice)
   and HR chooses when to start.
 
+### Implementation notes (2026-09-29)
+
+- **Typing doesn't push the countdown.** An ordinary idle prompt's
+  countdown restarts on input (ADR-0008). A presence check's doesn't,
+  or a propped key would keep it open for ever. Only choosing an option
+  answers it.
+- **Unanswered, only the person ends the idle.** The pattern's own input
+  would end an ordinary idle at once. So after a presence check the app
+  shows **"I'm back"** (`confirm_presence`), and any other action in the
+  app ends it too. The idle cap (ADR-0018) still applies.
+- **Detection lives in the core's 1 Hz tick** (`machine/pattern.rs`). It
+  uses the exact last-input timestamp, so a pause between two inputs is
+  measured to the millisecond, not only as seen at 1 Hz.
+- **An unanswered check's prompt is replaced** in the day view by its
+  idle, dated from when the pattern began. The idle carries
+  `presence_check`, and Exceptions lists it as `answered: false`.
+
 ## Consequences
 
 - **Positive:**

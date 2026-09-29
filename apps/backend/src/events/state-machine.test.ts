@@ -248,6 +248,20 @@ describe('nextState — INPUT_IDLE_5M trigger (ADR-0010)', () => {
   it('input_idle from ACTIVE → IDLE_PENDING', () => {
     expect(nextState('ACTIVE', 'INPUT_IDLE_5M', idle('input_idle'))).toBe('IDLE_PENDING');
   });
+  it('ADR-0024: input_pattern from ACTIVE with a known pattern only', () => {
+    for (const pattern of ['continuous', 'periodic']) {
+      expect(nextState('ACTIVE', 'INPUT_IDLE_5M', { trigger: 'input_pattern', pattern })).toBe(
+        'IDLE_PENDING',
+      );
+    }
+    expect(nextState('ACTIVE', 'INPUT_IDLE_5M', { trigger: 'input_pattern' })).toBeNull();
+    expect(
+      nextState('ACTIVE', 'INPUT_IDLE_5M', { trigger: 'input_pattern', pattern: 'weird' }),
+    ).toBeNull();
+    expect(
+      nextState('ON_CALL', 'INPUT_IDLE_5M', { trigger: 'input_pattern', pattern: 'continuous' }),
+    ).toBeNull();
+  });
   it('silent_call from ON_CALL → IDLE_PENDING', () => {
     expect(nextState('ON_CALL', 'INPUT_IDLE_5M', idle('silent_call'))).toBe('IDLE_PENDING');
   });

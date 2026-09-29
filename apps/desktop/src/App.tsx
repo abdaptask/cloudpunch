@@ -108,6 +108,7 @@ function statusLabel(v: StateView, now: number): string {
     case 'idle_pending':
       return 'Clocked in — are you still there?';
     case 'idle':
+      if (v.presenceCheck) return 'Idle: presence check not answered';
       return v.idleSince !== null ? `Idle since ${formatClock(v.idleSince)}` : 'Idle';
     case 'on_break': {
       const kind = v.breakKind ?? 'other';
@@ -1000,6 +1001,19 @@ function Actions({
       );
     case 'idle_pending':
     case 'idle':
+      // After a presence check only a click ends idle (ADR-0024).
+      if (view.status === 'idle' && view.presenceCheck) {
+        return pair(
+          <>
+            <Button variant="primary" onClick={() => run(api.confirmPresence)}>
+              I&apos;m back
+            </Button>
+            <Button variant="stop" onClick={onClockOut}>
+              Clock out
+            </Button>
+          </>,
+        );
+      }
       // Any click or key ends idle (ADR-0018); only clock out needs a button.
       return (
         <Button variant="stop" onClick={onClockOut}>

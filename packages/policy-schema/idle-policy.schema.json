@@ -80,6 +80,22 @@
             { "process": "zoom.exe", "call_type": "zoom" }
           ]
         },
+        "input_pattern_check": {
+          "type": "object",
+          "description": "Presence check for propped keys and mouse jigglers, from input timing only (ADR-0024). Off until HR turns it on.",
+          "properties": {
+            "enabled": { "type": "boolean", "default": false },
+            "continuous_minutes": {
+              "type": "integer",
+              "minimum": 10,
+              "maximum": 120,
+              "default": 20
+            },
+            "periodic_minutes": { "type": "integer", "minimum": 5, "maximum": 60, "default": 10 },
+            "min_gap_seconds": { "type": "integer", "minimum": 2, "maximum": 10, "default": 3 }
+          },
+          "additionalProperties": false
+        },
         "call_type_ignored": {
           "type": "array",
           "description": "Processes never treated as a call even while holding the microphone (ADR-0012).",

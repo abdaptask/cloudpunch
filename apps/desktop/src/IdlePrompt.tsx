@@ -54,6 +54,8 @@ export interface IdlePromptProps {
   noteRequiredFor?: readonly PromptResponse[];
   /** Injected for tests. */
   now?: () => number;
+  /** A presence check (ADR-0024): typing doesn't answer it. */
+  presence?: 'continuous' | 'periodic' | null;
 }
 
 function secondsLeft(deadline: number, now: number): number {
@@ -66,6 +68,7 @@ export function IdlePrompt({
   options = PROMPT_RESPONSES,
   noteRequiredFor = ['working_away'],
   now = Date.now,
+  presence = null,
 }: IdlePromptProps): JSX.Element {
   const t = useTheme();
   const titleId = useId();
@@ -110,12 +113,16 @@ export function IdlePrompt({
       }}
     >
       <h1 id={titleId} style={{ margin: 0, fontSize: 19, fontWeight: 650 }}>
-        Are you still there?
+        {presence ? 'Are you there?' : 'Are you still there?'}
       </h1>
       <p id={descId} style={{ margin: 0, fontSize: 14, lineHeight: 1.45, color: t.muted }}>
-        {expired
-          ? 'No response. Logging idle time from your last activity; you stay clocked in.'
-          : `We haven't seen any activity for a while. If you don't choose an option in ${remaining}s, the time since your last activity is logged as idle. You stay clocked in.`}
+        {presence
+          ? expired
+            ? 'No response. This time is logged as idle from when the unusual input began; your manager will see it. You stay clocked in.'
+            : `A presence check: CloudPunch noticed ${presence === 'periodic' ? 'keyboard or mouse input in a fixed rhythm' : 'keyboard or mouse input without the usual pauses'}. Choose an option within ${remaining}s to carry on. Typing doesn't answer it.`
+          : expired
+            ? 'No response. Logging idle time from your last activity; you stay clocked in.'
+            : `We haven't seen any activity for a while. If you don't choose an option in ${remaining}s, the time since your last activity is logged as idle. You stay clocked in.`}
       </p>
 
       {pendingNoteFor === null ? (

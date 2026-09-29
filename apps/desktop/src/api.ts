@@ -73,6 +73,7 @@ export interface TeamDaySegment {
   ended_at: string;
   explanation?: { explanation: string; note: string | null };
   planned_minutes?: number;
+  presence_check?: 'continuous' | 'periodic';
 }
 
 /** A team member's day: `/v1/me/days`' shape plus their name. */
@@ -113,12 +114,16 @@ export interface TeamException {
     | 'break_over_limit'
     | 'long_shift'
     | 'auto_clock_out'
-    | 'reconstructed';
+    | 'reconstructed'
+    | 'presence_check';
   at: string;
   minutes: number | null;
   over_minutes: number | null;
   segment: string | null;
   explanation: { explanation: string; note: string | null } | null;
+  /** Presence check (ADR-0024). */
+  pattern?: 'continuous' | 'periodic';
+  answered?: boolean;
 }
 
 /** People: an employee and their manager (ADR-0025 §1). */
@@ -190,6 +195,8 @@ export interface StateView {
   appVersion: string;
   /** A downloaded update's version, waiting to install (ADR-0022). */
   updateReady: string | null;
+  /** The prompt or idle in progress is a presence check (ADR-0024). */
+  presenceCheck: 'continuous' | 'periodic' | null;
 }
 
 /** The window's close button was pressed (ADR-0013 §1). */
@@ -271,6 +278,8 @@ export const api = {
   ): Promise<{ id: string; reporting_manager_id: string | null }> =>
     invoke('admin_set_manager', { employeeId, managerId, reason: reason || null }),
   adminDevices: (): Promise<{ devices: DeviceRow[] }> => invoke('admin_devices'),
+  /** "I'm back" after an unanswered presence check (ADR-0024). */
+  confirmPresence: (): Promise<StateView> => invoke<StateView>('confirm_presence'),
   /** "Restart to update" while clocked out; the app exits and reopens. */
   installUpdateNow: (): Promise<void> => invoke<void>('install_update_now'),
   /** `plannedMinutes`: the "Back in?" answer; null = Not sure. */

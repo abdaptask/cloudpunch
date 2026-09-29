@@ -35,6 +35,8 @@ export interface DaySessionView {
     explanation?: { explanation: string; note: string | null };
     /** Breaks: the "Back in?" answer (ADR-0023 §2). */
     planned_minutes?: number;
+    /** A presence check's prompt or idle (ADR-0024). */
+    presence_check?: 'continuous' | 'periodic';
   }[];
 }
 
@@ -106,6 +108,7 @@ function sessionView(s: BuiltSession): DaySessionView {
       ended_at: isoWithOffset(g.endedAt, g.offsetMinutes),
       ...(g.explanation ? { explanation: g.explanation } : {}),
       ...(g.plannedMinutes !== undefined ? { planned_minutes: g.plannedMinutes } : {}),
+      ...(g.presenceCheck ? { presence_check: g.presenceCheck } : {}),
     })),
   };
 }

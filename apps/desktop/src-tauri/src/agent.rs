@@ -94,6 +94,9 @@ pub struct StateView {
     pub app_version: &'static str,
     /// A downloaded update's version, waiting to install (ADR-0022).
     pub update_ready: Option<String>,
+    /// The prompt or idle in progress is a presence check (ADR-0024):
+    /// `continuous` or `periodic`.
+    pub presence_check: Option<&'static str>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
@@ -125,6 +128,11 @@ impl StateView {
 
     pub fn with_long_shift(mut self, long_shift: bool) -> Self {
         self.long_shift = long_shift;
+        self
+    }
+
+    pub fn with_presence(mut self, p: Option<crate::machine::pattern::InputPattern>) -> Self {
+        self.presence_check = p.map(|p| p.as_str());
         self
     }
 
@@ -211,6 +219,7 @@ pub fn view_of(
         planned_break_minutes: None,
         app_version: APP_VERSION,
         update_ready: None,
+        presence_check: None,
     }
 }
 
@@ -422,6 +431,7 @@ impl Inner {
         .with_long_day(self.reminder_cfg.long_day)
         .with_breaks(&self.breaks, self.offer_training, self.planned_break)
         .with_update_ready(self.update.ready())
+        .with_presence(self.driver.core().presence())
         .with_idle_return(self.driver.core().idle_return())
         .with_auto_clock_out_reason(self.auto_clock_out_reason)
         .with_clock_in_offer(self.clock_in_offer(SystemTime::now()), self.clock_in_prompt)

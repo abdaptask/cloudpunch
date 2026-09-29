@@ -127,6 +127,29 @@ toward paid time.
 You can adjust these defaults through your admin if the settings do
 not fit your team's work.
 
+## The presence check (only if your HR team turns it on)
+
+Some people keep an app "active" with a weight on a key or a mouse
+jiggler. If your HR team turns on the presence check, CloudPunch looks
+at the **timing** of keyboard and mouse input. It uses the same "time
+since your last input" it already uses for idle, and **never which keys
+you press or where the pointer goes**. It asks **"Are you there?"**
+when it notices either of these:
+
+- input with **no pauses at all for 20 minutes** (people always pause
+  to read or think);
+- input at an **exact fixed rhythm**, for example every 30 seconds.
+
+Choose any option to carry on. Typing doesn't answer it, and it asks at
+most once every 30 minutes.
+
+If nobody answers, the time since the unusual input began is logged as
+**idle**, you stay clocked in, and **you and your manager both see it**
+on your timeline. Your manager decides whether it counts. Very fast
+typists, a faulty stuck key and accessibility tools can set it off: say
+so when you answer, or tell your manager, and HR can adjust or turn it
+off for you.
+
 ## Autostart
 
 By default, CloudPunch does **not** start when you sign in to your

@@ -1005,6 +1005,12 @@ pub fn start_break(
     )
 }
 
+/// "I'm back" after an unanswered presence check (ADR-0024).
+#[tauri::command]
+pub fn confirm_presence(agent: State<'_, Arc<Agent>>) -> CommandResult {
+    run(&agent, Input::ConfirmPresence)
+}
+
 #[tauri::command]
 pub fn end_break(agent: State<'_, Arc<Agent>>) -> CommandResult {
     run(&agent, Input::EndBreak)
