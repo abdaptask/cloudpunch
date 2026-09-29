@@ -263,6 +263,10 @@ impl TauriUi {
 }
 
 impl Ui for TauriUi {
+    fn install_update(&self, version: &str) {
+        crate::updater::install(&self.app, version);
+    }
+
     fn show_prompt(&self) {
         open_prompt_window(&self.app);
     }
@@ -385,7 +389,15 @@ impl Inner {
             .timeline
             .session_started_at()
             .map(|s| reminders::short_duration(now.duration_since(s).unwrap_or_default()));
-        tray::tooltip(snapshot, elapsed.as_deref())
+        let tip = tray::tooltip(snapshot, elapsed.as_deref());
+        match self.update.ready() {
+            // Never a surprise (ADR-0022 §2).
+            Some(v) => format!(
+                "{tip}
+Update {v} ready: installs next time you sign in"
+            ),
+            None => tip,
+        }
     }
 }
 

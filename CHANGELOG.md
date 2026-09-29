@@ -21,7 +21,16 @@ ideally when people sign in for the day.
   `GET /v1/desktop/update/files/windows/:file` serves it. Both need the
   app's token. `releases.json` entries gain an optional `signature`.
 - **Desktop:** the timing rules (`app_update.rs`) and their agent wiring,
-  tested. The updater plugin, signing and the publish step follow.
+  tested.
+- **Phase 2:** `tauri-plugin-updater` (2.12), checked a minute after start
+  and every 4 hours with the app's token. The update downloads straight
+  away and installs at the safe moment, re-checked just before the
+  restart. `requireSignedVersion` blocks downgrades. The tray tooltip
+  says when an update is ready. It's on only in builds whose config
+  carries the public key (the pilot config).
+- **Publishing:** `publish-installer.sh` requires a fresh `.sig` and
+  records it in `releases.json`. `docs/ops/pilot-vm.md` covers signing
+  the build and the key.
 
 ### Fix: agent tests no longer depend on the time of day (2026-09-29)
 

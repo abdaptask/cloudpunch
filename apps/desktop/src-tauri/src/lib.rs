@@ -49,6 +49,7 @@ pub mod strip;
 pub mod sync;
 pub mod timeline;
 pub mod tray;
+pub mod updater;
 pub mod watchers;
 
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -213,7 +214,16 @@ pub fn run() {
     let _ticker = agent.start_ticker();
 
     let setup_agent = agent.clone();
-    tauri::Builder::default()
+    let context = tauri::generate_context!();
+    // Auto-update only in builds that carry its key (ADR-0022).
+    let updates = updater::configured(context.config());
+    let builder = tauri::Builder::default();
+    let builder = if updates {
+        builder.plugin(tauri_plugin_updater::Builder::new().build())
+    } else {
+        builder
+    };
+    builder
         // First, so a second launch exits before setup() — before it
         // signs in, arms a recorder, or starts a sync loop — and brings
         // the running copy's window forward instead.
@@ -272,6 +282,9 @@ pub fn run() {
         ])
         .setup(move |app| {
             setup_agent.attach(agent::TauriUi::new(app.handle().clone()));
+            if updates {
+                updater::start(app.handle().clone());
+            }
             let snapshot = agent::tray_snapshot(setup_agent.state(), None);
             tray::install(app.handle(), snapshot)?;
             // Silent sign-in from the stored refresh token, off the
@@ -319,7 +332,7 @@ pub fn run() {
                 }
             }
         })
-        .run(tauri::generate_context!())
+        .run(context)
         .expect("cloudpunch-desktop: error while running tauri application");
 }
 
