@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### People: welcome emails from noreply@aptask.com (ADR-0021, 2026-09-28)
+
+Owner request: new users are told what to do, with support in the loop.
+
+- **Giving someone Employee in People** offers *Send a welcome email?*,
+  with a preview (From ApTask CloudPunch &lt;noreply@aptask.com&gt;, To,
+  Cc, Subject) and an optional personal note. There's also a **Send
+  welcome email** button for resends.
+- **The email covers:**
+  - download from https://cloudpunch.aptask.com and the "unknown
+    publisher" step;
+  - signing in, clocking in, breaks;
+  - idle, calls and the 8 am reminder;
+  - what CloudPunch records and never records;
+  - **"If you run into any issue, email support@aptask.com and the team
+    will help you solve it."**
+- **Always copied:** support@aptask.com, abdulla@aptask.com and
+  nileshd@aptask.com. This is a server setting (`WELCOME_CC`), not code.
+- **Sent by CloudPunch itself**, limited by Exchange to the noreply
+  mailbox only. It is audited (`welcome_sent`), and a second email to the
+  same person within 10 minutes is refused.
+- **Backend:** `GET` / `POST /v1/admin/people/:oid/welcome`, and settings
+  `WELCOME_FROM`, `WELCOME_CC`, `SUPPORT_EMAIL`, `PUBLIC_SITE_URL`.
+- **One-time Exchange setup** is in `docs/ops/pilot-vm.md`.
+
 ### Website: logo, Download for Windows, what's new (ADR-0019 §9, 2026-09-28)
 
 Owner request: the setup file online, ApTask only, with every update

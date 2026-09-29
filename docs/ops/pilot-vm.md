@@ -69,6 +69,35 @@ After that, open CloudPunch → Settings → **People**, search for a
 person, tick their roles and Save. Their employee record is created
 automatically.
 
+## Welcome emails: one-time Exchange setup (ADR-0021)
+
+CloudPunch sends welcome emails **as noreply@aptask.com only**. Exchange
+enforces that; **don't** add `Mail.Send` under API permissions in Entra,
+because that would allow any mailbox.
+
+1. **Mailbox.** `noreply@aptask.com` must exist; a shared mailbox is
+   enough and needs no licence. For the sender to show as **ApTask
+   CloudPunch**, set that mailbox's display name in the Exchange admin
+   center → Recipients → Mailboxes. This changes the name on *all* its
+   mail.
+2. **Object ID.** Entra → Enterprise applications → **CloudPunch API** →
+   Overview → **Object ID**. Use the enterprise app's Object ID, not the
+   app registration's.
+3. **Exchange Online PowerShell**, as an Exchange admin:
+   ```powershell
+   Connect-ExchangeOnline -UserPrincipalName abdulla@aptask.com
+   New-ServicePrincipal -AppId 63bca00e-a546-4f0c-a076-e2450e52406e -ObjectId <OBJECT-ID> -DisplayName "CloudPunch API"
+   New-ManagementScope -Name "CloudPunch noreply only" -RecipientRestrictionFilter "PrimarySmtpAddress -eq 'noreply@aptask.com'"
+   New-ManagementRoleAssignment -App 63bca00e-a546-4f0c-a076-e2450e52406e -Role "Application Mail.Send" -CustomResourceScope "CloudPunch noreply only"
+   Test-ServicePrincipalAuthorization -Identity 63bca00e-a546-4f0c-a076-e2450e52406e -Resource noreply@aptask.com
+   ```
+   The last line should show `Application Mail.Send` with `InScope: True`.
+   Changes can take up to about 30 minutes to reach Graph.
+
+**Server settings** (`/etc/cloudpunch/api.env`): `WELCOME_FROM`,
+`WELCOME_CC` (comma-separated), and optionally `SUPPORT_EMAIL` and
+`PUBLIC_SITE_URL`. Restart `cloudpunch-api` after changing them.
+
 ## Add a tester (without People)
 
 1. **Entra admin center → Enterprise applications → CloudPunch API →

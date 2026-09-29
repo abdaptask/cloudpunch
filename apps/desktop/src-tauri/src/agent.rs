@@ -330,6 +330,9 @@ struct Inner {
     tooltip_minute: Option<u64>,
     /// A fetched policy waiting for the session to end (ADR-0015 §6).
     pending_policy: Option<PendingPolicy>,
+    /// Local minutes after midnight, for quiet hours; the OS clock
+    /// outside tests.
+    minute_of_day: fn() -> u16,
 }
 
 /// Core settings from a policy, adopted only while clocked out.
@@ -441,6 +444,7 @@ impl<U: Ui> Agent<U> {
                 long_shift: false,
                 tooltip_minute: None,
                 pending_policy: None,
+                minute_of_day: reminders::local_minute_of_day,
             }),
             ui: OnceLock::new(),
             tray_notice: AtomicBool::new(false),
@@ -616,7 +620,7 @@ impl<U: Ui> Agent<U> {
                     session_started_at: inner.timeline.session_started_at(),
                     segment_started_at: inner.timeline.open_segment_started_at(),
                     window_visible: visible,
-                    minute_of_day: reminders::local_minute_of_day(),
+                    minute_of_day: (inner.minute_of_day)(),
                 };
                 let cfg = inner.reminder_cfg.clone();
                 if let Some(last_input_at) = last_input_at {
@@ -642,7 +646,7 @@ impl<U: Ui> Agent<U> {
                         worked_today: inner.timeline.current_day_start(now).is_some(),
                         last_input_at,
                         window_visible: visible,
-                        minute_of_day: reminders::local_minute_of_day(),
+                        minute_of_day: (inner.minute_of_day)(),
                     };
                     if let Some(r) = reminders::clock_in_nudge(&cfg, nudge, &mut inner.nudge) {
                         plan.notes.push(reminder_text(&r));
@@ -1066,6 +1070,8 @@ mod tests {
 
     fn agent_with_ui() -> (Arc<Agent<Arc<FakeUi>>>, Arc<FakeUi>) {
         let agent = Agent::<Arc<FakeUi>>::new(CoreConfig::default());
+        // Noon, outside quiet hours whenever the tests run.
+        agent.lock().minute_of_day = || 12 * 60;
         let ui = Arc::new(FakeUi::default());
         agent.attach(ui.clone());
         (agent, ui)

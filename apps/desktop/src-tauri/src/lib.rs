@@ -259,6 +259,8 @@ pub fn run() {
             commands::admin_people,
             commands::admin_people_search,
             commands::admin_people_set_roles,
+            commands::admin_welcome_preview,
+            commands::admin_welcome_send,
             commands::dismiss_clock_in_prompt,
             commands::dismiss_idle_return,
             commands::get_day,

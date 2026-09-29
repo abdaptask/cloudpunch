@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { api, type DirectoryUser, type Person } from './api.js';
 import { Button } from './ui/Button.js';
+import { WelcomePanel } from './WelcomePanel.js';
 import { useTheme, type Theme } from './ui/theme.js';
 
 /** Every CloudPunch role, with what it's for (ADR-0002 §2). */
@@ -51,6 +52,8 @@ export function PeopleScreen({
   const [reason, setReason] = useState('');
   const [status, setStatus] = useState<{ kind: 'error' | 'saved'; text: string } | null>(null);
   const [saving, setSaving] = useState(false);
+  // After giving someone Employee (or on request): the welcome email (ADR-0021).
+  const [welcome, setWelcome] = useState<{ oid: string; name: string } | null>(null);
   const searchSeq = useRef(0);
 
   const load = (): void => {
@@ -96,6 +99,7 @@ export function PeopleScreen({
   const save = (): void => {
     if (!editing) return;
     setSaving(true);
+    const newEmployee = editing.roles.includes('Employee') && !original.includes('Employee');
     api.adminPeopleSetRoles(editing.oid, editing.roles, reason).then(
       () => {
         setSaving(false);
@@ -103,6 +107,7 @@ export function PeopleScreen({
           kind: 'saved',
           text: `Saved. ${editing.name} gets the new roles at their next sign-in (within an hour).`,
         });
+        if (newEmployee) setWelcome({ oid: editing.oid, name: editing.name });
         setEditing(null);
         load();
       },
@@ -180,7 +185,28 @@ export function PeopleScreen({
               Cancel
             </Button>
           </div>
+          {original.includes('Employee') && (
+            <button
+              type="button"
+              onClick={() => {
+                setWelcome({ oid: editing.oid, name: editing.name });
+                setEditing(null);
+              }}
+              style={{ ...link(t), alignSelf: 'flex-start', fontSize: 12.5 }}
+            >
+              Send welcome email
+            </button>
+          )}
         </div>
+      ) : welcome ? (
+        <WelcomePanel
+          oid={welcome.oid}
+          name={welcome.name}
+          onDone={(sent, text) => {
+            setWelcome(null);
+            if (sent) setStatus({ kind: 'saved', text });
+          }}
+        />
       ) : (
         <>
           <label

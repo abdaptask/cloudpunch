@@ -34,6 +34,14 @@ export interface Person {
   has_employee_record: boolean;
 }
 
+/** Welcome email preview (ADR-0021). */
+export interface WelcomePreview {
+  from: string;
+  to: string;
+  cc: string[];
+  subject: string;
+}
+
 /** People: a directory search result. */
 export interface DirectoryUser {
   oid: string;
@@ -128,6 +136,10 @@ export const api = {
     invoke('admin_people_search', { q }),
   adminPeopleSetRoles: (oid: string, roles: string[], reason: string): Promise<unknown> =>
     invoke('admin_people_set_roles', { oid, roles, reason: reason || null }),
+  adminWelcomePreview: (oid: string): Promise<WelcomePreview> =>
+    invoke<WelcomePreview>('admin_welcome_preview', { oid }),
+  adminWelcomeSend: (oid: string, note: string): Promise<{ to: string; cc: string[] }> =>
+    invoke('admin_welcome_send', { oid, note: note || null }),
   adminPolicyPut: (
     scope: 'global' | 'department',
     id: string | null,

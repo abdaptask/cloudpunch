@@ -40,6 +40,13 @@ const envSchema = z.object({
   ENTRA_OBO_CERT_KEY_PATH: z.string().min(1).optional(),
   ENTRA_OBO_CERT_THUMBPRINT: z.string().min(1).optional(),
 
+  // Welcome emails (ADR-0021): sent as this mailbox (Exchange limits the
+  // app to it), always copying WELCOME_CC; unset WELCOME_FROM = off.
+  WELCOME_FROM: z.string().email().optional(),
+  WELCOME_CC: z.string().optional(),
+  PUBLIC_SITE_URL: z.string().url().default('https://cloudpunch.aptask.com'),
+  SUPPORT_EMAIL: z.string().email().default('support@aptask.com'),
+
   APP_VERSION: z.string().default('0.0.0-dev'),
 
   // Published installers for the landing page's Download button
