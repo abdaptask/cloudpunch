@@ -202,6 +202,7 @@ export class PostgresDb implements DbRepositories {
     const map = (row: EmployeeRow): Employee => ({
       id: row.id,
       departmentId: row.departmentId,
+      reportingManagerId: row.reportingManagerId,
       source: row.source,
       greythrEmployeeId: row.greythrEmployeeId,
       employeeNumber: row.employeeNumber,
@@ -218,7 +219,7 @@ export class PostgresDb implements DbRepositories {
           SELECT
             e.id, e.source, e.greythr_employee_id, e.employee_number,
             e.given_name, e.family_name, e.display_name, e.status,
-            e.department_id, u.work_email
+            e.department_id, e.reporting_manager_id, u.work_email
           FROM employee e
           LEFT JOIN app_user u ON u.employee_id = e.id
           WHERE e.id = ${id}
@@ -232,7 +233,7 @@ export class PostgresDb implements DbRepositories {
           SELECT
             e.id, e.source, e.greythr_employee_id, e.employee_number,
             e.given_name, e.family_name, e.display_name, e.status,
-            e.department_id, u.work_email
+            e.department_id, e.reporting_manager_id, u.work_email
           FROM employee e
           JOIN app_user u ON u.employee_id = e.id
           WHERE u.entra_object_id = ${oid}
@@ -240,6 +241,56 @@ export class PostgresDb implements DbRepositories {
         `;
         const row = rows[0];
         return row ? map(row) : null;
+      },
+      listReports: async (managerId) => {
+        const rows = await this.sql<EmployeeRow[]>`
+          SELECT
+            e.id, e.source, e.greythr_employee_id, e.employee_number,
+            e.given_name, e.family_name, e.display_name, e.status,
+            e.department_id, e.reporting_manager_id, u.work_email
+          FROM employee e
+          LEFT JOIN app_user u ON u.employee_id = e.id
+          WHERE e.reporting_manager_id = ${managerId} AND e.status = 'active'
+          ORDER BY coalesce(e.display_name, e.given_name || ' ' || e.family_name)
+        `;
+        return rows.map(map);
+      },
+      listActive: async () => {
+        const rows = await this.sql<EmployeeRow[]>`
+          SELECT
+            e.id, e.source, e.greythr_employee_id, e.employee_number,
+            e.given_name, e.family_name, e.display_name, e.status,
+            e.department_id, e.reporting_manager_id, u.work_email
+          FROM employee e
+          LEFT JOIN app_user u ON u.employee_id = e.id
+          WHERE e.status = 'active'
+          ORDER BY coalesce(e.display_name, e.given_name || ' ' || e.family_name)
+        `;
+        return rows.map(map);
+      },
+      setReportingManager: async (i) => {
+        await this.sql.begin(async (tx) => {
+          const [before] = await tx<{ managerId: string | null }[]>`
+            SELECT reporting_manager_id AS "managerId" FROM employee
+            WHERE id = ${i.employeeId} FOR UPDATE`;
+          await tx`
+            UPDATE employee SET reporting_manager_id = ${i.managerId}, updated_at = now()
+            WHERE id = ${i.employeeId}`;
+          await tx`
+            INSERT INTO audit_log (actor_type, actor_user_id, entity_type, entity_id, action,
+                                   previous_value, new_value, reason, correlation_id, occurred_at)
+            VALUES ('user', ${i.actorUserId}, 'employee', ${i.employeeId}, 'reporting_manager_set',
+                    ${tx.json({ manager_employee_id: before?.managerId ?? null })},
+                    ${tx.json({ manager_employee_id: i.managerId })},
+                    ${i.reason}, ${i.correlationId}, ${i.at})`;
+        });
+      },
+      auditView: async (v) => {
+        await this.sql`
+          INSERT INTO audit_log (actor_type, actor_user_id, entity_type, entity_id, action,
+                                 previous_value, new_value, reason, correlation_id, occurred_at)
+          VALUES ('user', ${v.actorUserId}, 'employee', ${v.employeeId}, ${v.action},
+                  NULL, ${this.sql.json(v.detail)}, NULL, ${v.correlationId}, ${v.at})`;
       },
     };
   }
@@ -373,9 +424,11 @@ export class PostgresDb implements DbRepositories {
           WHERE id = ${id} AND revoked_at IS NULL
         `;
       },
-      touchLastSeen: async (id, at) => {
+      touchLastSeen: async (id, at, appVersion) => {
         await this.sql`
-          UPDATE device SET last_seen_at = ${at} WHERE id = ${id}
+          UPDATE device
+          SET last_seen_at = ${at}, app_version = coalesce(${appVersion ?? null}, app_version)
+          WHERE id = ${id}
         `;
       },
       listWithOwners: async () => {
@@ -640,6 +693,7 @@ interface EmployeeRow {
   status: EmploymentStatus;
   workEmail: string | null;
   departmentId: string | null;
+  reportingManagerId: string | null;
 }
 
 interface AppUserRow {

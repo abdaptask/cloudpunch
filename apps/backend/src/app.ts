@@ -19,6 +19,7 @@ import { peopleRoutes, type PeopleRoutesOptions } from './people/routes.js';
 import { policyAdminRoutes } from './policy/admin-routes.js';
 import { policyRoutes } from './policy/routes.js';
 import { updateRoutes } from './updates/routes.js';
+import { teamRoutes } from './team/routes.js';
 
 export interface BuildAppOptions {
   /** Tests inject a fake Graph; otherwise built from the OBO certificate. */
@@ -98,6 +99,7 @@ export async function buildApp(opts: BuildAppOptions) {
     await app.register(dayRoutes, { db: opts.db });
     await app.register(policyRoutes, { db: opts.db });
     await app.register(policyAdminRoutes, { db: opts.db });
+    await app.register(teamRoutes, { db: opts.db });
     await app.register(peopleRoutes, {
       db: opts.db,
       graphFor: opts.graphFor ?? graphFromEnv(opts),

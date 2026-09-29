@@ -24,6 +24,8 @@ import type {
   TimeEventRepo,
   TimeSession,
   TimeSessionRepo,
+  SetManagerInput,
+  ViewAudit,
 } from './types.js';
 
 /**
@@ -49,6 +51,10 @@ export class InMemoryDb implements DbRepositories {
   readonly roleAudit: RoleChangeAudit[] = [];
   /** audit_log rows written by welcome emails, for tests. */
   readonly welcomeAudit: WelcomeAudit[] = [];
+  /** Reporting-line changes (ADR-0025 §1), for tests. */
+  readonly managerAudit: SetManagerInput[] = [];
+  /** Read-audit rows (ADR-0025 §4), for tests. */
+  readonly viewAudit: ViewAudit[] = [];
 
   private readonly policyByScope = new Map<string, PolicyOverride>();
   private readonly departmentById = new Map<string, { code: string; name: string }>();
@@ -144,6 +150,17 @@ export class InMemoryDb implements DbRepositories {
         const id = this.employeeByOid.get(oid);
         return id ? (this.employeeById.get(id) ?? null) : null;
       },
+      listReports: async (managerId) =>
+        this.activeByName().filter((e) => e.reportingManagerId === managerId),
+      listActive: async () => this.activeByName(),
+      setReportingManager: async (input) => {
+        const e = this.employeeById.get(input.employeeId);
+        if (e) this.employeeById.set(e.id, { ...e, reportingManagerId: input.managerId });
+        this.managerAudit.push(input);
+      },
+      auditView: async (entry) => {
+        this.viewAudit.push(entry);
+      },
     };
 
     this.users = {
@@ -160,9 +177,11 @@ export class InMemoryDb implements DbRepositories {
       findByUserId: async (userId) =>
         Array.from(this.deviceById.values()).filter((d) => d.userId === userId),
       revoke: async (id, reason, byUserId, at) => this.revokeDevice(id, reason, byUserId, at),
-      touchLastSeen: async (id, at) => {
+      touchLastSeen: async (id, at, appVersion) => {
         const d = this.deviceById.get(id);
-        if (d) this.deviceById.set(id, { ...d, lastSeenAt: at });
+        if (d) {
+          this.deviceById.set(id, { ...d, lastSeenAt: at, appVersion: appVersion ?? d.appVersion });
+        }
       },
       listWithOwners: async () =>
         Array.from(this.deviceById.values())
@@ -227,6 +246,13 @@ export class InMemoryDb implements DbRepositories {
   seedPolicy(o: PolicyOverride): this {
     this.policyByScope.set(policyKey(o.scope, o.scopeId), o);
     return this;
+  }
+
+  private activeByName(): Employee[] {
+    const name = (e: Employee): string => e.displayName ?? `${e.givenName} ${e.familyName}`;
+    return [...this.employeeById.values()]
+      .filter((e) => e.status === 'active')
+      .sort((a, b) => name(a).localeCompare(name(b)));
   }
 
   seedEmployee(e: Employee): this {
