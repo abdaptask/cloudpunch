@@ -55,6 +55,91 @@ export interface IdleReturn {
   until: number;
 }
 
+/** Team today: one person's status now (ADR-0025). */
+export interface TeamPerson {
+  employee_id: string;
+  name: string;
+  status: 'clocked_out' | 'working' | 'on_call' | 'on_break' | 'away' | 'prompt' | 'idle';
+  /** Segment kind now (`personal_break`, `away_meeting`, …). */
+  kind: string | null;
+  since: string | null;
+  back_by: string | null;
+  worked_ms: number;
+}
+
+export interface TeamDaySegment {
+  kind: string;
+  started_at: string;
+  ended_at: string;
+  explanation?: { explanation: string; note: string | null };
+  planned_minutes?: number;
+}
+
+/** A team member's day: `/v1/me/days`' shape plus their name. */
+export interface TeamDay {
+  name: string;
+  date: string;
+  sessions: {
+    session_id: string;
+    device_id: string;
+    tz_iana: string;
+    clock_in: string;
+    clock_out: string | null;
+    close_reason: string | null;
+    reconstructed: boolean;
+    open: boolean;
+    started_from_sign_in: boolean;
+    segments: TeamDaySegment[];
+  }[];
+  totals: {
+    worked_ms: number;
+    calls_ms: number;
+    meetings_ms: number;
+    breaks_ms: number;
+    paid_break_ms: number;
+    unpaid_break_ms: number;
+    prompt_ms: number;
+    idle_ms: number;
+  };
+}
+
+export interface TeamException {
+  employee_id: string;
+  name: string;
+  date: string;
+  kind:
+    | 'long_idle'
+    | 'break_over_planned'
+    | 'break_over_limit'
+    | 'long_shift'
+    | 'auto_clock_out'
+    | 'reconstructed';
+  at: string;
+  minutes: number | null;
+  over_minutes: number | null;
+  segment: string | null;
+  explanation: { explanation: string; note: string | null } | null;
+}
+
+/** People: an employee and their manager (ADR-0025 §1). */
+export interface EmployeeRow {
+  id: string;
+  name: string;
+  email: string | null;
+  reporting_manager_id: string | null;
+}
+
+/** Versions: an enrolled device (ADR-0025 §3). */
+export interface DeviceRow {
+  device_id: string;
+  display_name: string;
+  work_email: string;
+  os: 'windows' | 'macos';
+  app_version: string;
+  last_seen_at: string | null;
+  revoked_at: string | null;
+}
+
 /** The fixed break ids (ADR-0023 §1). */
 export type BreakId = 'bio' | 'meal' | 'rest' | 'personal' | 'other';
 
@@ -169,6 +254,23 @@ export const api = {
   ): Promise<AdminPolicy> =>
     invoke<AdminPolicy>('admin_policy_put', { scope, id, document, reason: reason || null }),
   clockOut: (): Promise<StateView> => invoke<StateView>('clock_out'),
+  teamNow: (): Promise<{ people: TeamPerson[] }> => invoke('team_now'),
+  teamDay: (employeeId: string, date: string): Promise<TeamDay> =>
+    invoke('team_day', { employeeId, date }),
+  teamExceptions: (
+    from: string,
+    to: string,
+    employeeId: string | null = null,
+  ): Promise<{ exceptions: TeamException[] }> =>
+    invoke('team_exceptions', { from, to, employeeId }),
+  adminEmployees: (): Promise<{ employees: EmployeeRow[] }> => invoke('admin_employees'),
+  adminSetManager: (
+    employeeId: string,
+    managerId: string | null,
+    reason: string,
+  ): Promise<{ id: string; reporting_manager_id: string | null }> =>
+    invoke('admin_set_manager', { employeeId, managerId, reason: reason || null }),
+  adminDevices: (): Promise<{ devices: DeviceRow[] }> => invoke('admin_devices'),
   /** "Restart to update" while clocked out; the app exits and reopens. */
   installUpdateNow: (): Promise<void> => invoke<void>('install_update_now'),
   /** `plannedMinutes`: the "Back in?" answer; null = Not sure. */

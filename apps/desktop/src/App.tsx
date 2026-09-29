@@ -19,6 +19,9 @@ import {
 } from './dayHistory.js';
 import { CloseDialog, LongShiftBanner, rememberedKeepRunning } from './CloseDialog.js';
 import { TimelineView } from './TimelineView.js';
+import { TeamScreen } from './TeamScreen.js';
+import { ReportingLines } from './ReportingLines.js';
+import { VersionsScreen } from './VersionsScreen.js';
 import { TripCard } from './TripCard.js';
 import { tripSummary, type TripSummary } from './tripModel.js';
 import {
@@ -219,10 +222,13 @@ export function App(): JSX.Element {
   // the role on every call; this only decides whether to offer it.
   const [capabilities, setCapabilities] = useState<string[]>([]);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // The Team tab for Managers and HR (ADR-0025).
+  const [teamOpen, setTeamOpen] = useState(false);
   useEffect(() => {
     if (!signedIn) {
       setCapabilities([]);
       setSettingsOpen(false);
+      setTeamOpen(false);
       return;
     }
     let current = true;
@@ -241,9 +247,20 @@ export function App(): JSX.Element {
   // People (ADR-0020): Administrators assign any role, HR Employee / Manager.
   const canAssignAll = capabilities.includes('admin.role.assign');
   const canManagePeople = canAssignAll || capabilities.includes('hr.employee.write');
+  // Versions (ADR-0025 §3): Administrators and Auditors.
+  const canReadDevices = capabilities.includes('admin.device.read');
   const canEditSettings = canEditRules || canManagePeople;
-  const [adminTab, setAdminTab] = useState<'rules' | 'people'>('rules');
-  const tab = !canEditRules ? 'people' : !canManagePeople ? 'rules' : adminTab;
+  const canSeeTeam = capabilities.includes('team.timeline.read');
+  const adminTabs = (
+    [
+      ['rules', 'Rules', canEditRules],
+      ['people', 'People', canManagePeople],
+      ['versions', 'Versions', canReadDevices],
+    ] as const
+  ).filter(([, , on]) => on);
+  const [adminTab, setAdminTab] = useState<'rules' | 'people' | 'versions'>('rules');
+  const tab = adminTabs.some(([k]) => k === adminTab) ? adminTab : (adminTabs[0]?.[0] ?? 'rules');
+  const teamShown = teamOpen && canSeeTeam;
   const showDate = (d: string): void => setViewDate(d >= todayDate ? null : d);
   const todayDate = localDateOf(now);
   const pastDate = viewDate !== null && viewDate < todayDate ? viewDate : null;
@@ -390,8 +407,23 @@ export function App(): JSX.Element {
               </>
             )}
             {formatClock(now)}
+            {canSeeTeam && (
+              <TeamButton
+                open={teamOpen}
+                onClick={() => {
+                  setSettingsOpen(false);
+                  setTeamOpen((o) => !o);
+                }}
+              />
+            )}
             {canEditSettings && (
-              <SettingsButton open={settingsOpen} onClick={() => setSettingsOpen((o) => !o)} />
+              <SettingsButton
+                open={settingsOpen}
+                onClick={() => {
+                  setTeamOpen(false);
+                  setSettingsOpen((o) => !o);
+                }}
+              />
             )}
             <PinButton onClick={pin} />
           </span>
@@ -520,16 +552,12 @@ export function App(): JSX.Element {
               {enrollText(enrollment.code)}
             </p>
           )}
-          {signedIn && settingsOpen && canEditSettings && (
+          {signedIn && teamShown && <TeamScreen onClose={() => setTeamOpen(false)} />}
+          {signedIn && !teamShown && settingsOpen && canEditSettings && (
             <>
-              {canEditRules && canManagePeople && (
+              {adminTabs.length > 1 && (
                 <div role="tablist" aria-label="admin-tabs" style={{ display: 'flex', gap: 6 }}>
-                  {(
-                    [
-                      ['rules', 'Rules'],
-                      ['people', 'People'],
-                    ] as const
-                  ).map(([key, label]) => (
+                  {adminTabs.map(([key, label]) => (
                     <Button
                       key={key}
                       role="tab"
@@ -552,12 +580,20 @@ export function App(): JSX.Element {
                   canEditCompany={canEditCompany}
                   onClose={() => setSettingsOpen(false)}
                 />
+              ) : tab === 'people' ? (
+                <>
+                  <PeopleScreen
+                    canAssignAll={canAssignAll}
+                    onClose={() => setSettingsOpen(false)}
+                  />
+                  <ReportingLines />
+                </>
               ) : (
-                <PeopleScreen canAssignAll={canAssignAll} onClose={() => setSettingsOpen(false)} />
+                <VersionsScreen onClose={() => setSettingsOpen(false)} />
               )}
             </>
           )}
-          {signedIn && !(settingsOpen && canEditSettings) && (
+          {signedIn && !teamShown && !(settingsOpen && canEditSettings) && (
             <>
               {/* Status and actions stay put; the details below scroll. */}
               <div
@@ -828,6 +864,33 @@ function SettingsButton({ open, onClick }: { open: boolean; onClick: () => void 
         <path d="M8 5.25A2.75 2.75 0 1 0 8 10.75 2.75 2.75 0 0 0 8 5.25ZM6.75 8a1.25 1.25 0 1 1 2.5 0 1.25 1.25 0 0 1-2.5 0Z" />
         <path d="M6.9.9a.75.75 0 0 1 .74-.65h.72a.75.75 0 0 1 .74.65l.17 1.3c.37.12.72.27 1.05.46l1.04-.8a.75.75 0 0 1 .98.06l.51.51a.75.75 0 0 1 .07.98l-.8 1.04c.19.33.34.68.45 1.05l1.3.17a.75.75 0 0 1 .66.74v.72a.75.75 0 0 1-.66.74l-1.3.17c-.11.37-.26.72-.45 1.05l.8 1.04a.75.75 0 0 1-.07.98l-.51.51a.75.75 0 0 1-.98.07l-1.04-.8c-.33.19-.68.34-1.05.45l-.17 1.3a.75.75 0 0 1-.74.66h-.72a.75.75 0 0 1-.74-.66l-.17-1.3a4.8 4.8 0 0 1-1.05-.45l-1.04.8a.75.75 0 0 1-.98-.07l-.51-.51a.75.75 0 0 1-.07-.98l.8-1.04a4.8 4.8 0 0 1-.45-1.05l-1.3-.17A.75.75 0 0 1 .25 8.36v-.72a.75.75 0 0 1 .65-.74l1.3-.17c.12-.37.27-.72.46-1.05l-.8-1.04a.75.75 0 0 1 .06-.98l.51-.51a.75.75 0 0 1 .98-.06l1.04.8c.33-.19.68-.34 1.05-.46L6.9.9Zm.87.85-.14 1.1a.75.75 0 0 1-.57.63 3.3 3.3 0 0 0-1.35.56.75.75 0 0 1-.85-.02l-.88-.68-.16.16.68.88a.75.75 0 0 1 .02.85 3.3 3.3 0 0 0-.56 1.35.75.75 0 0 1-.63.57l-1.1.14v.22l1.1.14c.31.04.57.27.63.57.1.49.29.95.56 1.35a.75.75 0 0 1-.02.85l-.68.88.16.16.88-.68a.75.75 0 0 1 .85-.02c.4.27.86.46 1.35.56.3.06.53.32.57.63l.14 1.1h.22l.14-1.1a.75.75 0 0 1 .57-.63c.49-.1.95-.29 1.35-.56a.75.75 0 0 1 .85.02l.88.68.16-.16-.68-.88a.75.75 0 0 1-.02-.85c.27-.4.46-.86.56-1.35a.75.75 0 0 1 .63-.57l1.1-.14v-.22l-1.1-.14a.75.75 0 0 1-.63-.57 3.3 3.3 0 0 0-.56-1.35.75.75 0 0 1 .02-.85l.68-.88-.16-.16-.88.68a.75.75 0 0 1-.85.02 3.3 3.3 0 0 0-1.35-.56.75.75 0 0 1-.57-.63l-.14-1.1h-.22Z" />
       </svg>
+    </button>
+  );
+}
+
+function TeamButton({ open, onClick }: { open: boolean; onClick: () => void }): JSX.Element {
+  const t = useTheme();
+  return (
+    <button
+      type="button"
+      aria-label="Team"
+      aria-pressed={open}
+      title="Your team (Managers and HR)"
+      onClick={onClick}
+      style={{
+        marginLeft: 8,
+        padding: '2px 8px',
+        border: `1px solid ${open ? t.accent : t.border}`,
+        borderRadius: 6,
+        background: open ? t.surfaceAlt : 'none',
+        color: open ? t.accent : t.muted,
+        font: 'inherit',
+        fontSize: 12,
+        cursor: 'pointer',
+        verticalAlign: 'middle',
+      }}
+    >
+      Team
     </button>
   );
 }

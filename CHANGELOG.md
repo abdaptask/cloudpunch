@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Team tab, reporting lines, Versions: desktop 0.1.5 (ADR-0025 PR 2, 2026-09-29)
+
+- **Team** (Managers and HR; a **Team** button in the header):
+  - **Today:** each person's status now ("Personal · back by 10:45",
+    "In a meeting since 2:10 pm", "late" once a break passes its
+    back-by time) and worked time today. It refreshes every 30 s.
+  - **A person's day:** tap someone to see their day (on their own
+    clock) for the last 30 days, with break types, "Planned 20 min ·
+    took 24 min", idle with what they said, and worked / paid / unpaid
+    totals. The server audits each day opened.
+  - **Exceptions:** the last 7 days of long idle, breaks over plan or
+    limit, long shifts, automatic clock-outs and recovered sessions.
+- **Settings → People → Reporting lines** (HR and Administrator): choose
+  who each person reports to, with an optional reason for the audit log.
+- **Settings → Versions** (Administrator): which CloudPunch version each
+  computer runs, with anything behind the newest marked.
+
 ### Team views, backend (ADR-0025 PR 1, 2026-09-29)
 
 - **`GET /v1/team`** (Team today): each person in the caller's scope with
