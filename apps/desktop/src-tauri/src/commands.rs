@@ -733,6 +733,78 @@ pub async fn admin_people(auth: State<'_, Arc<Auth>>) -> Result<serde_json::Valu
     answer(fetched)
 }
 
+/// Team today (ADR-0025).
+#[tauri::command]
+pub async fn team_now(auth: State<'_, Arc<Auth>>) -> Result<serde_json::Value, String> {
+    let (_, fetched) = fetch_as_user(&auth, admin::team_now).await?;
+    answer(fetched)
+}
+
+/// One team member's day (audited server-side).
+#[tauri::command]
+pub async fn team_day(
+    auth: State<'_, Arc<Auth>>,
+    employee_id: String,
+    date: String,
+) -> Result<serde_json::Value, String> {
+    let (_, fetched) = fetch_as_user(&auth, move |http, base, token| {
+        admin::team_day(http, base, token, &employee_id, &date)
+    })
+    .await?;
+    answer(fetched)
+}
+
+/// Exceptions for the team, or one person.
+#[tauri::command]
+pub async fn team_exceptions(
+    auth: State<'_, Arc<Auth>>,
+    from: String,
+    to: String,
+    employee_id: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let (_, fetched) = fetch_as_user(&auth, move |http, base, token| {
+        admin::team_exceptions(http, base, token, &from, &to, employee_id.as_deref())
+    })
+    .await?;
+    answer(fetched)
+}
+
+/// People: everyone with their reporting manager.
+#[tauri::command]
+pub async fn admin_employees(auth: State<'_, Arc<Auth>>) -> Result<serde_json::Value, String> {
+    let (_, fetched) = fetch_as_user(&auth, admin::employees).await?;
+    answer(fetched)
+}
+
+/// People: set or clear someone's manager (audited server-side).
+#[tauri::command]
+pub async fn admin_set_manager(
+    auth: State<'_, Arc<Auth>>,
+    employee_id: String,
+    manager_id: Option<String>,
+    reason: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let (_, fetched) = fetch_as_user(&auth, move |http, base, token| {
+        admin::set_manager(
+            http,
+            base,
+            token,
+            &employee_id,
+            manager_id.as_deref(),
+            reason.as_deref(),
+        )
+    })
+    .await?;
+    answer(fetched)
+}
+
+/// Versions: every device and the app version it runs.
+#[tauri::command]
+pub async fn admin_devices(auth: State<'_, Arc<Auth>>) -> Result<serde_json::Value, String> {
+    let (_, fetched) = fetch_as_user(&auth, admin::devices).await?;
+    answer(fetched)
+}
+
 /// People: search the company directory (2+ characters).
 #[tauri::command]
 pub async fn admin_people_search(

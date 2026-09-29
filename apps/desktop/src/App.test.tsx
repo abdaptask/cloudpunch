@@ -42,6 +42,12 @@ const mocks = vi.hoisted(() => ({
   adminPeopleSetRoles: vi.fn(),
   adminWelcomePreview: vi.fn(),
   adminWelcomeSend: vi.fn(),
+  teamNow: vi.fn(),
+  teamDay: vi.fn(),
+  teamExceptions: vi.fn(),
+  adminEmployees: vi.fn(),
+  adminSetManager: vi.fn(),
+  adminDevices: vi.fn(),
   adminPolicyPut: vi.fn(),
   dismissClockInPrompt: vi.fn<() => Promise<StateView>>(),
   explainIdle: vi.fn<(explanation: string, note: string | null) => Promise<StateView>>(),
@@ -125,6 +131,10 @@ beforeEach(() => {
   mocks.pinStatus.mockResolvedValue(false);
   mocks.myCapabilities.mockResolvedValue([]);
   mocks.adminDepartments.mockResolvedValue({ departments: [] });
+  mocks.adminEmployees.mockResolvedValue({ employees: [] });
+  mocks.adminDevices.mockResolvedValue({ devices: [] });
+  mocks.teamNow.mockResolvedValue({ people: [] });
+  mocks.teamExceptions.mockResolvedValue({ exceptions: [] });
   mocks.adminWelcomePreview.mockResolvedValue({
     from: 'noreply@aptask.com',
     to: 'someone@aptask.com',
@@ -1788,5 +1798,158 @@ describe('welcome email (ADR-0021)', () => {
     await within(panel).findByText('ApTask CloudPunch <noreply@aptask.com>');
     await user.click(within(panel).getByRole('button', { name: 'Send welcome email' }));
     expect(await within(panel).findByRole('alert')).toHaveTextContent('Exchange refused');
+  });
+});
+
+describe('Team tab (ADR-0025)', () => {
+  const iso = (h: number, m: number): string => new Date(2026, 8, 29, h, m).toISOString();
+  const farheen = {
+    employee_id: '11111111-1111-4111-8111-111111111111',
+    name: 'Farheen Test',
+    status: 'on_break' as const,
+    kind: 'personal_break',
+    since: iso(10, 25),
+    back_by: iso(10, 45),
+    worked_ms: 90 * 60_000,
+  };
+
+  it('is offered to Managers only, lists the team, and opens a day', async () => {
+    mocks.myCapabilities.mockResolvedValue(['team.timeline.read']);
+    mocks.teamNow.mockResolvedValue({ people: [farheen] });
+    mocks.teamDay.mockResolvedValue({
+      name: 'Farheen Test',
+      date: '2026-09-29',
+      sessions: [
+        {
+          session_id: 's',
+          device_id: 'd',
+          tz_iana: 'Asia/Kolkata',
+          clock_in: '2026-09-29T09:00:00.000+05:30',
+          clock_out: null,
+          close_reason: null,
+          reconstructed: false,
+          open: true,
+          started_from_sign_in: false,
+          segments: [
+            {
+              kind: 'personal_break',
+              started_at: '2026-09-29T10:25:00.000+05:30',
+              ended_at: '2026-09-29T10:49:00.000+05:30',
+              planned_minutes: 20,
+            },
+          ],
+        },
+      ],
+      totals: {
+        worked_ms: 90 * 60_000,
+        calls_ms: 0,
+        meetings_ms: 0,
+        breaks_ms: 24 * 60_000,
+        paid_break_ms: 0,
+        unpaid_break_ms: 24 * 60_000,
+        prompt_ms: 0,
+        idle_ms: 0,
+      },
+    });
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole('button', { name: 'Team' }));
+    const list = await screen.findByRole('list', { name: 'team-today' });
+    expect(list).toHaveTextContent('Farheen Test');
+    expect(list).toHaveTextContent('Personal · back by');
+    await user.click(within(list).getByRole('button', { name: /Farheen Test/ }));
+    const day = await screen.findByRole('list', { name: 'team-day' });
+    expect(day).toHaveTextContent('Planned 20 min · took 24 min');
+    expect(mocks.teamDay).toHaveBeenCalledWith(farheen.employee_id, expect.any(String));
+    expect(screen.getByLabelText('team-day-totals')).toHaveTextContent('unpaid 24 min');
+  });
+
+  it('is not offered without the team capability', async () => {
+    render(<App />);
+    await screen.findByRole('button', { name: 'Clock in' });
+    expect(screen.queryByRole('button', { name: 'Team' })).not.toBeInTheDocument();
+  });
+
+  it('Exceptions lists what happened and what the person said', async () => {
+    mocks.myCapabilities.mockResolvedValue(['team.timeline.read']);
+    mocks.teamExceptions.mockResolvedValue({
+      exceptions: [
+        {
+          employee_id: farheen.employee_id,
+          name: 'Farheen Test',
+          date: new Date().toISOString().slice(0, 10),
+          kind: 'long_idle',
+          at: iso(11, 0),
+          minutes: 22,
+          over_minutes: null,
+          segment: 'idle',
+          explanation: { explanation: 'meeting', note: null },
+        },
+      ],
+    });
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole('button', { name: 'Team' }));
+    await user.click(screen.getByRole('tab', { name: 'Exceptions' }));
+    const list = await screen.findByRole('list', { name: 'team-exceptions' });
+    expect(list).toHaveTextContent('Idle 22 min');
+    expect(list).toHaveTextContent('Said: In a meeting');
+  });
+});
+
+describe('Reporting lines and Versions (ADR-0025)', () => {
+  const mona = { id: 'a1', name: 'Mona Test', email: null, reporting_manager_id: null };
+  const farheen = { id: 'b2', name: 'Farheen Test', email: null, reporting_manager_id: null };
+
+  it('HR sets who someone reports to', async () => {
+    mocks.myCapabilities.mockResolvedValue(['hr.employee.write']);
+    mocks.adminPeople.mockResolvedValue({ people: [] });
+    mocks.adminEmployees.mockResolvedValue({ employees: [mona, farheen] });
+    mocks.adminSetManager.mockResolvedValue({ id: 'b2', reporting_manager_id: 'a1' });
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole('button', { name: 'Settings' }));
+    const lines = await screen.findByRole('region', { name: 'reporting-lines' });
+    await user.type(within(lines).getByLabelText('reporting-reason'), 'pilot team');
+    await user.selectOptions(await within(lines).findByLabelText('manager of Farheen Test'), 'a1');
+    expect(mocks.adminSetManager).toHaveBeenCalledWith('b2', 'a1', 'pilot team');
+    expect(
+      await within(lines).findByText('Farheen Test now reports to Mona Test.'),
+    ).toBeInTheDocument();
+  });
+
+  it('Administrators see which version each computer runs', async () => {
+    mocks.myCapabilities.mockResolvedValue(['admin.policy.write', 'admin.device.read']);
+    mocks.adminPolicyGet.mockResolvedValue({ override: null, effective: { policy: {} } });
+    mocks.adminDevices.mockResolvedValue({
+      devices: [
+        {
+          device_id: 'd1',
+          display_name: 'Farheen Test',
+          work_email: 'f@aptask.com',
+          os: 'windows',
+          app_version: '0.1.2',
+          last_seen_at: null,
+          revoked_at: null,
+        },
+        {
+          device_id: 'd2',
+          display_name: 'Mona Test',
+          work_email: 'm@aptask.com',
+          os: 'windows',
+          app_version: '0.1.4',
+          last_seen_at: null,
+          revoked_at: null,
+        },
+      ],
+    });
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole('button', { name: 'Settings' }));
+    await user.click(screen.getByRole('tab', { name: 'Versions' }));
+    expect(await screen.findByLabelText('version-summary')).toHaveTextContent(
+      '0.1.4 × 1 · 0.1.2 × 1',
+    );
+    expect(screen.getByRole('region', { name: 'versions' })).toHaveTextContent('0.1.2 · behind');
   });
 });

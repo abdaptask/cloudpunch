@@ -168,6 +168,102 @@ pub fn welcome_send(
     send(http, base, token, reqwest::Method::POST, &path, Some(&body))
 }
 
+/// `YYYY-MM-DD`: the date goes into the URL.
+fn is_date(s: &str) -> bool {
+    let b = s.as_bytes();
+    b.len() == 10
+        && b.iter().enumerate().all(|(i, c)| match i {
+            4 | 7 => *c == b'-',
+            _ => c.is_ascii_digit(),
+        })
+}
+
+// Team views (ADR-0025). The server checks the caller's scope on every
+// call: a Manager sees direct reports, HR everyone.
+
+/// Team today: each person's status now.
+pub fn team_now(http: &Client, base: &str, token: &str) -> Result<Value, DayError> {
+    send(http, base, token, reqwest::Method::GET, "/v1/team", None)
+}
+
+/// One person's working day. Audited server-side.
+pub fn team_day(
+    http: &Client,
+    base: &str,
+    token: &str,
+    employee_id: &str,
+    date: &str,
+) -> Result<Value, DayError> {
+    if !is_uuid(employee_id) || !is_date(date) {
+        return Err(DayError::Refused("invalid_argument".into()));
+    }
+    let path = format!("/v1/team/{employee_id}/days/{date}");
+    send(http, base, token, reqwest::Method::GET, &path, None)
+}
+
+/// Exceptions over `[from, to]`, for everyone in scope or one person.
+pub fn team_exceptions(
+    http: &Client,
+    base: &str,
+    token: &str,
+    from: &str,
+    to: &str,
+    employee_id: Option<&str>,
+) -> Result<Value, DayError> {
+    if !is_date(from) || !is_date(to) || employee_id.is_some_and(|e| !is_uuid(e)) {
+        return Err(DayError::Refused("invalid_argument".into()));
+    }
+    let mut path = format!("/v1/team/exceptions?from={from}&to={to}");
+    if let Some(e) = employee_id {
+        path.push_str(&format!("&employee_id={e}"));
+    }
+    send(http, base, token, reqwest::Method::GET, &path, None)
+}
+
+/// Everyone, with their reporting manager (People).
+pub fn employees(http: &Client, base: &str, token: &str) -> Result<Value, DayError> {
+    send(
+        http,
+        base,
+        token,
+        reqwest::Method::GET,
+        "/v1/admin/employees",
+        None,
+    )
+}
+
+/// Set or clear someone's manager. Audited server-side.
+pub fn set_manager(
+    http: &Client,
+    base: &str,
+    token: &str,
+    employee_id: &str,
+    manager_id: Option<&str>,
+    reason: Option<&str>,
+) -> Result<Value, DayError> {
+    if !is_uuid(employee_id) || manager_id.is_some_and(|m| !is_uuid(m)) {
+        return Err(DayError::Refused("invalid_argument".into()));
+    }
+    let mut body = serde_json::json!({ "manager_employee_id": manager_id });
+    if let Some(r) = reason.map(str::trim).filter(|r| !r.is_empty()) {
+        body["reason"] = Value::String(r.to_string());
+    }
+    let path = format!("/v1/admin/employees/{employee_id}/manager");
+    send(http, base, token, reqwest::Method::PUT, &path, Some(&body))
+}
+
+/// Every enrolled device, with its owner and the version it runs.
+pub fn devices(http: &Client, base: &str, token: &str) -> Result<Value, DayError> {
+    send(
+        http,
+        base,
+        token,
+        reqwest::Method::GET,
+        "/v1/admin/devices",
+        None,
+    )
+}
+
 /// One signed-in call. 401/429/5xx and network trouble are
 /// `Unavailable`; other 4xx carry the server's `code`.
 fn send(
@@ -216,6 +312,76 @@ mod tests {
             .timeout(Duration::from_secs(5))
             .build()
             .unwrap()
+    }
+
+    #[test]
+    fn team_calls_refuse_bad_ids_and_dates_before_sending() {
+        let http = client();
+        let bad = |r: Result<Value, DayError>| matches!(r, Err(DayError::Refused(c)) if c == "invalid_argument");
+        let id = "0f8e1c2a-3b4d-4e5f-8a9b-0c1d2e3f4a5b";
+        assert!(bad(team_day(
+            &http,
+            "http://127.0.0.1:9",
+            "t",
+            "x/../y",
+            "2026-09-29"
+        )));
+        assert!(bad(team_day(
+            &http,
+            "http://127.0.0.1:9",
+            "t",
+            id,
+            "2026-9-29"
+        )));
+        assert!(bad(team_exceptions(
+            &http,
+            "http://127.0.0.1:9",
+            "t",
+            "2026-09-01",
+            "today",
+            None
+        )));
+        assert!(bad(set_manager(
+            &http,
+            "http://127.0.0.1:9",
+            "t",
+            id,
+            Some("nope"),
+            None
+        )));
+    }
+
+    #[test]
+    fn set_manager_sends_the_id_or_null_and_a_trimmed_reason() {
+        let server = MockServer::start();
+        let id = "0f8e1c2a-3b4d-4e5f-8a9b-0c1d2e3f4a5b";
+        let m = "11111111-1111-4111-8111-111111111111";
+        let set = server.mock(|when, then| {
+            when.method(PUT)
+                .path(format!("/v1/admin/employees/{id}/manager"))
+                .json_body(json!({ "manager_employee_id": m, "reason": "new team" }));
+            then.status(200)
+                .json_body(json!({ "id": id, "reporting_manager_id": m }));
+        });
+        set_manager(
+            &client(),
+            &server.base_url(),
+            "t",
+            id,
+            Some(m),
+            Some("  new team "),
+        )
+        .unwrap();
+        set.assert();
+        let clear = server.mock(|when, then| {
+            when.method(PUT)
+                .path(format!("/v1/admin/employees/{id}/manager"))
+                .json_body(json!({ "manager_employee_id": null }));
+            then.status(200)
+                .json_body(json!({ "id": id, "reporting_manager_id": null }));
+        });
+        set_manager(&client(), &server.base_url(), "t", id, None, None).unwrap();
+        clear.assert();
     }
 
     #[test]
