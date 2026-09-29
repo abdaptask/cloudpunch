@@ -143,34 +143,40 @@ removed but never renamed — the state-machine transitions in
 ADR-0003 reference them by identifier. Adding a new option requires
 an ADR update.
 
-## 6. Bio-break cap
+## 6. Break types (ADR-0023)
 
-**Setting:** `break.bio.max_minutes`
-**Default:** `10`
-**Range:** 5 – 30
-**Effect:** After a bio break exceeds this duration, CloudPunch
-shows a soft nudge notification ("Still on break?") but does not
-change the state. Time beyond the cap continues to be counted as
-break time.
+Five fixed types. Events record only the id, never the label.
 
-**Setting:** `break.bio.payable_up_to_cap`
-**Default:** `true`
-**Effect:** Bio-break time up to the cap is payable. Time beyond the
-cap is not payable. Set to `false` for policies that never pay bio
-breaks.
+| id | Default label | `pay` | `max_minutes` | `enabled` |
+|---|---|---|---|---|
+| `bio` | Bio break | `paid_up_to_limit` | 10 | `true` |
+| `meal` | Meal break | `unpaid` | 60 | `true` |
+| `rest` | Tea break | `paid_up_to_limit` | 15 | `true` |
+| `personal` | Personal | `unpaid` | 30 | `true` |
+| `other` | Other break | `unpaid` | `null` (none) | `false` |
 
-## 7. Meal-break behaviour
+Each entry has the same settings:
+- **`break.<id>.enabled`:** whether the app offers it. History keeps
+  disabled types. At least one type must stay enabled; the Settings
+  save refuses otherwise.
+- **`break.<id>.label`:** 1–30 characters, shown in the app and to the
+  person's manager.
+- **`break.<id>.pay`:**
+  - `paid`;
+  - `unpaid`;
+  - `paid_up_to_limit`: paid up to `max_minutes`, the rest unpaid. The
+    limit applies to each break on its own.
+- **`break.<id>.max_minutes`:** 5–180 (`other` may be `null`). Past it,
+  CloudPunch shows a soft "Still on break?" nudge and doesn't change the
+  state; time beyond it is still break time.
 
-**Setting:** `break.meal.max_minutes`
-**Default:** `60`
-**Range:** 15 – 180
-**Effect:** After a meal break exceeds this duration, CloudPunch
-shows a soft nudge. State is unchanged.
+**Day totals:** `paid_break_ms` and `unpaid_break_ms` next to
+`breaks_ms`, from the person's policy as it stands now.
 
-**Setting:** `break.meal.payable`
-**Default:** `false`
-**Effect:** Meal-break time is unpaid by default. Set to `true` only
-if a policy explicitly pays meal breaks.
+**Deprecated:** `break.bio.payable_up_to_cap` and `break.meal.payable`
+are still accepted so stored overrides stay valid, but `pay` decides.
+
+## 7. Meal-break prompt
 
 **Setting:** `break.meal.min_minutes_before_prompt`
 **Default:** `0` (no prompt)
@@ -182,14 +188,19 @@ prompt after this many minutes since the last meal break started
 
 **Setting:** `away.require_note`
 **Default:** map by reason — `working_away: true`, `phone_call:
-false`, `meeting: false`, `other: true`
+false`, `meeting: false`, `training: false`, `other: true`
 **Effect:** Whether the user must type a short note when marking away
 with each reason.
 
 **Setting:** `away.payable_reasons`
-**Default:** `["working_away", "phone_call", "meeting"]`
+**Default:** `["working_away", "phone_call", "meeting", "training"]`
 **Effect:** Which away-reasons count toward payable time. `other` is
 excluded by default.
+
+**Setting:** `away.offer_training`
+**Default:** `true`
+**Effect:** Whether the app offers Training as an Away reason
+(ADR-0023 §1).
 
 ## 9. Screen-lock and sleep tolerance
 

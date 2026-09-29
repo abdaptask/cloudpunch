@@ -14,7 +14,7 @@
           "properties": {
             "away_reason": {
               "type": "string",
-              "enum": ["working_away", "phone_call", "meeting", "other"]
+              "enum": ["working_away", "phone_call", "meeting", "training", "other"]
             },
             "note": {
               "type": ["string", "null"],

@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cloudpunch.aptask.com/schemas/user-start-break.schema.json",
+  "title": "USER_START_BREAK event",
+  "description": "The employee started a break. Valid from ACTIVE or ON_CALL. Only the type's fixed id is recorded, never its label or a reason; planned_minutes is the optional \"Back in?\" answer. See ADR-0003 §3 and ADR-0023.",
+  "allOf": [
+    { "$ref": "common/base-event.schema.json" },
+    {
+      "type": "object",
+      "properties": {
+        "event_type": { "const": "USER_START_BREAK" },
+        "payload": {
+          "type": "object",
+          "properties": {
+            "break_kind": {
+              "type": "string",
+              "enum": ["bio", "meal", "rest", "personal", "other"]
+            },
+            "planned_minutes": {
+              "type": ["integer", "null"],
+              "enum": [5, 10, 15, 20, 30, 45, 60, null],
+              "description": "\"Back in?\" answer; null or absent means Not sure."
+            }
+          },
+          "required": ["break_kind"],
+          "additionalProperties": false
+        }
+      }
+    }
+  ]
+}

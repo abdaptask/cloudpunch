@@ -26,7 +26,7 @@
  *     the previous START's own timestamps as best-effort end).
  */
 
-export type BreakKind = 'bio' | 'meal' | 'other';
+export type BreakKind = 'bio' | 'meal' | 'rest' | 'personal' | 'other';
 
 export interface DerivedBreakPeriod {
   breakKind: BreakKind;
@@ -200,6 +200,8 @@ function readString(payload: Record<string, unknown>, key: string): string | nul
 }
 
 function coerceBreakKind(raw: string | null): BreakKind {
-  if (raw === 'bio' || raw === 'meal' || raw === 'other') return raw;
+  if (raw === 'bio' || raw === 'meal' || raw === 'rest' || raw === 'personal' || raw === 'other') {
+    return raw;
+  }
   return 'other';
 }

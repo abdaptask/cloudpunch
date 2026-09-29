@@ -56,7 +56,30 @@ describe('nextState — USER_CLOCK_OUT closes the session from any open state', 
 
 describe('nextState — breaks', () => {
   it('USER_START_BREAK from ACTIVE → ON_BREAK', () => {
-    expect(nextState('ACTIVE', 'USER_START_BREAK')).toBe('ON_BREAK');
+    expect(nextState('ACTIVE', 'USER_START_BREAK', { break_kind: 'bio' })).toBe('ON_BREAK');
+  });
+  it('USER_START_BREAK takes each ADR-0023 kind, with or without a planned time', () => {
+    for (const kind of ['bio', 'meal', 'rest', 'personal', 'other']) {
+      expect(nextState('ACTIVE', 'USER_START_BREAK', { break_kind: kind })).toBe('ON_BREAK');
+    }
+    for (const planned of [5, 20, 60, null]) {
+      expect(
+        nextState('ACTIVE', 'USER_START_BREAK', {
+          break_kind: 'personal',
+          planned_minutes: planned,
+        }),
+      ).toBe('ON_BREAK');
+    }
+  });
+  it('USER_START_BREAK rejects an unknown or missing kind and an off-list planned time', () => {
+    expect(nextState('ACTIVE', 'USER_START_BREAK')).toBeNull();
+    expect(nextState('ACTIVE', 'USER_START_BREAK', { break_kind: 'prayer' })).toBeNull();
+    expect(nextState('ACTIVE', 'USER_START_BREAK', { break_kind: 7 })).toBeNull();
+    for (const planned of [0, 7, 61, -5, '20', 20.5]) {
+      expect(
+        nextState('ACTIVE', 'USER_START_BREAK', { break_kind: 'bio', planned_minutes: planned }),
+      ).toBeNull();
+    }
   });
   it('USER_START_BREAK from ON_BREAK is invalid', () => {
     expect(nextState('ON_BREAK', 'USER_START_BREAK')).toBeNull();
@@ -74,7 +97,7 @@ describe('nextState — breaks', () => {
 
 describe('nextState — away', () => {
   it('USER_MARK_AWAY from ACTIVE → AWAY for each known reason (ADR-0011)', () => {
-    for (const away_reason of ['working_away', 'phone_call', 'meeting', 'other']) {
+    for (const away_reason of ['working_away', 'phone_call', 'meeting', 'training', 'other']) {
       expect(nextState('ACTIVE', 'USER_MARK_AWAY', { away_reason })).toBe('AWAY');
     }
   });
@@ -161,7 +184,7 @@ describe('nextState — MEDIA_DEVICE_STATE and ON_CALL (ADR-0009)', () => {
   });
 
   it('USER_START_BREAK from ON_CALL → ON_BREAK', () => {
-    expect(nextState('ON_CALL', 'USER_START_BREAK')).toBe('ON_BREAK');
+    expect(nextState('ON_CALL', 'USER_START_BREAK', { break_kind: 'meal' })).toBe('ON_BREAK');
   });
   it('INPUT_ACTIVITY from ON_CALL stays ON_CALL', () => {
     expect(nextState('ON_CALL', 'INPUT_ACTIVITY')).toBe('ON_CALL');
@@ -314,9 +337,9 @@ describe('deriveState — folding an event stream', () => {
     const stream = [
       mk('USER_CLOCK_IN'), // ignored (invalid from ACTIVE), state stays ACTIVE
       mk('INPUT_ACTIVITY'),
-      mk('USER_START_BREAK'),
+      mk('USER_START_BREAK', { break_kind: 'rest' }),
       mk('USER_END_BREAK'),
-      mk('USER_MARK_AWAY', { away_reason: 'meeting' }),
+      mk('USER_MARK_AWAY', { away_reason: 'training' }),
       mk('USER_MARK_BACK'),
       mk('USER_CLOCK_OUT'),
     ];

@@ -98,25 +98,100 @@
     },
     "break": {
       "type": "object",
+      "description": "One entry per break type, fixed ids (ADR-0023 §1). max_minutes raises a reminder and, for paid_up_to_limit, is the paid boundary; it never ends a break. pay: paid, unpaid, or paid_up_to_limit (paid up to max_minutes, the rest unpaid).",
       "properties": {
         "bio": {
           "type": "object",
           "properties": {
-            "max_minutes": { "type": "integer", "minimum": 5, "maximum": 30, "default": 10 },
-            "payable_up_to_cap": { "type": "boolean", "default": true }
+            "enabled": { "type": "boolean", "default": true },
+            "label": { "type": "string", "minLength": 1, "maxLength": 30, "default": "Bio break" },
+            "pay": {
+              "type": "string",
+              "enum": ["paid", "unpaid", "paid_up_to_limit"],
+              "default": "paid_up_to_limit"
+            },
+            "max_minutes": { "type": "integer", "minimum": 5, "maximum": 180, "default": 10 },
+            "payable_up_to_cap": {
+              "type": "boolean",
+              "default": true,
+              "description": "Deprecated by ADR-0023 (use pay); accepted so stored overrides stay valid, otherwise ignored."
+            }
           },
           "additionalProperties": false
         },
         "meal": {
           "type": "object",
           "properties": {
-            "max_minutes": { "type": "integer", "minimum": 15, "maximum": 180, "default": 60 },
-            "payable": { "type": "boolean", "default": false },
+            "enabled": { "type": "boolean", "default": true },
+            "label": { "type": "string", "minLength": 1, "maxLength": 30, "default": "Meal break" },
+            "pay": {
+              "type": "string",
+              "enum": ["paid", "unpaid", "paid_up_to_limit"],
+              "default": "unpaid"
+            },
+            "max_minutes": { "type": "integer", "minimum": 5, "maximum": 180, "default": 60 },
+            "payable": {
+              "type": "boolean",
+              "default": false,
+              "description": "Deprecated by ADR-0023 (use pay); accepted so stored overrides stay valid, otherwise ignored."
+            },
             "min_minutes_before_prompt": {
               "type": "integer",
               "minimum": 0,
               "maximum": 720,
               "default": 0
+            }
+          },
+          "additionalProperties": false
+        },
+        "rest": {
+          "type": "object",
+          "properties": {
+            "enabled": { "type": "boolean", "default": true },
+            "label": { "type": "string", "minLength": 1, "maxLength": 30, "default": "Tea break" },
+            "pay": {
+              "type": "string",
+              "enum": ["paid", "unpaid", "paid_up_to_limit"],
+              "default": "paid_up_to_limit"
+            },
+            "max_minutes": { "type": "integer", "minimum": 5, "maximum": 180, "default": 15 }
+          },
+          "additionalProperties": false
+        },
+        "personal": {
+          "type": "object",
+          "properties": {
+            "enabled": { "type": "boolean", "default": true },
+            "label": { "type": "string", "minLength": 1, "maxLength": 30, "default": "Personal" },
+            "pay": {
+              "type": "string",
+              "enum": ["paid", "unpaid", "paid_up_to_limit"],
+              "default": "unpaid"
+            },
+            "max_minutes": { "type": "integer", "minimum": 5, "maximum": 180, "default": 30 }
+          },
+          "additionalProperties": false
+        },
+        "other": {
+          "type": "object",
+          "properties": {
+            "enabled": { "type": "boolean", "default": false },
+            "label": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 30,
+              "default": "Other break"
+            },
+            "pay": {
+              "type": "string",
+              "enum": ["paid", "unpaid", "paid_up_to_limit"],
+              "default": "unpaid"
+            },
+            "max_minutes": {
+              "type": ["integer", "null"],
+              "minimum": 5,
+              "maximum": 180,
+              "default": null
             }
           },
           "additionalProperties": false
@@ -133,6 +208,7 @@
             "working_away": { "type": "boolean", "default": true },
             "phone_call": { "type": "boolean", "default": false },
             "meeting": { "type": "boolean", "default": false },
+            "training": { "type": "boolean", "default": false },
             "other": { "type": "boolean", "default": true }
           },
           "additionalProperties": false
@@ -141,10 +217,15 @@
           "type": "array",
           "items": {
             "type": "string",
-            "enum": ["working_away", "phone_call", "meeting", "other"]
+            "enum": ["working_away", "phone_call", "meeting", "training", "other"]
           },
           "uniqueItems": true,
-          "default": ["working_away", "phone_call", "meeting"]
+          "default": ["working_away", "phone_call", "meeting", "training"]
+        },
+        "offer_training": {
+          "type": "boolean",
+          "default": true,
+          "description": "Offer Training as an Away reason in the app (ADR-0023 §1)."
         }
       },
       "additionalProperties": false

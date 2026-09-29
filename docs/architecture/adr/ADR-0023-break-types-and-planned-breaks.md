@@ -159,6 +159,27 @@ The `break` object gets one entry per type, all with the same shape:
   2); the day builder keeps its `other` fallback for them.
 - `USER_MARK_AWAY.away_reason` gains `training`.
 
+### Amendments found while building (proposed 2026-09-29, awaiting the owner)
+
+1. **§3, "the policy in force when the break started", isn't possible
+   today.**
+   - Policy overrides are replaced in place (`policy_override`, one row
+     per scope), and the version is only a content hash. So there's no
+     record of what a policy said last week.
+   - **What's built:** totals use the person's policy **as it stands
+     now**, so a pay-rule change also recalculates earlier days on
+     screen.
+   - This is safe for payroll only because the approval gate
+     (invariant 3) will lock a `timesheet_version` before anything is
+     exported. That lock isn't built yet.
+   - **The alternative** is a `policy_history` table (a migration) that
+     keeps every version with its time, so each break is paid by the
+     rule of its day.
+2. **§4, the old pay flags.** `pay` now has a schema default, so "read
+   `payable_up_to_cap` / `payable` when `pay` is absent" can never apply
+   after merging. The old flags are accepted, so stored overrides stay
+   valid, but ignored. No code ever acted on them (ADR-0015).
+
 ## Consequences
 
 - **Positive:**

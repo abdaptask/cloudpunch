@@ -120,6 +120,55 @@ describe('buildSession', () => {
     expect(t.prompt_ms).toBe(1 * MIN);
   });
 
+  it('ADR-0023: tea, personal and training, planned minutes, and paid vs unpaid breaks', () => {
+    const o = IST;
+    const s = shift('s1', '2026-09-25T09:00:00', '2026-09-25T13:00:00', o, [
+      // Tea: 20 min against a 15-min paid limit → 15 paid, 5 unpaid.
+      evt('USER_START_BREAK', local('2026-09-25T10:00:00', o), o, {
+        break_kind: 'rest',
+        planned_minutes: 15,
+      }),
+      evt('USER_END_BREAK', local('2026-09-25T10:20:00', o), o),
+      // Personal, "back in 20": unpaid, took 24.
+      evt('USER_START_BREAK', local('2026-09-25T11:00:00', o), o, {
+        break_kind: 'personal',
+        planned_minutes: 20,
+      }),
+      evt('USER_END_BREAK', local('2026-09-25T11:24:00', o), o),
+      // Bio, not sure: 8 min, all paid.
+      evt('USER_START_BREAK', local('2026-09-25T11:30:00', o), o, {
+        break_kind: 'bio',
+        planned_minutes: null,
+      }),
+      evt('USER_END_BREAK', local('2026-09-25T11:38:00', o), o),
+      evt('USER_MARK_AWAY', local('2026-09-25T12:00:00', o), o, { away_reason: 'training' }),
+      evt('USER_MARK_BACK', local('2026-09-25T12:45:00', o), o),
+    ]);
+    const breaks = s.segments.filter((g) => g.kind.endsWith('_break'));
+    expect(breaks.map((g) => [g.kind, g.plannedMinutes])).toEqual([
+      ['rest_break', 15],
+      ['personal_break', 20],
+      ['bio_break', undefined],
+    ]);
+    expect(s.segments.some((g) => g.kind === 'away_training')).toBe(true);
+    const t = totals({ date: '2026-09-25', sessions: [s] });
+    expect(t.breaks_ms).toBe((20 + 24 + 8) * MIN);
+    expect(t.paid_break_ms).toBe((15 + 8) * MIN);
+    expect(t.unpaid_break_ms).toBe((5 + 24) * MIN);
+    expect(t.worked_ms).toBe((4 * 60 - 52) * MIN); // training counts as work
+    // A policy that pays Personal fully and makes tea unpaid.
+    const custom = totals(
+      { date: '2026-09-25', sessions: [s] },
+      {
+        rest_break: { pay: 'unpaid', maxMinutes: 15 },
+        personal_break: { pay: 'paid', maxMinutes: 30 },
+        bio_break: { pay: 'paid_up_to_limit', maxMinutes: 5 },
+      },
+    );
+    expect(custom.paid_break_ms).toBe((24 + 5) * MIN);
+    expect(custom.unpaid_break_ms).toBe((20 + 3) * MIN);
+  });
+
   it('ADR-0018: idle runs from the last input, carries its explanation, and is not worked', () => {
     const o = IST;
     const at = (hhmm: string): Date => local(`2026-09-25T${hhmm}:00`, o);

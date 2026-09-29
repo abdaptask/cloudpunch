@@ -1,6 +1,7 @@
 import type { TimeEventRecord, TimeSession } from '../db/index.js';
 import { startFromSignIn } from '../events/start.js';
 import { nextState, type PayrollState } from '../events/state-machine.js';
+import { DEFAULT_BREAK_RULES, splitBreak, type BreakRules } from './pay.js';
 
 /**
  * Day history (ADR-0016). Pure: sessions and their events in, working
@@ -24,9 +25,12 @@ export type SegmentKind =
   | 'call_other'
   | 'bio_break'
   | 'meal_break'
+  | 'rest_break'
+  | 'personal_break'
   | 'other_break'
   | 'away_meeting'
   | 'away_phone'
+  | 'away_training'
   | 'away_working'
   | 'prompt'
   | 'idle';
@@ -39,6 +43,8 @@ export interface DaySegment {
   offsetMinutes: number;
   /** An idle stretch's own account (ADR-0018 §2), for the manager. */
   explanation?: { explanation: string; note: string | null };
+  /** A break's "Back in?" answer, in minutes (ADR-0023 §2). */
+  plannedMinutes?: number;
 }
 
 export interface BuiltSession {
@@ -72,12 +78,15 @@ function callKind(callType: string | null): SegmentKind {
 function breakKind(kind: string | null): SegmentKind {
   if (kind === 'bio') return 'bio_break';
   if (kind === 'meal') return 'meal_break';
+  if (kind === 'rest') return 'rest_break';
+  if (kind === 'personal') return 'personal_break';
   return 'other_break';
 }
 
 function awayKind(reason: string | null): SegmentKind {
   if (reason === 'meeting') return 'away_meeting';
   if (reason === 'phone_call') return 'away_phone';
+  if (reason === 'training') return 'away_training';
   return 'away_working';
 }
 
@@ -133,7 +142,14 @@ export function buildSession(
   const segments: DaySegment[] = [];
   let state: PayrollState = 'CLOSED';
   // The segment in progress, if any.
-  const cur: { seg: { kind: SegmentKind; startedAt: Date; offsetMinutes: number } | null } = {
+  const cur: {
+    seg: {
+      kind: SegmentKind;
+      startedAt: Date;
+      offsetMinutes: number;
+      plannedMinutes?: number;
+    } | null;
+  } = {
     seg: null,
   };
   const closeAt = (at: Date): void => {
@@ -182,7 +198,15 @@ export function buildSession(
     if (kind === (cur.seg?.kind ?? null)) continue;
     const at = evt === clockInEvt ? clockIn : evt.clientTs;
     closeAt(at);
-    if (kind) cur.seg = { kind, startedAt: at, offsetMinutes: evt.utcOffsetMinutes };
+    const planned = evt.eventType === 'USER_START_BREAK' ? evt.payload['planned_minutes'] : null;
+    if (kind) {
+      cur.seg = {
+        kind,
+        startedAt: at,
+        offsetMinutes: evt.utcOffsetMinutes,
+        ...(typeof planned === 'number' ? { plannedMinutes: planned } : {}),
+      };
+    }
   }
 
   const isOpen = session.closedAt === null;
@@ -242,26 +266,39 @@ export interface DayTotals {
   calls_ms: number;
   meetings_ms: number;
   breaks_ms: number;
+  /** Break time paid under the break rules (ADR-0023 §3). */
+  paid_break_ms: number;
+  unpaid_break_ms: number;
   prompt_ms: number;
   /** Logged idle (ADR-0018): never worked. */
   idle_ms: number;
 }
 
-/** Worked = at the computer + calls + away (meeting/phone/working away). */
-export function totals(day: WorkingDay | null): DayTotals {
+/**
+ * Worked = at the computer + calls + away (meeting/phone/training/
+ * working away). Breaks split into paid and unpaid by `rules`, each
+ * break on its own (a limit applies per break).
+ */
+export function totals(day: WorkingDay | null, rules: BreakRules = DEFAULT_BREAK_RULES): DayTotals {
   const out: DayTotals = {
     worked_ms: 0,
     calls_ms: 0,
     meetings_ms: 0,
     breaks_ms: 0,
+    paid_break_ms: 0,
+    unpaid_break_ms: 0,
     prompt_ms: 0,
     idle_ms: 0,
   };
   for (const s of day?.sessions ?? []) {
     for (const seg of s.segments) {
       const ms = seg.endedAt.getTime() - seg.startedAt.getTime();
-      if (seg.kind.endsWith('_break')) out.breaks_ms += ms;
-      else if (seg.kind === 'prompt') out.prompt_ms += ms;
+      if (seg.kind.endsWith('_break')) {
+        out.breaks_ms += ms;
+        const { paid, unpaid } = splitBreak(rules[seg.kind], ms);
+        out.paid_break_ms += paid;
+        out.unpaid_break_ms += unpaid;
+      } else if (seg.kind === 'prompt') out.prompt_ms += ms;
       else if (seg.kind === 'idle') out.idle_ms += ms;
       else {
         out.worked_ms += ms;

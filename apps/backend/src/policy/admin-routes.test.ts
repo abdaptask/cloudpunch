@@ -202,6 +202,24 @@ describe('policy admin routes', () => {
     expect(db.audit).toEqual([]);
   });
 
+  it('ADR-0023: refuses to turn every break type off, accepts the new break settings', async () => {
+    const off = { enabled: false };
+    const res = await call([AppRole.Administrator], 'PUT', GLOBAL, {
+      document: { break: { bio: off, meal: off, rest: off, personal: off } },
+    });
+    expect(res.statusCode).toBe(400);
+    expect((res.json() as { issues: string[] }).issues.join(' ')).toMatch(/at least one break/);
+    expect(db.audit).toEqual([]);
+
+    const ok = await call([AppRole.Administrator], 'PUT', GLOBAL, {
+      document: {
+        break: { rest: { label: 'Chai break', pay: 'paid', max_minutes: 20 }, personal: off },
+        away: { offer_training: false },
+      },
+    });
+    expect(ok.statusCode).toBe(200);
+  });
+
   it('404s unknown departments and employees, and removing nothing', async () => {
     const admin = [AppRole.Administrator];
     const unknownDept = await call(admin, 'PUT', `/v1/admin/policy/departments/${randomUUID()}`, {

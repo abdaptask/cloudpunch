@@ -90,6 +90,17 @@ export function resolvePolicy(layers: readonly PolicyDocument[]): PolicyDocument
   return merged;
 }
 
+/**
+ * ADR-0023 §4: at least one break type must stay offered. Checked on
+ * the override as written, over the defaults.
+ */
+export function breakIssues(doc: PolicyDocument): string[] {
+  const breaks = mergePolicy(schemaDefaults(), doc)['break'] as
+    Record<string, { enabled?: unknown }> | undefined;
+  const anyOn = Object.values(breaks ?? {}).some((b) => b.enabled === true);
+  return anyOn ? [] : ['/break: at least one break type must stay enabled'];
+}
+
 /** Content version: `sha256-<hex>` of the canonical JSON (ADR-0015 §2). */
 export function policyVersion(doc: PolicyDocument): string {
   const digest = createHash('sha256').update(canonicalize(doc)).digest('hex');
