@@ -4,15 +4,25 @@ import { join } from 'node:path';
 import type { FastifyPluginAsync } from 'fastify';
 import fp from 'fastify-plugin';
 import { requireAuth } from '../auth/require.js';
-import { readReleases, type Release } from '../landing/routes.js';
+import { readReleases, type Platform, type Release } from '../landing/routes.js';
+
+/** The updater's platform names to download folders. */
+const PLATFORMS: Record<string, Platform> = { windows: 'windows', darwin: 'macos' };
+
+/** The file the updater downloads, and its size. */
+const updateOf = (r: Release): { file: string; size: number } =>
+  r.update_file !== undefined && r.update_size !== undefined
+    ? { file: r.update_file, size: r.update_size }
+    : { file: r.file, size: r.size };
 
 /**
  * Desktop auto-update (ADR-0022 §3), for the Tauri updater plugin.
  *
- * - `GET /v1/desktop/update/windows/:current` answers the newest signed
- *   release as a Tauri update manifest, or 204 when the caller is up to
- *   date.
- * - `GET /v1/desktop/update/files/windows/:file` serves that installer.
+ * - `GET /v1/desktop/update/:platform/:current` (`windows` or `darwin`,
+ *   ADR-0026) answers the newest signed release as a Tauri update
+ *   manifest, or 204 when the caller is up to date.
+ * - `GET /v1/desktop/update/files/:platform/:file` serves that update:
+ *   the Windows installer, or the macOS `.app.tar.gz`.
  * - Both need the app's normal bearer token: `/v1` is not behind
  *   Cloudflare Access, which the desktop can't sign in to.
  * - Only releases with a `signature` are offered; the app refuses
@@ -46,11 +56,13 @@ function latestSigned(releases: Release[]): (Release & { signature: string }) | 
 }
 
 const updateRoutesImpl: FastifyPluginAsync<UpdateRoutesOptions> = async (app, opts) => {
-  app.get<{ Params: { current: string } }>(
-    '/v1/desktop/update/windows/:current',
+  app.get<{ Params: { platform: string; current: string } }>(
+    '/v1/desktop/update/:platform/:current',
     { preHandler: [requireAuth] },
     async (req, reply) => {
-      const latest = latestSigned(await readReleases(opts.downloadsDir));
+      const platform = PLATFORMS[req.params.platform];
+      if (!platform) return reply.code(204).send();
+      const latest = latestSigned(await readReleases(opts.downloadsDir, platform));
       if (!latest || !isNewer(latest.version, req.params.current)) {
         return reply.code(204).send();
       }
@@ -62,28 +74,30 @@ const updateRoutesImpl: FastifyPluginAsync<UpdateRoutesOptions> = async (app, op
           version: latest.version,
           notes: latest.notes.join('\n'),
           pub_date: latest.published_at,
-          url: `${base}/v1/desktop/update/files/windows/${encodeURIComponent(latest.file)}`,
+          url: `${base}/v1/desktop/update/files/${req.params.platform}/${encodeURIComponent(updateOf(latest).file)}`,
           signature: latest.signature,
         });
     },
   );
 
-  app.get<{ Params: { file: string } }>(
-    '/v1/desktop/update/files/windows/:file',
+  app.get<{ Params: { platform: string; file: string } }>(
+    '/v1/desktop/update/files/:platform/:file',
     { preHandler: [requireAuth] },
     async (req, reply) => {
-      const releases = await readReleases(opts.downloadsDir);
+      const platform = PLATFORMS[req.params.platform];
+      const releases = platform ? await readReleases(opts.downloadsDir, platform) : [];
       // Only a listed, signed file: never a path from the request.
-      const release = releases.find((r) => r.signature && r.file === req.params.file);
-      if (!release || !opts.downloadsDir) {
+      const release = releases.find((r) => r.signature && updateOf(r).file === req.params.file);
+      if (!release || !opts.downloadsDir || !platform) {
         return reply
           .code(404)
           .type('application/problem+json')
           .send({ code: 'not_found', message: 'no such update' });
       }
-      const path = join(opts.downloadsDir, 'windows', release.file);
+      const update = updateOf(release);
+      const path = join(opts.downloadsDir, platform, update.file);
       const info = await stat(path).catch(() => null);
-      if (!info || info.size !== release.size) {
+      if (!info || info.size !== update.size) {
         return reply
           .code(503)
           .type('application/problem+json')
@@ -91,7 +105,11 @@ const updateRoutesImpl: FastifyPluginAsync<UpdateRoutesOptions> = async (app, op
       }
       return reply
         .code(200)
-        .type('application/vnd.microsoft.portable-executable')
+        .type(
+          platform === 'macos'
+            ? 'application/gzip'
+            : 'application/vnd.microsoft.portable-executable',
+        )
         .header('content-length', String(info.size))
         .header('x-content-type-options', 'nosniff')
         .header('cache-control', 'private, no-store')

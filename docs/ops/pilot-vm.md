@@ -135,6 +135,57 @@ The output is `target\release\bundle\nsis\CloudPunch_<version>_x64-setup.exe`.
 It is unsigned, so Windows shows "unknown publisher" once: **More info
 → Run anyway**. It installs per user, and no admin rights are needed.
 
+## Build the Mac installer (ADR-0026)
+
+On the owner's Mac (macOS 14 or later). It makes a universal app (Apple
+Silicon and Intel), signs it with ApTask's Developer ID, has Apple
+notarize it, and signs the update for auto-update.
+
+**One-time setup**
+
+1. **Tools:**
+   - `xcode-select --install`;
+   - Rust from rustup, then `rustup target add aarch64-apple-darwin x86_64-apple-darwin`;
+   - Node 20 (`.nvmrc`);
+   - `corepack enable` (for pnpm 9.15).
+2. **The repo:** clone it, then run `pnpm install`.
+3. **The Developer ID certificate:** Xcode → Settings → Accounts → sign in
+   with the ApTask Apple ID → the ApTask team → **Manage Certificates** →
+   **+** → **Developer ID Application**. It needs the Account Holder or
+   Admin role.
+   - Check it: `security find-identity -v -p codesigning` lists
+     `Developer ID Application: <ApTask name> (<TEAM ID>)`.
+4. **Notarization:** at appleid.apple.com → Sign-In and Security →
+   **App-Specific Passwords**, create one named "CloudPunch notarize".
+   Keep it in the password manager.
+5. **The updater key:** copy `updater.key` from the password manager to
+   `~/.cloudpunch/updater.key`. It's the same key as Windows, and it never
+   goes into the repo.
+
+**Each release** (after the version bump):
+
+```sh
+cd apps/desktop
+export CLOUDPUNCH_BACKEND_URL=https://cloudpunch.aptask.com
+export APPLE_SIGNING_IDENTITY="Developer ID Application: <ApTask name> (<TEAM ID>)"
+export APPLE_ID=<the Apple ID email>
+export APPLE_TEAM_ID=<TEAM ID>
+read -rs -p 'App-specific password: ' APPLE_PASSWORD; export APPLE_PASSWORD; echo
+export TAURI_SIGNING_PRIVATE_KEY="$HOME/.cloudpunch/updater.key"
+read -rs -p 'Updater key password: ' TAURI_SIGNING_PRIVATE_KEY_PASSWORD; export TAURI_SIGNING_PRIVATE_KEY_PASSWORD; echo
+pnpm tauri build --target universal-apple-darwin --config src-tauri/tauri.pilot.macos.conf.json
+unset APPLE_PASSWORD TAURI_SIGNING_PRIVATE_KEY_PASSWORD
+```
+
+**Output** (under `target/universal-apple-darwin/release/bundle/`):
+- `dmg/CloudPunch_<version>_universal.dmg`, for the website;
+- `macos/CloudPunch.app.tar.gz` and `.sig`, for auto-update.
+
+Notarization takes a few minutes; the build waits for it. Then publish
+with `scripts/publish-installer.sh --mac "…"`. That needs SSH to the VM.
+If the Mac can't reach it, copy the `bundle` folder to the same path on
+the Windows machine and publish from there.
+
 ## Publish an installer (the website's Download button)
 
 Every release that people should get is published, so it shows on

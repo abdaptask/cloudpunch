@@ -23,6 +23,12 @@ use crate::backend_http;
 use crate::commands::Auth;
 
 const FIRST_CHECK: Duration = Duration::from_secs(60);
+
+/// The server's name for this platform's updates (ADR-0026 §4).
+#[cfg(target_os = "macos")]
+const UPDATE_PLATFORM: &str = "darwin";
+#[cfg(not(target_os = "macos"))]
+const UPDATE_PLATFORM: &str = "windows";
 const EVERY: Duration = Duration::from_secs(4 * 3600);
 
 /// A downloaded, verified update waiting for its moment.
@@ -63,7 +69,7 @@ async fn check_once(app: &AppHandle) -> Result<(), String> {
         return Ok(()); // Signed out: nothing to ask with.
     };
     let endpoint = format!(
-        "{}/v1/desktop/update/windows/{{{{current_version}}}}",
+        "{}/v1/desktop/update/{UPDATE_PLATFORM}/{{{{current_version}}}}",
         base.trim_end_matches('/')
     );
     let url = endpoint.parse().map_err(|e| format!("endpoint: {e}"))?;
