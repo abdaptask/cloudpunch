@@ -159,7 +159,7 @@ The `break` object gets one entry per type, all with the same shape:
   2); the day builder keeps its `other` fallback for them.
 - `USER_MARK_AWAY.away_reason` gains `training`.
 
-### Amendments found while building (proposed 2026-09-29, awaiting the owner)
+### Amendments found while building (approved by the owner, 2026-09-29)
 
 1. **§3, "the policy in force when the break started", isn't possible
    today.**
@@ -172,9 +172,10 @@ The `break` object gets one entry per type, all with the same shape:
    - This is safe for payroll only because the approval gate
      (invariant 3) will lock a `timesheet_version` before anything is
      exported. That lock isn't built yet.
-   - **The alternative** is a `policy_history` table (a migration) that
-     keeps every version with its time, so each break is paid by the
-     rule of its day.
+   - **Decision:** the current policy for the pilot. A `policy_history`
+     table (a migration keeping every version with its time) is built
+     with the approval gate and greytHR export, so each break is then
+     paid by the rule of its day.
 2. **§4, the old pay flags.** `pay` now has a schema default, so "read
    `payable_up_to_cap` / `payable` when `pay` is absent" can never apply
    after merging. The old flags are accepted, so stored overrides stay
