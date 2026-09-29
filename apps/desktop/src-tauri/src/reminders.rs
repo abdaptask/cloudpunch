@@ -284,7 +284,14 @@ pub fn local_minute_of_day() -> u16 {
 }
 
 /// No local-time source off Windows until macOS parity (2b.8): UTC.
-#[cfg(not(target_os = "windows"))]
+/// macOS: the OS time zone via `localtime_r` (ADR-0026 §2).
+#[cfg(target_os = "macos")]
+pub fn local_minute_of_day() -> u16 {
+    crate::macos::local_minute_of_day()
+}
+
+/// Other platforms: UTC.
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
 pub fn local_minute_of_day() -> u16 {
     let secs = SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

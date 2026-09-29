@@ -1055,9 +1055,15 @@ fn last_input_at() -> SystemTime {
         .unwrap_or(SystemTime::UNIX_EPOCH)
 }
 
-/// No input source off Windows until macOS parity (2b.8): report
-/// "input just now", so the idle prompt never fires there.
-#[cfg(not(target_os = "windows"))]
+/// macOS: CoreGraphics' seconds since the last input (ADR-0026 §2).
+#[cfg(target_os = "macos")]
+fn last_input_at() -> SystemTime {
+    crate::macos::last_input_at()
+}
+
+/// No input source on other platforms: report "input just now", so the
+/// idle prompt never fires there.
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
 fn last_input_at() -> SystemTime {
     SystemTime::now()
 }

@@ -140,8 +140,15 @@ pub fn os_logon_time() -> Option<SystemTime> {
     }
 }
 
-/// macOS parity in 2b.8: unlock and wake still count.
-#[cfg(not(target_os = "windows"))]
+/// macOS: when the console user logged in (ADR-0026 §2); unlock and
+/// wake count too, from the watcher.
+#[cfg(target_os = "macos")]
+pub fn os_logon_time() -> Option<SystemTime> {
+    crate::macos::console_login_time()
+}
+
+/// Other platforms: unknown; unlock and wake still count.
+#[cfg(not(any(target_os = "windows", target_os = "macos")))]
 pub fn os_logon_time() -> Option<SystemTime> {
     None
 }

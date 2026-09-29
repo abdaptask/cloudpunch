@@ -16,7 +16,11 @@
 
 use std::time::SystemTime;
 
+pub mod poll;
 pub mod supervisor;
+
+#[cfg(target_os = "macos")]
+pub mod mac_poller;
 
 #[cfg(target_os = "windows")]
 pub mod audio_session;
