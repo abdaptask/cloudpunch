@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### ADR-0023: break types, planned breaks, break settings (2026-09-29)
+
+Owner request: break categories set from Settings, plus a way to say
+"I'll be away 20 minutes".
+
+- **ADR-0023** (Accepted). A fixed list of break types with permanent
+  ids:
+  - Bio (paid up to 10 min);
+  - Meal (unpaid, 60);
+  - **Tea break** (new, paid up to 15);
+  - **Personal** (new, unpaid, 30);
+  - Other (off by default).
+- **Training** becomes a work-time Away reason. No Prayer or Medical
+  types.
+- **"Back in?"** records `planned_minutes`, with a "Back yet?" reminder.
+  Managers see the type and planned vs. actual.
+- **Paid and unpaid break totals** are calculated on the server.
+- **An HR/Admin Settings section** covers on/off, name, pay rule and
+  limit.
+- `break_kind` is checked at ingest. Implementation follows in small PRs.
+- **Docs fix:** the build is signed with `TAURI_SIGNING_PRIVATE_KEY`
+  holding the key file's path; Tauri 2.11 has no `_PATH` variable.
+
 ### Desktop auto-update at the first sign-in of the day (ADR-0022, 2026-09-29)
 
 Owner request: the app updates itself without losing the day's data,

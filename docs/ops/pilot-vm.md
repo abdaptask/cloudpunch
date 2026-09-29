@@ -121,7 +121,8 @@ cd apps\desktop
 $env:CLOUDPUNCH_BACKEND_URL='https://cloudpunch.aptask.com'
 Remove-Item Env:CLOUDPUNCH_BUILD_CA_PEM -ErrorAction SilentlyContinue   # public cert: no pinned CA
 # Sign the update (ADR-0022 §5); the key never leaves this machine.
-$env:TAURI_SIGNING_PRIVATE_KEY_PATH="$env:USERPROFILE\.cloudpunch\updater.key"
+# Tauri 2.11 reads the key file's path (or the key itself) from this; there's no _PATH variant.
+$env:TAURI_SIGNING_PRIVATE_KEY="$env:USERPROFILE\.cloudpunch\updater.key"
 $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = Read-Host 'Updater key password'
 pnpm tauri build --config src-tauri/tauri.pilot.conf.json
 ```
