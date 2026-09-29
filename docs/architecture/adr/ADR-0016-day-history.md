@@ -75,6 +75,8 @@ labels it (for example "09:00 EST"). Durations never depend on zones.
 - **Self only.** It needs `self.timeline.read` and returns only the
   caller's own sessions (CLAUDE.md invariant 5). Manager and HR views
   come with the web dashboard, under their own capabilities.
+  *Amended by ADR-0025: manager and HR views are in the desktop app's
+  Team tab, under `team.timeline.read` with a reporting-line scope.*
 
 ### 4. Look-back: 30 days
 
