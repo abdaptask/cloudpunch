@@ -476,6 +476,15 @@ export function App(): JSX.Element {
               onSkip={() => run(api.dismissIdleReturn)}
             />
           )}
+          {/* "Welcome back?" while Away (ADR-0027). */}
+          {signedIn && view?.status === 'away' && view.awayCheck && (
+            <AwayCheckDialog
+              view={view}
+              now={now}
+              onBack={() => run(() => api.answerAwayCheck(true))}
+              onStill={() => run(() => api.answerAwayCheck(false))}
+            />
+          )}
           {breakPicker && view && (view.status === 'active' || view.status === 'on_call') && (
             <BreakPicker
               options={view.breakOptions}
@@ -866,6 +875,63 @@ function SettingsButton({ open, onClick }: { open: boolean; onClick: () => void 
         <path d="M6.9.9a.75.75 0 0 1 .74-.65h.72a.75.75 0 0 1 .74.65l.17 1.3c.37.12.72.27 1.05.46l1.04-.8a.75.75 0 0 1 .98.06l.51.51a.75.75 0 0 1 .07.98l-.8 1.04c.19.33.34.68.45 1.05l1.3.17a.75.75 0 0 1 .66.74v.72a.75.75 0 0 1-.66.74l-1.3.17c-.11.37-.26.72-.45 1.05l.8 1.04a.75.75 0 0 1-.07.98l-.51.51a.75.75 0 0 1-.98.07l-1.04-.8c-.33.19-.68.34-1.05.45l-.17 1.3a.75.75 0 0 1-.74.66h-.72a.75.75 0 0 1-.74-.66l-.17-1.3a4.8 4.8 0 0 1-1.05-.45l-1.04.8a.75.75 0 0 1-.98-.07l-.51-.51a.75.75 0 0 1-.07-.98l.8-1.04a4.8 4.8 0 0 1-.45-1.05l-1.3-.17A.75.75 0 0 1 .25 8.36v-.72a.75.75 0 0 1 .65-.74l1.3-.17c.12-.37.27-.72.46-1.05l-.8-1.04a.75.75 0 0 1 .06-.98l.51-.51a.75.75 0 0 1 .98-.06l1.04.8c.33-.19.68-.34 1.05-.46L6.9.9Zm.87.85-.14 1.1a.75.75 0 0 1-.57.63 3.3 3.3 0 0 0-1.35.56.75.75 0 0 1-.85-.02l-.88-.68-.16.16.68.88a.75.75 0 0 1 .02.85 3.3 3.3 0 0 0-.56 1.35.75.75 0 0 1-.63.57l-1.1.14v.22l1.1.14c.31.04.57.27.63.57.1.49.29.95.56 1.35a.75.75 0 0 1-.02.85l-.68.88.16.16.88-.68a.75.75 0 0 1 .85-.02c.4.27.86.46 1.35.56.3.06.53.32.57.63l.14 1.1h.22l.14-1.1a.75.75 0 0 1 .57-.63c.49-.1.95-.29 1.35-.56a.75.75 0 0 1 .85.02l.88.68.16-.16-.68-.88a.75.75 0 0 1-.02-.85c.27-.4.46-.86.56-1.35a.75.75 0 0 1 .63-.57l1.1-.14v-.22l-1.1-.14a.75.75 0 0 1-.63-.57 3.3 3.3 0 0 0-.56-1.35.75.75 0 0 1 .02-.85l.68-.88-.16-.16-.88.68a.75.75 0 0 1-.85.02 3.3 3.3 0 0 0-1.35-.56.75.75 0 0 1-.57-.63l-.14-1.1h-.22Z" />
       </svg>
     </button>
+  );
+}
+
+/** "Still on your phone call?", in the reason's words. */
+const AWAY_QUESTION: Record<string, [string, string]> = {
+  phone_call: ['Still on your phone call?', 'Still on the call'],
+  working_away: ['Still working away from the computer?', 'Still away'],
+  meeting: ['Still in your meeting?', 'Still in the meeting'],
+  training: ['Still in training?', 'Still in training'],
+};
+
+function AwayCheckDialog({
+  view,
+  now,
+  onBack,
+  onStill,
+}: {
+  view: StateView;
+  now: number;
+  onBack: () => void;
+  onStill: () => void;
+}): JSX.Element {
+  const t = useTheme();
+  const [question, still] = AWAY_QUESTION[view.awayReason ?? 'working_away'] ?? [
+    'Still away?',
+    'Still away',
+  ];
+  const left = Math.max(0, Math.ceil(((view.awayCheck?.deadline ?? now) - now) / 1000));
+  return (
+    <section
+      role="dialog"
+      aria-label="away-check"
+      style={{
+        background: t.surface,
+        border: `1px solid ${t.border}`,
+        borderRadius: 14,
+        padding: 18,
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 12,
+        boxShadow: '0 8px 24px rgba(0,0,0,0.12)',
+      }}
+    >
+      <h2 style={{ margin: 0, fontSize: 16, fontWeight: 650 }}>Welcome back. {question}</h2>
+      <p style={{ margin: 0, fontSize: 13, lineHeight: 1.5, color: t.muted }}>
+        You&apos;ve been using the computer since {formatClock(view.awayCheck?.inputSince ?? now)}.
+        If you keep working, CloudPunch marks you back from then in {left}s.
+      </p>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+        <Button variant="primary" onClick={onBack}>
+          I&apos;m back
+        </Button>
+        <Button variant="chip" onClick={onStill}>
+          {still}
+        </Button>
+      </div>
+    </section>
   );
 }
 

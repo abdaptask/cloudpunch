@@ -242,6 +242,13 @@
           "type": "boolean",
           "default": true,
           "description": "Offer Training as an Away reason in the app (ADR-0023 §1)."
+        },
+        "check_after_minutes": {
+          "type": "integer",
+          "minimum": 15,
+          "maximum": 240,
+          "default": 60,
+          "description": "Ask \"Still away?\" after this long, then every 30 minutes; Team exceptions list Aways at least this long (ADR-0027)."
         }
       },
       "additionalProperties": false

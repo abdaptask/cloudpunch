@@ -97,6 +97,17 @@ pub struct StateView {
     /// The prompt or idle in progress is a presence check (ADR-0024):
     /// `continuous` or `periodic`.
     pub presence_check: Option<&'static str>,
+    /// "Welcome back?" while Away (ADR-0027).
+    pub away_check: Option<AwayCheckView>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AwayCheckView {
+    /// When they started using the computer again (epoch ms).
+    pub input_since: u64,
+    /// Unanswered by then, Away ends on its own (epoch ms).
+    pub deadline: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
@@ -128,6 +139,14 @@ impl StateView {
 
     pub fn with_long_shift(mut self, long_shift: bool) -> Self {
         self.long_shift = long_shift;
+        self
+    }
+
+    pub fn with_away_check(mut self, c: Option<crate::machine::AwayCheck>) -> Self {
+        self.away_check = c.map(|c| AwayCheckView {
+            input_since: epoch_ms(c.input_since),
+            deadline: epoch_ms(c.deadline),
+        });
         self
     }
 
@@ -220,6 +239,7 @@ pub fn view_of(
         app_version: APP_VERSION,
         update_ready: None,
         presence_check: None,
+        away_check: None,
     }
 }
 
@@ -432,6 +452,7 @@ impl Inner {
         .with_breaks(&self.breaks, self.offer_training, self.planned_break)
         .with_update_ready(self.update.ready())
         .with_presence(self.driver.core().presence())
+        .with_away_check(self.driver.core().away_check())
         .with_idle_return(self.driver.core().idle_return())
         .with_auto_clock_out_reason(self.auto_clock_out_reason)
         .with_clock_in_offer(self.clock_in_offer(SystemTime::now()), self.clock_in_prompt)
@@ -494,6 +515,19 @@ fn reminder_text(r: &Reminder, breaks: &crate::policy::Breaks) -> (String, Strin
                 "{}: {} min so far. End it in CloudPunch when you're back.",
                 breaks.get(*kind).label,
                 elapsed.as_secs() / 60
+            ),
+        ),
+        Reminder::StillAway { reason, elapsed } => (
+            match reason {
+                AwayReason::PhoneCall => "Still on your phone call?",
+                AwayReason::WorkingAway => "Still working away from the computer?",
+                AwayReason::Meeting => "Still in your meeting?",
+                AwayReason::Training => "Still in training?",
+            }
+            .into(),
+            format!(
+                "{} so far. Click I'm back in CloudPunch when you return.",
+                reminders::short_duration(*elapsed)
             ),
         ),
         Reminder::BackYet { planned } => (
@@ -757,6 +791,12 @@ impl<U: Ui> Agent<U> {
                         plan.show_main = true;
                         plan.broadcast = true;
                     }
+                    // "Welcome back?" while Away (ADR-0027).
+                    Effect::AwayCheckOpened(_) => {
+                        plan.show_main = true;
+                        plan.broadcast = true;
+                    }
+                    Effect::AwayCheckClosed => plan.broadcast = true,
                     _ => {}
                 }
             }

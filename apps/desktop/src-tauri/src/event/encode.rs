@@ -483,7 +483,7 @@ pub(crate) mod tests {
                 note: Some("Site visit — back by 3".into()),
                 prompt_shown_at: golden_at(3),
             },
-            CoreEvent::UserMarkBack,
+            CoreEvent::UserMarkBack { ended_by: None },
             CoreEvent::UserStartBreak {
                 kind: BreakKind::Meal,
                 planned_minutes: None,
@@ -493,7 +493,7 @@ pub(crate) mod tests {
                 reason: AwayReason::Meeting,
                 note: None,
             },
-            CoreEvent::UserMarkBack,
+            CoreEvent::UserMarkBack { ended_by: None },
             CoreEvent::UserClockOut,
         ]
     }

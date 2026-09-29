@@ -30,6 +30,7 @@ describe('settings form (ADR-0018 §5)', () => {
       longShiftHours: 10,
       breaks: BREAK_DEFAULTS,
       offerTraining: true,
+      awayCheckMinutes: 60,
     });
     // Missing values fall back to the schema defaults.
     expect(formFrom({})).toMatchObject({
@@ -73,7 +74,7 @@ describe('settings form (ADR-0018 §5)', () => {
     });
     expect({ ...written, break: undefined }).toEqual({
       break: undefined,
-      away: { x: 1, offer_training: true },
+      away: { x: 1, offer_training: true, check_after_minutes: 60 },
       idle: {
         prompt_options: ['still_working', 'end_shift'],
         threshold_seconds: 180,
@@ -158,7 +159,11 @@ describe('settings form (ADR-0018 §5)', () => {
       expect((doc['break'] as Record<string, Record<string, unknown>>)['rest']?.['label']).toBe(
         'Tea',
       );
-      expect(doc['away']).toEqual({ require_note: { meeting: true }, offer_training: false });
+      expect(doc['away']).toEqual({
+        require_note: { meeting: true },
+        offer_training: false,
+        check_after_minutes: 60,
+      });
     });
   });
 });

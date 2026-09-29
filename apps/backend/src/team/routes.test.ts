@@ -291,6 +291,39 @@ describe("a person's day", () => {
   });
 });
 
+describe('Away check-in (ADR-0027)', () => {
+  it('shows how an Away ended and lists long aways', async () => {
+    await seedOpen(report, 300, [
+      // Roshni's case: "on a phone call" for over two hours, ended by typing.
+      ['INPUT_IDLE_5M', 281, {}],
+      ['USER_PROMPT_RESPONSE', 280, { response: 'on_phone_call' }],
+      ['USER_MARK_BACK', 150, { ended_by: 'input' }],
+      // A short meeting, ended by a Teams call starting.
+      ['USER_MARK_AWAY', 100, { away_reason: 'meeting' }],
+      ['USER_MARK_BACK', 90, { ended_by: 'call' }],
+    ]);
+    const day = await call(manager, MANAGER, 'GET', `/v1/team/${report}/days/${dateOf(300)}`);
+    const segs = (day.json() as { sessions: { segments: { kind: string; ended_by?: string }[] }[] })
+      .sessions[0]?.segments;
+    expect(segs?.filter((g) => g.ended_by).map((g) => [g.kind, g.ended_by])).toEqual([
+      ['away_phone', 'input'],
+      ['away_meeting', 'call'],
+    ]);
+    const res = await call(
+      manager,
+      MANAGER,
+      'GET',
+      `/v1/team/exceptions?from=${yesterday()}&to=${today()}`,
+    );
+    const longAways = (res.json() as { exceptions: TeamException[] }).exceptions.filter(
+      (e) => e.kind === 'long_away',
+    );
+    expect(longAways.map((e) => [e.segment, e.minutes, e.ended_by])).toEqual([
+      ['away_phone', 130, 'input'],
+    ]);
+  });
+});
+
 describe('presence checks (ADR-0024)', () => {
   it('marks the prompt and its idle, and lists answered and unanswered checks', async () => {
     const since = (ago: number) => new Date(Date.now() - ago * MIN).toISOString();

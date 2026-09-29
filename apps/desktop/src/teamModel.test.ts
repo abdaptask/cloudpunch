@@ -169,3 +169,23 @@ describe('presence checks in the Team views (ADR-0024)', () => {
     ).toMatch(/^Presence check \(non-stop input with no pauses\): not answered · idle 25 min/);
   });
 });
+
+describe('long aways (ADR-0027)', () => {
+  it('says how long and how it ended', () => {
+    const e: TeamException = {
+      employee_id: 'e',
+      name: 'Roshni Test',
+      date: '2026-09-29',
+      kind: 'long_away',
+      at: new Date(2026, 8, 29, 21, 35).toISOString(),
+      minutes: 126,
+      over_minutes: null,
+      segment: 'away_phone',
+      explanation: null,
+      ended_by: 'input',
+    };
+    expect(exceptionText(e).text).toMatch(
+      /^On a phone call 2h 06m from .* · ended when they were back at the computer$/,
+    );
+  });
+});

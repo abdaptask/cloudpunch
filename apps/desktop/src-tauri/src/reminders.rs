@@ -7,7 +7,10 @@
 
 use std::time::{Duration, SystemTime};
 
-use crate::machine::{BreakKind, CoreState};
+use crate::machine::{AwayReason, BreakKind, CoreState};
+
+/// ADR-0027 §3: after the first "Still away?", ask this often.
+pub const AWAY_REPEAT: Duration = Duration::from_secs(30 * 60);
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ReminderConfig {
@@ -23,6 +26,8 @@ pub struct ReminderConfig {
     pub personal_cap: Duration,
     /// `break.other.max_minutes`; `None` = no reminder.
     pub other_cap: Option<Duration>,
+    /// `away.check_after_minutes` (ADR-0027 §3).
+    pub away_check: Duration,
     /// `reminders.long_shift_hours`.
     pub long_shift: Duration,
     /// `reminders.long_shift_repeat_hours`.
@@ -49,6 +54,7 @@ impl Default for ReminderConfig {
             rest_cap: Duration::from_secs(15 * 60),
             personal_cap: Duration::from_secs(30 * 60),
             other_cap: None,
+            away_check: Duration::from_secs(60 * 60),
             long_shift: Duration::from_secs(9 * 3600),
             long_shift_repeat: Duration::from_secs(2 * 3600),
             quiet_start: 22 * 60,
@@ -78,6 +84,11 @@ pub enum Reminder {
     BreakOverCap { kind: BreakKind, elapsed: Duration },
     /// "Back yet? You planned 20 min" (ADR-0023 §2).
     BackYet { planned: Duration },
+    /// "Still on your phone call?" after a long Away (ADR-0027 §3).
+    StillAway {
+        reason: AwayReason,
+        elapsed: Duration,
+    },
     /// "You've been clocked in for 9 hours — still working?"
     LongShift { elapsed: Duration },
     /// Signed in, using the computer, but not clocked in yet today.
@@ -107,6 +118,9 @@ pub struct ReminderState {
     nudged_break: Option<SystemTime>,
     /// The break the "Back yet?" reminder fired for.
     nudged_planned: Option<SystemTime>,
+    /// The Away the "Still away?" reminder is counting, and its last one.
+    away_seg: Option<SystemTime>,
+    last_away: Option<SystemTime>,
     long_shift_next: Option<SystemTime>,
     session: Option<SystemTime>,
 }
@@ -181,8 +195,26 @@ pub fn due(cfg: &ReminderConfig, inp: Inputs, st: &mut ReminderState) -> Vec<Rem
                 }
             }
         }
+        CoreState::Away { reason } => {
+            if let Some(start) = inp.segment_started_at {
+                if st.away_seg != Some(start) {
+                    st.away_seg = Some(start);
+                    st.last_away = None;
+                }
+                let due_at = st
+                    .last_away
+                    .map_or(start + cfg.away_check, |last| last + AWAY_REPEAT);
+                if inp.now >= due_at && !quiet {
+                    out.push(Reminder::StillAway {
+                        reason,
+                        elapsed: since(start, inp.now),
+                    });
+                    st.last_away = Some(inp.now);
+                }
+            }
+        }
         // On a call: wait until it ends (no pop-ups over meetings).
-        // Prompt showing: the prompt is the reminder. Away: tagged.
+        // Prompt showing: the prompt is the reminder.
         _ => {}
     }
     out
@@ -310,6 +342,25 @@ mod tests {
         // Other has no limit by default.
         let mut st = ReminderState::default();
         assert!(due(&cfg, inp(on(BreakKind::Other), 240), &mut st).is_empty());
+    }
+
+    #[test]
+    fn a_long_away_asks_still_away_then_every_30_minutes() {
+        let cfg = ReminderConfig::default();
+        let mut st = ReminderState::default();
+        let away = CoreState::Away {
+            reason: AwayReason::PhoneCall,
+        };
+        assert!(due(&cfg, inp(away, 59), &mut st).is_empty());
+        assert_eq!(
+            due(&cfg, inp(away, 60), &mut st),
+            [Reminder::StillAway {
+                reason: AwayReason::PhoneCall,
+                elapsed: Duration::from_secs(60 * 60)
+            }]
+        );
+        assert!(due(&cfg, inp(away, 89), &mut st).is_empty());
+        assert_eq!(due(&cfg, inp(away, 90), &mut st).len(), 1);
     }
 
     #[test]

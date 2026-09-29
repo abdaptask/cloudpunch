@@ -173,9 +173,13 @@ export function nextState(
       return 'AWAY';
     }
 
-    case 'USER_MARK_BACK':
+    case 'USER_MARK_BACK': {
       if (current !== 'AWAY') return null;
+      // ADR-0027: set when Away ended on its own.
+      const endedBy = payload?.['ended_by'];
+      if (endedBy !== undefined && endedBy !== 'input' && endedBy !== 'call') return null;
       return 'ACTIVE';
+    }
 
     case 'INPUT_IDLE_5M': {
       // ADR-0010: `trigger` says why the prompt opened; absent means

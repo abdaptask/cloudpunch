@@ -37,6 +37,8 @@ export interface DaySessionView {
     planned_minutes?: number;
     /** A presence check's prompt or idle (ADR-0024). */
     presence_check?: 'continuous' | 'periodic';
+    /** An Away that ended on its own (ADR-0027). */
+    ended_by?: 'input' | 'call';
   }[];
 }
 
@@ -109,6 +111,7 @@ function sessionView(s: BuiltSession): DaySessionView {
       ...(g.explanation ? { explanation: g.explanation } : {}),
       ...(g.plannedMinutes !== undefined ? { planned_minutes: g.plannedMinutes } : {}),
       ...(g.presenceCheck ? { presence_check: g.presenceCheck } : {}),
+      ...(g.endedBy ? { ended_by: g.endedBy } : {}),
     })),
   };
 }

@@ -260,6 +260,7 @@ pub fn run() {
             commands::start_break,
             commands::end_break,
             commands::confirm_presence,
+            commands::answer_away_check,
             commands::mark_away,
             commands::mark_back,
             commands::respond_to_prompt,

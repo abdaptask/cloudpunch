@@ -74,6 +74,7 @@ export interface TeamDaySegment {
   explanation?: { explanation: string; note: string | null };
   planned_minutes?: number;
   presence_check?: 'continuous' | 'periodic';
+  ended_by?: 'input' | 'call';
 }
 
 /** A team member's day: `/v1/me/days`' shape plus their name. */
@@ -115,7 +116,8 @@ export interface TeamException {
     | 'long_shift'
     | 'auto_clock_out'
     | 'reconstructed'
-    | 'presence_check';
+    | 'presence_check'
+    | 'long_away';
   at: string;
   minutes: number | null;
   over_minutes: number | null;
@@ -124,6 +126,8 @@ export interface TeamException {
   /** Presence check (ADR-0024). */
   pattern?: 'continuous' | 'periodic';
   answered?: boolean;
+  /** Long Away (ADR-0027): how it ended, if on its own. */
+  ended_by?: 'input' | 'call';
 }
 
 /** People: an employee and their manager (ADR-0025 §1). */
@@ -199,6 +203,8 @@ export interface StateView {
   updateReady: string | null;
   /** The prompt or idle in progress is a presence check (ADR-0024). */
   presenceCheck: 'continuous' | 'periodic' | null;
+  /** "Welcome back?" while Away (ADR-0027), epoch ms. */
+  awayCheck: { inputSince: number; deadline: number } | null;
 }
 
 /** The window's close button was pressed (ADR-0013 §1). */
@@ -280,6 +286,9 @@ export const api = {
   ): Promise<{ id: string; reporting_manager_id: string | null }> =>
     invoke('admin_set_manager', { employeeId, managerId, reason: reason || null }),
   adminDevices: (): Promise<{ devices: DeviceRow[] }> => invoke('admin_devices'),
+  /** The answer to "Welcome back?" while Away (ADR-0027). */
+  answerAwayCheck: (back: boolean): Promise<StateView> =>
+    invoke<StateView>('answer_away_check', { back }),
   /** "I'm back" after an unanswered presence check (ADR-0024). */
   confirmPresence: (): Promise<StateView> => invoke<StateView>('confirm_presence'),
   /** "Restart to update" while clocked out; the app exits and reopens. */

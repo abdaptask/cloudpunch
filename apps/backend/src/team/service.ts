@@ -133,7 +133,8 @@ export type ExceptionKind =
   | 'long_shift'
   | 'auto_clock_out'
   | 'reconstructed'
-  | 'presence_check';
+  | 'presence_check'
+  | 'long_away';
 
 export interface TeamException {
   employee_id: string;
@@ -153,6 +154,8 @@ export interface TeamException {
   /** Presence check (ADR-0024): the pattern, and whether it was answered in time. */
   pattern?: 'continuous' | 'periodic';
   answered?: boolean;
+  /** Long Away (ADR-0027): how it ended, if on its own. */
+  ended_by?: 'input' | 'call';
 }
 
 /** Idle this long or longer is an exception (ADR-0025 §3). */
@@ -170,6 +173,7 @@ export function exceptionsIn(
   limits: Readonly<Record<string, number | null>>,
   longShiftHours: number,
   rules: Parameters<typeof totals>[1],
+  longAwayMinutes = 60,
 ): TeamException[] {
   const out: TeamException[] = [];
   const base = { employee_id: employee.id, name: nameOf(employee) };
@@ -223,6 +227,19 @@ export function exceptionsIn(
               answered,
             });
           }
+        }
+        if (g.kind.startsWith('away_') && len >= longAwayMinutes) {
+          out.push({
+            ...base,
+            date: day.date,
+            kind: 'long_away',
+            at,
+            minutes: len,
+            over_minutes: null,
+            segment: g.kind,
+            explanation: null,
+            ...(g.endedBy ? { ended_by: g.endedBy } : {}),
+          });
         }
         if (g.kind === 'idle' && len >= LONG_IDLE_MIN) {
           out.push({
@@ -301,7 +318,10 @@ export async function teamExceptions(
     const reminders = (policy['reminders'] ?? {}) as Record<string, unknown>;
     const longShift =
       typeof reminders['long_shift_hours'] === 'number' ? reminders['long_shift_hours'] : 9;
-    out.push(...exceptionsIn(e, days, limits, longShift, rules));
+    const away = (policy['away'] ?? {}) as Record<string, unknown>;
+    const longAway =
+      typeof away['check_after_minutes'] === 'number' ? away['check_after_minutes'] : 60;
+    out.push(...exceptionsIn(e, days, limits, longShift, rules, longAway));
   }
   return out.sort((a, b) => b.at.localeCompare(a.at));
 }

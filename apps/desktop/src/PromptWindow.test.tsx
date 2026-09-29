@@ -43,6 +43,7 @@ function pending(over: Partial<StateView> = {}): StateView {
     appVersion: '0.1.4',
     updateReady: null,
     presenceCheck: null,
+    awayCheck: null,
     ...over,
   };
 }
