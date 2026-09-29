@@ -1,6 +1,17 @@
 import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
 import { api } from './api.js';
-import { formFrom, formIssues, overrideWith, ZONES, type SettingsForm } from './settingsModel.js';
+import {
+  breakIssues,
+  formFrom,
+  formIssues,
+  mayHaveNoLimit,
+  overrideWith,
+  PAY_LABELS,
+  ZONES,
+  type BreakForm,
+  type BreakPay,
+  type SettingsForm,
+} from './settingsModel.js';
 import { Button } from './ui/Button.js';
 import { useTheme, type Theme } from './ui/theme.js';
 
@@ -88,6 +99,13 @@ export function SettingsScreen({
     setForm((f) => (f ? { ...f, [k]: v } : f));
     setStatus(null);
   };
+  const setBreak = (id: BreakForm['id'], patch: Partial<BreakForm>): void => {
+    setForm((f) =>
+      f ? { ...f, breaks: f.breaks.map((b) => (b.id === id ? { ...b, ...patch } : b)) } : f,
+    );
+    setStatus(null);
+  };
+  const rowIssues = form ? breakIssues(form) : {};
 
   const save = (): void => {
     if (!form || !loaded || scope === null || Object.keys(issues).length > 0) return;
@@ -225,6 +243,34 @@ export function SettingsScreen({
               onChange={(v) => set('longShiftHours', v)}
             />
           </Group>
+          <Group title="Breaks" t={t}>
+            <p style={{ margin: 0, fontSize: 12, lineHeight: 1.4, color: t.muted }}>
+              The limit sends a reminder and, for &ldquo;Paid up to the limit&rdquo;, is where paid
+              time stops. It never ends a break. Managers see the type.
+            </p>
+            {form.breaks.map((b) => (
+              <BreakRow
+                key={b.id}
+                b={b}
+                issue={rowIssues[b.id]}
+                t={t}
+                onChange={(patch) => setBreak(b.id, patch)}
+              />
+            ))}
+            {issues.breaks && !Object.keys(rowIssues).length && (
+              <span role="alert" style={{ fontSize: 12, color: t.danger }}>
+                {issues.breaks}
+              </span>
+            )}
+          </Group>
+          <Group title="Away" t={t}>
+            <Toggle
+              label="Offer Training (counts as work)"
+              name="offer-training"
+              on={form.offerTraining}
+              onChange={(on) => set('offerTraining', on)}
+            />
+          </Group>
           <Field label="Why (kept in the audit log, optional)">
             <input
               aria-label="reason"
@@ -260,6 +306,84 @@ export function SettingsScreen({
         </p>
       )}
     </section>
+  );
+}
+
+/** One break type: on/off, name, pay rule and limit (ADR-0023 §5). */
+function BreakRow({
+  b,
+  issue,
+  t,
+  onChange,
+}: {
+  b: BreakForm;
+  issue: string | undefined;
+  t: Theme;
+  onChange: (patch: Partial<BreakForm>) => void;
+}): JSX.Element {
+  return (
+    <div
+      role="group"
+      aria-label={`break ${b.id}`}
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 6,
+        paddingTop: 8,
+        borderTop: `1px solid ${t.border}`,
+        opacity: b.enabled ? 1 : 0.65,
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <input
+          aria-label={`${b.id}-enabled`}
+          type="checkbox"
+          checked={b.enabled}
+          onChange={(e) => onChange({ enabled: e.target.checked })}
+        />
+        <input
+          aria-label={`${b.id}-label`}
+          value={b.label}
+          maxLength={30}
+          onChange={(e) => onChange({ label: e.target.value })}
+          style={{ ...input(t), flex: 1 }}
+        />
+      </div>
+      <div style={{ display: 'flex', gap: 8 }}>
+        <select
+          aria-label={`${b.id}-pay`}
+          value={b.pay}
+          onChange={(e) => onChange({ pay: e.target.value as BreakPay })}
+          style={{ ...input(t), flex: 1 }}
+        >
+          {PAY_LABELS.map(([v, label]) => (
+            <option key={v} value={v}>
+              {label}
+            </option>
+          ))}
+        </select>
+        <input
+          aria-label={`${b.id}-limit`}
+          type="number"
+          inputMode="numeric"
+          placeholder={mayHaveNoLimit(b.id) ? 'No limit' : undefined}
+          value={b.maxMinutes === null ? '' : Number.isFinite(b.maxMinutes) ? b.maxMinutes : ''}
+          onChange={(e) =>
+            onChange({
+              maxMinutes:
+                e.target.value === ''
+                  ? mayHaveNoLimit(b.id)
+                    ? null
+                    : Number.NaN
+                  : Number(e.target.value),
+            })
+          }
+          style={{ ...input(t), width: 72 }}
+        />
+        <span style={{ alignSelf: 'center', fontSize: 12, color: t.muted }}>min</span>
+      </div>
+      {issue && <span style={{ fontSize: 12, color: t.danger }}>{issue}</span>}
+    </div>
   );
 }
 

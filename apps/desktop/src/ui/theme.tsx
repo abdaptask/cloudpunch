@@ -83,9 +83,12 @@ export const light: Theme = {
     call_other: '#f97316', // orange
     bio_break: '#0d9488', // teal
     meal_break: '#d97706', // amber
+    rest_break: '#0891b2', // cyan
+    personal_break: '#ca8a04', // yellow
     other_break: '#65a30d', // lime
     away_meeting: '#c026d3', // fuchsia
     away_phone: '#e11d48', // rose
+    away_training: '#2563eb', // blue
     away_working: '#475569', // slate
     prompt: '#9ca3af', // grey
     idle: '#db2777', // pink: clocked in, not working (ADR-0018)
@@ -120,9 +123,12 @@ export const dark: Theme = {
     call_other: '#fb923c',
     bio_break: '#2dd4bf',
     meal_break: '#fbbf24',
+    rest_break: '#22d3ee',
+    personal_break: '#facc15',
     other_break: '#a3e635',
     away_meeting: '#e879f9',
     away_phone: '#fb7185',
+    away_training: '#60a5fa',
     away_working: '#94a3b8',
     prompt: '#6b7280',
     idle: '#f472b6',

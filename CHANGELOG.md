@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Break types, screens: desktop 0.1.3 (ADR-0023 PR 3, 2026-09-29)
+
+- **Take a break** replaces the Bio / Meal buttons, in the window, the
+  strip and the tray. It opens one picker:
+  - the types HR offers, by HR's names;
+  - **"Back in?"** (5–60 min, or Not sure), starting on the type's
+    limit, so Start is one tap;
+  - during a call, the picker also says what happens to the call. This
+    replaces the separate "break during a call" dialog.
+- The status shows **"Personal · back by 10:45"** for a planned break.
+  **In training** sits next to In a meeting when HR offers it.
+- **Settings → Breaks (HR and Administrator):** on/off, name, pay rule
+  (Paid / Unpaid / Paid up to the limit) and limit for each type. **Away:**
+  Offer Training. Save is blocked with every type off or a bad name or
+  limit.
+- The timeline, dial and status use HR's names. New colours for Tea
+  break, Personal and Training.
+- The strip's Take a break opens the full window (the picker needs
+  room). The tray's "Take a break…" does the same.
+
 ### Break types, desktop core (ADR-0023 PR 2, 2026-09-29)
 
 - **Types:**

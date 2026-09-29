@@ -21,7 +21,41 @@ export interface SettingsForm {
   longDayHours: number;
   /** reminders.long_shift_hours. */
   longShiftHours: number;
+  /** break.<id>, in menu order (ADR-0023). */
+  breaks: BreakForm[];
+  /** away.offer_training. */
+  offerTraining: boolean;
 }
+
+export type BreakId = 'bio' | 'meal' | 'rest' | 'personal' | 'other';
+export type BreakPay = 'paid' | 'unpaid' | 'paid_up_to_limit';
+
+export interface BreakForm {
+  id: BreakId;
+  enabled: boolean;
+  label: string;
+  pay: BreakPay;
+  /** Reminder limit and, for paid_up_to_limit, the paid boundary; null = none (Other only). */
+  maxMinutes: number | null;
+}
+
+/** The fixed catalogue and its schema defaults (ADR-0023 §1). */
+export const BREAK_DEFAULTS: readonly BreakForm[] = [
+  { id: 'bio', enabled: true, label: 'Bio break', pay: 'paid_up_to_limit', maxMinutes: 10 },
+  { id: 'meal', enabled: true, label: 'Meal break', pay: 'unpaid', maxMinutes: 60 },
+  { id: 'rest', enabled: true, label: 'Tea break', pay: 'paid_up_to_limit', maxMinutes: 15 },
+  { id: 'personal', enabled: true, label: 'Personal', pay: 'unpaid', maxMinutes: 30 },
+  { id: 'other', enabled: false, label: 'Other break', pay: 'unpaid', maxMinutes: null },
+];
+
+export const PAY_LABELS: [BreakPay, string][] = [
+  ['paid_up_to_limit', 'Paid up to the limit'],
+  ['paid', 'Paid'],
+  ['unpaid', 'Unpaid'],
+];
+
+/** Only Other may have no limit (the schema's rule). */
+export const mayHaveNoLimit = (id: BreakId): boolean => id === 'other';
 
 /** Zones HR is likely to pick; any IANA name the policy holds is kept. */
 export const ZONES: [string, string][] = [
@@ -58,7 +92,45 @@ export function formFrom(policy: Doc): SettingsForm {
         : 'America/New_York',
     longDayHours: num(reminders['long_day_hours'], 8),
     longShiftHours: num(reminders['long_shift_hours'], 9),
+    breaks: BREAK_DEFAULTS.map((d) => {
+      const b = obj(obj(policy['break'])[d.id]);
+      const pay = b['pay'];
+      const max = b['max_minutes'];
+      return {
+        id: d.id,
+        enabled: typeof b['enabled'] === 'boolean' ? b['enabled'] : d.enabled,
+        label: typeof b['label'] === 'string' ? b['label'] : d.label,
+        pay: pay === 'paid' || pay === 'unpaid' || pay === 'paid_up_to_limit' ? pay : d.pay,
+        maxMinutes:
+          max === undefined
+            ? d.maxMinutes
+            : max === null && mayHaveNoLimit(d.id)
+              ? null
+              : num(max, d.maxMinutes ?? 30),
+      };
+    }),
+    offerTraining:
+      typeof obj(policy['away'])['offer_training'] === 'boolean'
+        ? (obj(policy['away'])['offer_training'] as boolean)
+        : true,
   };
+}
+
+/** Per-break problems, keyed by break id. */
+export function breakIssues(f: SettingsForm): Partial<Record<BreakId, string>> {
+  const out: Partial<Record<BreakId, string>> = {};
+  for (const b of f.breaks) {
+    const label = b.label.trim();
+    if (label.length < 1 || label.length > 30) out[b.id] = 'A name of 1 to 30 characters';
+    else if (
+      b.maxMinutes === null
+        ? !mayHaveNoLimit(b.id)
+        : !Number.isInteger(b.maxMinutes) || b.maxMinutes < 5 || b.maxMinutes > 180
+    ) {
+      out[b.id] = 'A limit between 5 and 180 minutes';
+    }
+  }
+  return out;
 }
 
 /** Problems to fix before saving, by field. Empty when valid. */
@@ -76,6 +148,8 @@ export function formIssues(f: SettingsForm): Partial<Record<keyof SettingsForm, 
   }
   if (!whole(f.longDayHours, 4, 16)) out.longDayHours = 'Between 4 and 16 hours';
   if (!whole(f.longShiftHours, 4, 16)) out.longShiftHours = 'Between 4 and 16 hours';
+  if (Object.keys(breakIssues(f)).length > 0) out.breaks = 'Fix the break types marked below';
+  else if (!f.breaks.some((b) => b.enabled)) out.breaks = 'Keep at least one break type on';
   return out;
 }
 
@@ -100,5 +174,20 @@ export function overrideWith(current: Doc | null, f: SettingsForm): Doc {
       long_day_hours: f.longDayHours,
       long_shift_hours: f.longShiftHours,
     },
+    // Other settings inside each entry (e.g. meal's prompt) are kept.
+    break: Object.fromEntries([
+      ...Object.entries(obj(base['break'])),
+      ...f.breaks.map((b) => [
+        b.id,
+        {
+          ...obj(obj(base['break'])[b.id]),
+          enabled: b.enabled,
+          label: b.label.trim(),
+          pay: b.pay,
+          max_minutes: b.maxMinutes,
+        },
+      ]),
+    ]),
+    away: { ...obj(base['away']), offer_training: f.offerTraining },
   };
 }

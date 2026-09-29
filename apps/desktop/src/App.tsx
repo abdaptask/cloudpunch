@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { api, type StateView } from './api.js';
-import { BreakOnCallDialog, callName, type BreakKind } from './BreakOnCallDialog.js';
+import { BreakPicker, callName } from './BreakPicker.js';
 import { ClockInPrompt } from './ClockInPrompt.js';
 import { ClockOutDialog } from './ClockOutDialog.js';
 import { IdleReturnDialog } from './IdleReturnDialog.js';
@@ -22,6 +22,7 @@ import { TimelineView } from './TimelineView.js';
 import { TripCard } from './TripCard.js';
 import { tripSummary, type TripSummary } from './tripModel.js';
 import {
+  applyBreakLabels,
   formatClock,
   formatDuration,
   formatTimer,
@@ -105,16 +106,29 @@ function statusLabel(v: StateView, now: number): string {
       return 'Clocked in — are you still there?';
     case 'idle':
       return v.idleSince !== null ? `Idle since ${formatClock(v.idleSince)}` : 'Idle';
-    case 'on_break':
-      return v.breakKind === 'meal' ? 'On a meal break' : 'On a bio break';
+    case 'on_break': {
+      const kind = v.breakKind ?? 'other';
+      const name = v.breakOptions.find((o) => o.id === kind)?.label ?? KIND_LABEL[`${kind}_break`];
+      // "Personal · back by 10:45" (ADR-0023 §2).
+      const back = backBy(v);
+      return back ? `${name} · back by ${back}` : `On a ${name.toLowerCase()}`;
+    }
     case 'away':
       return KIND_LABEL[awayKind(v)];
   }
 }
 
-function awayKind(v: StateView): 'away_meeting' | 'away_phone' | 'away_working' {
+/** When a planned break is due to end, as a clock time. */
+function backBy(v: StateView): string | null {
+  if (v.plannedBreakMinutes === null) return null;
+  const started = [...v.timeline].reverse().find((s) => s.endedAt === null)?.startedAt;
+  return started === undefined ? null : formatClock(started + v.plannedBreakMinutes * 60_000);
+}
+
+function awayKind(v: StateView): 'away_meeting' | 'away_phone' | 'away_training' | 'away_working' {
   if (v.awayReason === 'meeting') return 'away_meeting';
   if (v.awayReason === 'phone_call') return 'away_phone';
+  if (v.awayReason === 'training') return 'away_training';
   return 'away_working';
 }
 
@@ -123,13 +137,7 @@ function statusColor(t: Theme, v: StateView): string {
     case 'clocked_out':
       return t.muted;
     case 'on_break':
-      return t.kind[
-        v.breakKind === 'meal'
-          ? 'meal_break'
-          : v.breakKind === 'other'
-            ? 'other_break'
-            : 'bio_break'
-      ];
+      return t.kind[`${v.breakKind ?? 'other'}_break`];
     case 'away':
       return t.kind[awayKind(v)];
     case 'idle_pending':
@@ -198,8 +206,9 @@ export function App(): JSX.Element {
   const [clockOutAsked, setClockOutAsked] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const askClockOut = (): void => setClockOutAsked(true);
-  // A break during a detected call asks first (owner request).
-  const [breakOnCall, setBreakOnCall] = useState<BreakKind | null>(null);
+  // "Take a break": type, "Back in?", and a word about a call in
+  // progress (ADR-0023; owner request).
+  const [breakPicker, setBreakPicker] = useState(false);
 
   // Past days (ADR-0016): null shows today, live.
   const [viewDate, setViewDate] = useState<string | null>(null);
@@ -267,14 +276,19 @@ export function App(): JSX.Element {
     });
     return () => void off.then((fn) => fn());
   }, []);
-  // The tray's Bio / Meal break during a call lands here to ask first.
+  // The tray's "Take a break…" opens the picker here.
   useEffect(() => {
-    const off = api.onBreakOnCall((kind) => {
+    const off = api.onBreakPicker(() => {
       void api.unpinWindow().catch(() => undefined);
-      setBreakOnCall(kind);
+      setBreakPicker(true);
     });
     return () => void off.then((fn) => fn());
   }, []);
+  // HR's names for the break types, everywhere they're shown.
+  const breakOptions = view?.breakOptions;
+  useEffect(() => {
+    if (breakOptions) applyBreakLabels(breakOptions);
+  }, [breakOptions]);
   const clockedIn = view !== null && view.status !== 'clocked_out';
   const showStrip = signedIn && pinned && view !== null;
   const todayTotals = totals(todaySegs, now, todaySince);
@@ -346,6 +360,10 @@ export function App(): JSX.Element {
           idle={todayTotals.idle}
           run={run}
           onUnpin={unpin}
+          onTakeBreak={() => {
+            unpin();
+            setBreakPicker(true);
+          }}
         />
       )}
       {/* Signed out, the sign-in card carries the brand; no header. */}
@@ -401,9 +419,9 @@ export function App(): JSX.Element {
                 run(api.clockOut);
               }}
               call={view.status === 'on_call' ? callName(view.callType) : null}
-              onBreak={(kind) => {
+              onBreak={() => {
                 setClockOutAsked(false);
-                run(() => api.startBreak(kind));
+                setBreakPicker(true);
               }}
               onCancel={() => setClockOutAsked(false)}
             />
@@ -423,16 +441,15 @@ export function App(): JSX.Element {
               onSkip={() => run(api.dismissIdleReturn)}
             />
           )}
-          {breakOnCall && view?.status === 'on_call' && (
-            <BreakOnCallDialog
-              kind={breakOnCall}
-              callType={view.callType}
-              onStart={() => {
-                const kind = breakOnCall;
-                setBreakOnCall(null);
-                run(() => api.startBreak(kind));
+          {breakPicker && view && (view.status === 'active' || view.status === 'on_call') && (
+            <BreakPicker
+              options={view.breakOptions}
+              call={view.status === 'on_call' ? callName(view.callType) : null}
+              onStart={(kind, planned) => {
+                setBreakPicker(false);
+                run(() => api.startBreak(kind, planned));
               }}
-              onCancel={() => setBreakOnCall(null)}
+              onCancel={() => setBreakPicker(false)}
             />
           )}
           {signedIn && !pastDate && view?.longShift && view.sessionStartedAt !== null && (
@@ -669,11 +686,7 @@ export function App(): JSX.Element {
                         view={view}
                         run={run}
                         onClockOut={askClockOut}
-                        onBreak={(kind) =>
-                          view.status === 'on_call'
-                            ? setBreakOnCall(kind)
-                            : run(() => api.startBreak(kind))
-                        }
+                        onBreak={() => setBreakPicker(true)}
                       />
                     )}
                   </section>
@@ -813,8 +826,8 @@ function Actions({
   run: (command: () => Promise<StateView>) => void;
   /** Opens the "Clock out now?" dialog. */
   onClockOut: () => void;
-  /** Starts a break, asking first during a call. */
-  onBreak: (kind: BreakKind) => void;
+  /** Opens "Take a break". */
+  onBreak: () => void;
 }): JSX.Element {
   const chips = (children: ReactNode): JSX.Element => (
     <div style={{ display: 'flex', gap: 6 }}>{children}</div>
@@ -860,16 +873,18 @@ function Actions({
           </Button>
           {chips(
             <>
-              <Button variant="chip" onClick={() => onBreak('bio')}>
-                Bio break
-              </Button>
-              <Button variant="chip" onClick={() => onBreak('meal')}>
-                Meal break
+              <Button variant="chip" onClick={onBreak}>
+                Take a break
               </Button>
               {/* Not offered during a call: it's already tracked (ADR-0009 §2). */}
               {view.status === 'active' && (
                 <Button variant="chip" onClick={() => run(() => api.markAway('meeting'))}>
                   In a meeting
+                </Button>
+              )}
+              {view.status === 'active' && view.offerTraining && (
+                <Button variant="chip" onClick={() => run(() => api.markAway('training'))}>
+                  In training
                 </Button>
               )}
             </>,
