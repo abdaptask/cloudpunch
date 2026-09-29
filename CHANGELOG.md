@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Team views, backend (ADR-0025 PR 1, 2026-09-29)
+
+- **`GET /v1/team`** (Team today): each person in the caller's scope with
+  live status (working, call, break with type and back-by, away, idle,
+  clocked out), since when, and worked time today.
+- **`GET /v1/team/:employeeId/days/:date`** and **`?from&to`:** a
+  person's day as in `/v1/me/days`, including break type, planned
+  minutes, idle explanations, and paid/unpaid totals.
+- **`GET /v1/team/exceptions?from&to[&employee_id]`:**
+  - long idle (15 min or more, with the person's explanation);
+  - breaks over plan or over limit;
+  - long shifts;
+  - idle clock-outs;
+  - reconstructed sessions.
+- **Scope, checked server-side on every request:** a Manager sees direct
+  reports only, HR sees everyone. Anyone else gets 403; out-of-scope
+  people are 404.
+- **Read audit:** each opening of someone's day or exceptions writes an
+  `audit_log` row (`day_viewed` / `exceptions_viewed`).
+- **Reporting lines:**
+  - `GET /v1/admin/employees`;
+  - `PUT /v1/admin/employees/:id/manager` (HR and Administrator),
+    audited `reporting_manager_set`;
+  - no self or loops.
+- **Versions:** `device.app_version` now follows the version a device
+  sends events with (`/v1/admin/devices` shows it).
+
 ### ADR-0024 and ADR-0025 (2026-09-29, Accepted)
 
 - **ADR-0024, presence check for propped keys and mouse jigglers:**

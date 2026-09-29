@@ -59,7 +59,7 @@ function utcMidnight(date: string): number {
  * two days' margin on each side, so a day that starts or ends near the
  * edge (other zones, the 6-hour chaining) is complete.
  */
-async function daysAround(
+export async function daysAround(
   db: DbRepositories,
   employeeId: string,
   firstDate: string,
@@ -82,7 +82,7 @@ async function daysAround(
  * The employee's break pay rules: their policy as it stands now
  * (ADR-0023 §3; policy history isn't kept, see the ADR's note).
  */
-async function rulesFor(db: DbRepositories, employeeId: string): Promise<BreakRules> {
+export async function rulesFor(db: DbRepositories, employeeId: string): Promise<BreakRules> {
   const employee = await db.employees.findById(employeeId);
   if (!employee) return DEFAULT_BREAK_RULES;
   return breakRules((await effectivePolicyFor(db, employee)).policy);

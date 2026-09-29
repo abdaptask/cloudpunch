@@ -366,7 +366,8 @@ export async function ingestBatch(input: IngestBatchInput): Promise<IngestBatchO
     );
   }
 
-  await input.db.devices.touchLastSeen(device.id, new Date());
+  // The version it runs now, for Versions (ADR-0025 §3).
+  await input.db.devices.touchLastSeen(device.id, new Date(), input.events.at(-1)?.app_version);
 
   return {
     status: 'batch_accepted',

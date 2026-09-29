@@ -37,6 +37,29 @@ export interface Employee {
   status: EmploymentStatus;
   /** Team scope for policy (ADR-0015). Absent means no department. */
   departmentId?: string | null;
+  /** Direct manager (ADR-0005, ADR-0025 §1). Absent means none. */
+  reportingManagerId?: string | null;
+}
+
+/** Setting someone's manager (ADR-0025 §1), audited. */
+export interface SetManagerInput {
+  employeeId: string;
+  managerId: string | null;
+  actorUserId: string;
+  reason: string | null;
+  correlationId: string;
+  at: Date;
+}
+
+/** Someone opened another person's day or exceptions (ADR-0025 §4). */
+export interface ViewAudit {
+  actorUserId: string;
+  employeeId: string;
+  action: 'day_viewed' | 'exceptions_viewed';
+  /** The date(s) viewed, e.g. `{ from, to }`. */
+  detail: Record<string, string>;
+  correlationId: string;
+  at: Date;
 }
 
 export interface AppUser {
@@ -171,6 +194,14 @@ export type InsertEventResult =
 export interface EmployeeRepo {
   findById(id: string): Promise<Employee | null>;
   findByEntraObjectId(oid: string): Promise<Employee | null>;
+  /** Active direct reports of `managerId`, by name (ADR-0025 §2). */
+  listReports(managerId: string): Promise<Employee[]>;
+  /** Every active employee, by name (HR's scope). */
+  listActive(): Promise<Employee[]>;
+  /** Set or clear `employeeId`'s manager and write the audit row. */
+  setReportingManager(input: SetManagerInput): Promise<void>;
+  /** Write a read-audit row (ADR-0025 §4). */
+  auditView(entry: ViewAudit): Promise<void>;
 }
 
 export interface AppUserRepo {
@@ -183,7 +214,8 @@ export interface DeviceRepo {
   findById(id: string): Promise<Device | null>;
   findByUserId(userId: string): Promise<readonly Device[]>;
   revoke(id: string, reason: string, byUserId: string, at: Date): Promise<void>;
-  touchLastSeen(id: string, at: Date): Promise<void>;
+  /** Also records the version the device last sent events with. */
+  touchLastSeen(id: string, at: Date, appVersion?: string): Promise<void>;
   /** Every device with its owner, most recently seen first. */
   listWithOwners(): Promise<readonly DeviceWithOwner[]>;
 }

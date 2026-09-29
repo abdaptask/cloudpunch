@@ -106,6 +106,43 @@ describe('PostgresDb — employees + users', () => {
     expect(await db.employees.findByEntraObjectId(randomUUID())).toBeNull();
     expect(await db.users.findByEntraObjectId(randomUUID())).toBeNull();
   });
+
+  it('ADR-0025: sets a manager (audited), lists reports and active people, audits views', async () => {
+    const mgr = await seedEmployee();
+    const a = await seedEmployee();
+    const gone = await seedEmployee({ status: 'terminated' });
+    const { userId } = await seedUser({ employeeId: mgr });
+    for (const id of [a, gone]) {
+      await db.employees.setReportingManager({
+        employeeId: id,
+        managerId: mgr,
+        actorUserId: userId,
+        reason: 'pilot team',
+        correlationId: randomUUID(),
+        at: new Date(),
+      });
+    }
+    expect((await db.employees.findById(a))?.reportingManagerId).toBe(mgr);
+    expect((await db.employees.listReports(mgr)).map((e) => e.id)).toEqual([a]);
+    expect((await db.employees.listActive()).map((e) => e.id).sort()).toEqual([mgr, a].sort());
+
+    await db.employees.auditView({
+      actorUserId: userId,
+      employeeId: a,
+      action: 'day_viewed',
+      detail: { date: '2026-09-29' },
+      correlationId: randomUUID(),
+      at: new Date(),
+    });
+    // The client camelCases column names.
+    const rows = await sql<{ action: string; before: unknown; after: unknown }[]>`
+      SELECT action, previous_value AS before, new_value AS after FROM audit_log
+      WHERE entity_type = 'employee' AND entity_id = ${a} ORDER BY occurred_at`;
+    expect(rows.map((r) => r.action)).toEqual(['reporting_manager_set', 'day_viewed']);
+    expect(rows[0]?.before).toEqual({ manager_employee_id: null });
+    expect(rows[0]?.after).toEqual({ manager_employee_id: mgr });
+    expect(rows[1]?.after).toEqual({ date: '2026-09-29' });
+  });
 });
 
 // ---------------------------------------------------------------------
@@ -128,6 +165,22 @@ describe('PostgresDb — devices', () => {
     expect(d.userId).toBe(userId);
     expect(d.publicKeyEd25519).toEqual(pk);
     expect(d.revokedAt).toBeNull();
+  });
+
+  it('touchLastSeen records the version the device now runs (ADR-0025 §3)', async () => {
+    const { userId } = await seedUser();
+    const d = await db.devices.enroll({
+      id: randomUUID(),
+      userId,
+      os: 'windows',
+      hostnameHash: 'sha256-' + '0'.repeat(64),
+      publicKeyEd25519: pk,
+      appVersion: '0.1.0',
+    });
+    await db.devices.touchLastSeen(d.id, new Date(), '0.1.4');
+    expect((await db.devices.findById(d.id))?.appVersion).toBe('0.1.4');
+    await db.devices.touchLastSeen(d.id, new Date());
+    expect((await db.devices.findById(d.id))?.appVersion).toBe('0.1.4');
   });
 
   it('re-enrollment by same user refreshes key + version', async () => {
