@@ -35,7 +35,7 @@ if ! grep -qa "$PUBLIC_URL" target/release/cloudpunch-desktop.exe; then
 fi
 
 if [ ! -f "$INSTALLER.sig" ] || [ "$INSTALLER" -nt "$INSTALLER.sig" ]; then
-  echo "publish-installer: $INSTALLER isn't signed for auto-update; build with TAURI_SIGNING_PRIVATE_KEY_PATH and _PASSWORD set (docs/ops/pilot-vm.md)" >&2
+  echo "publish-installer: $INSTALLER isn't signed for auto-update; build with TAURI_SIGNING_PRIVATE_KEY (the key file path) and _PASSWORD set (docs/ops/pilot-vm.md)" >&2
   exit 1
 fi
 SIG="$(tr -d '\r\n' < "$INSTALLER.sig")"
