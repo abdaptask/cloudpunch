@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState, type MouseEvent, type ReactNode } from 'react';
 import { api, type StateView } from './api.js';
-import { callName, type BreakKind } from './BreakOnCallDialog.js';
 import { formatTimer } from './timelineModel.js';
 import { Button } from './ui/Button.js';
 import { useTheme } from './ui/theme.js';
@@ -20,8 +19,9 @@ function hm(ms: number): string {
 
 /**
  * The pinned mini strip (ADR-0017): status light, live timer and one
- * contextual action, always on top. Hover shows today's totals, the
- * break choices and In a meeting. Drag anywhere to move it; double-click or ⤢ to go
+ * contextual action, always on top. Hover shows today's totals, Take a
+ * break (which opens the full window's picker), In a meeting and
+ * Training. Drag anywhere to move it; double-click or ⤢ to go
  * back to the full window. Clock out is not offered here: it asks
  * first, in the full window.
  */
@@ -35,6 +35,7 @@ export function Strip({
   idle,
   run,
   onUnpin,
+  onTakeBreak,
 }: {
   view: StateView;
   now: number;
@@ -48,18 +49,11 @@ export function Strip({
   idle: number;
   run: (command: () => Promise<StateView>) => void;
   onUnpin: () => void;
+  /** Back to the full window with "Take a break" open (ADR-0023). */
+  onTakeBreak: () => void;
 }): JSX.Element {
   const t = useTheme();
   const [open, setOpen] = useState(false);
-  // A break during a call asks first, inline (owner request).
-  const [confirm, setConfirm] = useState<BreakKind | null>(null);
-  useEffect(() => {
-    if (view.status !== 'on_call') setConfirm(null);
-  }, [view.status]);
-  const startBreak = (kind: BreakKind): void => {
-    if (view.status === 'on_call') setConfirm(kind);
-    else run(() => api.startBreak(kind));
-  };
   const led = useRef<HTMLSpanElement>(null);
   const press = useRef<{ x: number; y: number } | null>(null);
   const closeTimer = useRef<number | undefined>(undefined);
@@ -195,46 +189,24 @@ export function Strip({
             Today · {hm(worked)} worked · {hm(breaks)} breaks
             {idle > 0 && <> · {hm(idle)} idle</>}
           </div>
-          {confirm && view.status === 'on_call' ? (
-            <div role="alertdialog" aria-label="strip-break-on-call">
-              <div style={{ fontSize: 12, lineHeight: 1.4, marginBottom: 6 }}>
-                You&apos;re on a {callName(view.callType)}. Take a{' '}
-                {confirm === 'meal' ? 'meal' : 'bio'} break anyway? The call so far stays counted as
-                a call.
-              </div>
-              <div style={{ display: 'flex', gap: 6 }}>
-                <Button
-                  variant="chip"
-                  onClick={() => {
-                    const kind = confirm;
-                    setConfirm(null);
-                    run(() => api.startBreak(kind));
-                  }}
-                >
-                  Start break
+          {(view.status === 'active' || view.status === 'on_call') && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              {/* The picker needs room: it opens in the full window. */}
+              <Button variant="chip" onClick={onTakeBreak}>
+                Take a break
+              </Button>
+              {/* Not offered during a call: it's already tracked (ADR-0009 §2). */}
+              {view.status === 'active' && (
+                <Button variant="chip" onClick={() => run(() => api.markAway('meeting'))}>
+                  In a meeting
                 </Button>
-                <Button variant="chip" onClick={() => setConfirm(null)}>
-                  Stay on the call
+              )}
+              {view.status === 'active' && view.offerTraining && (
+                <Button variant="chip" onClick={() => run(() => api.markAway('training'))}>
+                  In training
                 </Button>
-              </div>
+              )}
             </div>
-          ) : (
-            (view.status === 'active' || view.status === 'on_call') && (
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                <Button variant="chip" onClick={() => startBreak('bio')}>
-                  Bio break
-                </Button>
-                <Button variant="chip" onClick={() => startBreak('meal')}>
-                  Meal break
-                </Button>
-                {/* Not offered during a call: it's already tracked (ADR-0009 §2). */}
-                {view.status === 'active' && (
-                  <Button variant="chip" onClick={() => run(() => api.markAway('meeting'))}>
-                    In a meeting
-                  </Button>
-                )}
-              </div>
-            )
           )}
         </div>
       )}

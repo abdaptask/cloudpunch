@@ -11,10 +11,10 @@ const mocks = vi.hoisted(() => ({
   getState: vi.fn<() => Promise<StateView>>(),
   clockIn: vi.fn<() => Promise<StateView>>(),
   clockOut: vi.fn<() => Promise<StateView>>(),
-  startBreak: vi.fn<(kind: 'bio' | 'meal') => Promise<StateView>>(),
+  startBreak: vi.fn<(kind: string, planned?: number | null) => Promise<StateView>>(),
   endBreak: vi.fn<() => Promise<StateView>>(),
   markBack: vi.fn<() => Promise<StateView>>(),
-  markAway: vi.fn<(reason: 'meeting') => Promise<StateView>>(),
+  markAway: vi.fn<(reason: 'meeting' | 'training') => Promise<StateView>>(),
   respondToPrompt: vi.fn(),
   onState: vi.fn<(cb: (v: StateView) => void) => Promise<() => void>>(),
   authStatus: vi.fn<() => Promise<AuthStatus>>(),
@@ -26,7 +26,7 @@ const mocks = vi.hoisted(() => ({
   quitApp: vi.fn<() => Promise<void>>(),
   clockOutAndQuit: vi.fn<() => Promise<void>>(),
   onCloseRequested: vi.fn<(cb: () => void) => Promise<() => void>>(),
-  onBreakOnCall: vi.fn<(cb: (kind: 'bio' | 'meal') => void) => Promise<() => void>>(),
+  onBreakPicker: vi.fn<(cb: () => void) => Promise<() => void>>(),
   ackLongShift: vi.fn<() => Promise<StateView>>(),
   enrollmentStatus: vi.fn<() => Promise<EnrollmentStatus>>(),
   onEnrollment: vi.fn<(cb: (s: EnrollmentStatus) => void) => Promise<() => void>>(),
@@ -76,6 +76,14 @@ function view(over: Partial<StateView> = {}): StateView {
     autoClockOutReason: null,
     signedInAt: null,
     clockInPrompt: false,
+    breakOptions: [
+      { id: 'bio', label: 'Bio break', maxMinutes: 10 },
+      { id: 'meal', label: 'Meal break', maxMinutes: 60 },
+      { id: 'rest', label: 'Tea break', maxMinutes: 15 },
+      { id: 'personal', label: 'Personal', maxMinutes: 30 },
+    ],
+    offerTraining: true,
+    plannedBreakMinutes: null,
     ...over,
   };
 }
@@ -85,7 +93,7 @@ let pushAuth: (s: AuthStatus) => void = () => undefined;
 let pressClose: () => void = () => undefined;
 let pushEnrollment: (s: EnrollmentStatus) => void = () => undefined;
 let pushPinned: (p: boolean) => void = () => undefined;
-let trayBreakOnCall: (kind: 'bio' | 'meal') => void = () => undefined;
+let trayTakeBreak: () => void = () => undefined;
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -123,8 +131,8 @@ beforeEach(() => {
   mocks.pinWindow.mockResolvedValue(true);
   mocks.unpinWindow.mockResolvedValue(false);
   mocks.startDragging.mockResolvedValue(undefined);
-  mocks.onBreakOnCall.mockImplementation((cb) => {
-    trayBreakOnCall = cb;
+  mocks.onBreakPicker.mockImplementation((cb) => {
+    trayTakeBreak = cb;
     return Promise.resolve(() => undefined);
   });
   mocks.onPinned.mockImplementation((cb) => {
@@ -415,7 +423,21 @@ describe('App home UI', () => {
     await user.click(await screen.findByRole('button', { name: 'Clock in' }));
     expect(mocks.clockIn).toHaveBeenCalledOnce();
     expect(statusText()).toBe('Clocked in');
-    expect(actionButtons()).toEqual(['Clock out', 'Bio break', 'Meal break', 'In a meeting']);
+    expect(actionButtons()).toEqual(['Clock out', 'Take a break', 'In a meeting', 'In training']);
+  });
+
+  it('Training is an away tag when offered (ADR-0023)', async () => {
+    mocks.getState.mockResolvedValue(view({ status: 'active' }));
+    mocks.markAway.mockResolvedValue(view({ status: 'away', awayReason: 'training' }));
+    const user = userEvent.setup();
+    const { unmount } = render(<App />);
+    await user.click(await screen.findByRole('button', { name: 'In training' }));
+    expect(mocks.markAway).toHaveBeenCalledWith('training');
+    unmount();
+    mocks.getState.mockResolvedValue(view({ status: 'active', offerTraining: false }));
+    render(<App />);
+    await screen.findByRole('button', { name: 'In a meeting' });
+    expect(screen.queryByRole('button', { name: 'In training' })).not.toBeInTheDocument();
   });
 
   it('away tags call mark_away with their reason (ADR-0011)', async () => {
@@ -429,15 +451,83 @@ describe('App home UI', () => {
     expect(actionButtons()).toEqual(["I'm back", 'Clock out']);
   });
 
-  it('breaks pass their kind', async () => {
+  it('Take a break: the policy types, Back in? on the limit, then Start (ADR-0023)', async () => {
     mocks.getState.mockResolvedValue(view({ status: 'active' }));
     mocks.startBreak.mockResolvedValue(view({ status: 'on_break', breakKind: 'meal' }));
     const user = userEvent.setup();
     render(<App />);
-    await user.click(await screen.findByRole('button', { name: 'Meal break' }));
-    expect(mocks.startBreak).toHaveBeenCalledWith('meal');
+    await user.click(await screen.findByRole('button', { name: 'Take a break' }));
+    const picker = screen.getByRole('dialog', { name: 'take-a-break' });
+    const types = within(within(picker).getByRole('radiogroup', { name: 'break type' }));
+    expect(types.getAllByRole('radio').map((r) => r.textContent)).toEqual([
+      'Bio break',
+      'Meal break',
+      'Tea break',
+      'Personal',
+    ]);
+    const backIn = within(within(picker).getByRole('radiogroup', { name: 'back in' }));
+    // Bio starts on its 10-minute limit; Meal on 60.
+    expect(backIn.getByRole('radio', { name: '10 min' })).toHaveAttribute('aria-checked', 'true');
+    await user.click(types.getByRole('radio', { name: 'Meal break' }));
+    expect(backIn.getByRole('radio', { name: '60 min' })).toHaveAttribute('aria-checked', 'true');
+    await user.click(within(picker).getByRole('button', { name: 'Start break' }));
+    expect(mocks.startBreak).toHaveBeenCalledWith('meal', 60);
     expect(statusText()).toBe('On a meal break');
     expect(actionButtons()).toEqual(['End break', 'Clock out']);
+  });
+
+  it('Back in 20 on a Personal break; Not sure sends no plan', async () => {
+    mocks.getState.mockResolvedValue(view({ status: 'active' }));
+    mocks.startBreak.mockResolvedValue(
+      view({
+        status: 'on_break',
+        breakKind: 'personal',
+        plannedBreakMinutes: 20,
+        sessionStartedAt: 0,
+        timeline: [
+          {
+            kind: 'personal_break',
+            startedAt: new Date(2026, 8, 29, 10, 25).getTime(),
+            endedAt: null,
+            session: 1,
+          },
+        ],
+      }),
+    );
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole('button', { name: 'Take a break' }));
+    const picker = screen.getByRole('dialog', { name: 'take-a-break' });
+    await user.click(within(picker).getByRole('radio', { name: 'Personal' }));
+    await user.click(within(picker).getByRole('radio', { name: '20 min' }));
+    await user.click(within(picker).getByRole('button', { name: 'Start break' }));
+    expect(mocks.startBreak).toHaveBeenCalledWith('personal', 20);
+    expect(await screen.findByText(/Personal · back by/)).toBeInTheDocument();
+
+    mocks.startBreak.mockClear();
+    mocks.startBreak.mockResolvedValue(view({ status: 'on_break', breakKind: 'rest' }));
+    act(() => pushState(view({ status: 'active' })));
+    await user.click(await screen.findByRole('button', { name: 'Take a break' }));
+    const again = screen.getByRole('dialog', { name: 'take-a-break' });
+    await user.click(within(again).getByRole('radio', { name: 'Tea break' }));
+    await user.click(within(again).getByRole('radio', { name: 'Not sure' }));
+    await user.click(within(again).getByRole('button', { name: 'Start break' }));
+    expect(mocks.startBreak).toHaveBeenCalledWith('rest', null);
+  });
+
+  it('HR names show in the picker and the status (ADR-0023 §5)', async () => {
+    mocks.getState.mockResolvedValue(
+      view({
+        status: 'on_break',
+        breakKind: 'rest',
+        breakOptions: [
+          { id: 'bio', label: 'Bio break', maxMinutes: 10 },
+          { id: 'rest', label: 'Chai break', maxMinutes: 20 },
+        ],
+      }),
+    );
+    render(<App />);
+    expect(await screen.findByText('On a chai break')).toBeInTheDocument();
   });
 
   it('on a call shows the kind of call (ADR-0012)', async () => {
@@ -457,7 +547,7 @@ describe('App home UI', () => {
     mocks.getState.mockResolvedValue(view({ status: 'on_call' }));
     render(<App />);
     expect(await screen.findByText('On a call')).toBeInTheDocument();
-    expect(actionButtons()).toEqual(['Clock out', 'Bio break', 'Meal break']);
+    expect(actionButtons()).toEqual(['Clock out', 'Take a break']);
   });
 
   it('away offers I’m back', async () => {
@@ -647,8 +737,10 @@ describe('clock out asks first (owner request)', () => {
     expect(mocks.clockOut).not.toHaveBeenCalled();
 
     await user.click(screen.getByRole('button', { name: 'Clock out' }));
-    await user.click(screen.getByRole('button', { name: 'Take a bio break' }));
-    expect(mocks.startBreak).toHaveBeenCalledWith('bio');
+    await user.click(screen.getByRole('button', { name: 'Take a break instead' }));
+    const picker = screen.getByRole('dialog', { name: 'take-a-break' });
+    await user.click(within(picker).getByRole('button', { name: 'Start break' }));
+    expect(mocks.startBreak).toHaveBeenCalledWith('bio', 10);
     expect(mocks.clockOut).not.toHaveBeenCalled();
   });
 
@@ -658,7 +750,7 @@ describe('clock out asks first (owner request)', () => {
     const user = userEvent.setup();
     render(<App />);
     await user.click(await screen.findByRole('button', { name: 'Clock out' }));
-    expect(screen.queryByRole('button', { name: 'Take a bio break' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Take a break instead' })).not.toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Yes, clock out' }));
     expect(mocks.clockOut).toHaveBeenCalledOnce();
   });
@@ -1033,9 +1125,13 @@ describe('pinned mini strip (ADR-0017)', () => {
     const strip = await screen.findByRole('region', { name: 'pinned-strip' });
     await user.hover(strip);
     expect(within(strip).getByLabelText('strip-totals')).toHaveTextContent('Today ·');
-    await user.click(within(strip).getByRole('button', { name: 'Meal break' }));
-    expect(mocks.startBreak).toHaveBeenCalledWith('meal');
-    expect(await within(strip).findByRole('button', { name: 'End break' })).toBeInTheDocument();
+    // The picker needs room: Take a break goes back to the full window.
+    await user.click(within(strip).getByRole('button', { name: 'Take a break' }));
+    expect(mocks.unpinWindow).toHaveBeenCalled();
+    const picker = await screen.findByRole('dialog', { name: 'take-a-break' });
+    await user.click(within(picker).getByRole('radio', { name: 'Meal break' }));
+    await user.click(within(picker).getByRole('button', { name: 'Start break' }));
+    expect(mocks.startBreak).toHaveBeenCalledWith('meal', 60);
   });
 
   it('hover offers In a meeting while clocked in, but not during a call', async () => {
@@ -1055,7 +1151,7 @@ describe('pinned mini strip (ADR-0017)', () => {
     act(() =>
       pushState(view({ status: 'on_call', callType: 'teams', sessionStartedAt: Date.now() })),
     );
-    expect(within(strip).getByRole('button', { name: 'Bio break' })).toBeInTheDocument();
+    expect(within(strip).getByRole('button', { name: 'Take a break' })).toBeInTheDocument();
     expect(within(strip).queryByRole('button', { name: 'In a meeting' })).not.toBeInTheDocument();
   });
 
@@ -1170,45 +1266,48 @@ describe('break during a call asks first (owner request)', () => {
   const onCall = (): StateView =>
     view({ status: 'on_call', callType: 'teams', sessionStartedAt: Date.now() - 60_000 });
 
-  it('asks, Stay on the call does nothing, Start break starts it', async () => {
+  it('the picker says what happens to the call; Stay on the call does nothing', async () => {
     mocks.getState.mockResolvedValue(onCall());
     mocks.startBreak.mockResolvedValue(view({ status: 'on_break', breakKind: 'bio' }));
     const user = userEvent.setup();
     render(<App />);
-    await user.click(await screen.findByRole('button', { name: 'Bio break' }));
-    const dialog = screen.getByRole('dialog', { name: 'break-on-call' });
+    await user.click(await screen.findByRole('button', { name: 'Take a break' }));
+    const dialog = screen.getByRole('dialog', { name: 'take-a-break' });
     expect(dialog).toHaveTextContent("You're on a Teams call");
     expect(dialog).toHaveTextContent('it counts as a call again');
     await user.click(within(dialog).getByRole('button', { name: 'Stay on the call' }));
     expect(mocks.startBreak).not.toHaveBeenCalled();
-    expect(screen.queryByRole('dialog', { name: 'break-on-call' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('dialog', { name: 'take-a-break' })).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', { name: 'Meal break' }));
-    await user.click(screen.getByRole('button', { name: "Start meal break: I've left the call" }));
-    expect(mocks.startBreak).toHaveBeenCalledWith('meal');
+    await user.click(screen.getByRole('button', { name: 'Take a break' }));
+    await user.click(screen.getByRole('radio', { name: 'Meal break' }));
+    await user.click(screen.getByRole('button', { name: "Start break: I've left the call" }));
+    expect(mocks.startBreak).toHaveBeenCalledWith('meal', 60);
   });
 
-  it('not on a call: a break starts straight away', async () => {
+  it('not on a call: no call wording', async () => {
     mocks.getState.mockResolvedValue(view({ status: 'active', sessionStartedAt: Date.now() }));
-    mocks.startBreak.mockResolvedValue(view({ status: 'on_break', breakKind: 'bio' }));
     const user = userEvent.setup();
     render(<App />);
-    await user.click(await screen.findByRole('button', { name: 'Bio break' }));
-    expect(mocks.startBreak).toHaveBeenCalledWith('bio');
-    expect(screen.queryByRole('dialog', { name: 'break-on-call' })).not.toBeInTheDocument();
+    await user.click(await screen.findByRole('button', { name: 'Take a break' }));
+    const dialog = screen.getByRole('dialog', { name: 'take-a-break' });
+    expect(dialog).not.toHaveTextContent("You're on a");
+    expect(within(dialog).getByRole('button', { name: 'Start break' })).toBeInTheDocument();
   });
 
-  it('the tray asks through the window, and the question goes when the call ends', async () => {
+  it('the tray opens the picker in the window, and it goes when the break starts elsewhere', async () => {
     mocks.getState.mockResolvedValue(onCall());
     render(<App />);
-    await screen.findByRole('button', { name: 'Bio break' });
-    act(() => trayBreakOnCall('bio'));
-    expect(screen.getByRole('dialog', { name: 'break-on-call' })).toHaveTextContent(
-      'Take a bio break anyway?',
+    await screen.findByRole('button', { name: 'Take a break' });
+    act(() => trayTakeBreak());
+    expect(screen.getByRole('dialog', { name: 'take-a-break' })).toHaveTextContent(
+      "You're on a Teams call",
     );
     expect(mocks.unpinWindow).toHaveBeenCalled();
-    act(() => pushState(view({ status: 'active', sessionStartedAt: Date.now() })));
-    expect(screen.queryByRole('dialog', { name: 'break-on-call' })).not.toBeInTheDocument();
+    act(() =>
+      pushState(view({ status: 'on_break', breakKind: 'bio', sessionStartedAt: Date.now() })),
+    );
+    expect(screen.queryByRole('dialog', { name: 'take-a-break' })).not.toBeInTheDocument();
   });
 
   it('clock out on a call says the call time is kept', async () => {
@@ -1221,7 +1320,7 @@ describe('break during a call asks first (owner request)', () => {
     );
   });
 
-  it('the pinned strip asks inline', async () => {
+  it('the pinned strip opens the full window, which asks', async () => {
     mocks.getState.mockResolvedValue(onCall());
     mocks.startBreak.mockResolvedValue(view({ status: 'on_break', breakKind: 'bio' }));
     mocks.pinStatus.mockResolvedValue(true);
@@ -1229,12 +1328,12 @@ describe('break during a call asks first (owner request)', () => {
     render(<App />);
     const strip = await screen.findByRole('region', { name: 'pinned-strip' });
     await user.hover(strip);
-    await user.click(within(strip).getByRole('button', { name: 'Bio break' }));
-    const ask = within(strip).getByRole('alertdialog', { name: 'strip-break-on-call' });
+    await user.click(within(strip).getByRole('button', { name: 'Take a break' }));
+    const ask = await screen.findByRole('dialog', { name: 'take-a-break' });
     expect(ask).toHaveTextContent("You're on a Teams call");
     expect(mocks.startBreak).not.toHaveBeenCalled();
-    await user.click(within(ask).getByRole('button', { name: 'Start break' }));
-    expect(mocks.startBreak).toHaveBeenCalledWith('bio');
+    await user.click(within(ask).getByRole('button', { name: "Start break: I've left the call" }));
+    expect(mocks.startBreak).toHaveBeenCalledWith('bio', 10);
   });
 });
 
@@ -1400,7 +1499,8 @@ describe('Settings for HR and Administrators (ADR-0018 §5)', () => {
     mocks.adminDepartments.mockResolvedValue({ departments: [{ id: DEPT, name: 'Recruiting' }] });
     mocks.adminPolicyGet.mockResolvedValue({
       override: { document: { break: { bio: { max_minutes: 15 } } } },
-      effective: { policy: effective },
+      // The effective policy includes the override.
+      effective: { policy: { ...effective, break: { bio: { max_minutes: 15 } } } },
     });
     mocks.adminPolicyPut.mockImplementation((_s: string, _i: string | null, document: unknown) =>
       Promise.resolve({ override: { document }, effective: { policy: effective } }),
@@ -1423,8 +1523,7 @@ describe('Settings for HR and Administrators (ADR-0018 §5)', () => {
     expect(mocks.adminPolicyPut).toHaveBeenCalledWith(
       'global',
       null,
-      {
-        break: { bio: { max_minutes: 15 } },
+      expect.objectContaining({
         idle: { threshold_seconds: 180, grace_seconds: 30, max_idle_minutes: null },
         reminders: {
           clock_in_prompt_at: '08:00',
@@ -1432,10 +1531,50 @@ describe('Settings for HR and Administrators (ADR-0018 §5)', () => {
           long_day_hours: 8,
           long_shift_hours: 9,
         },
-      },
+      }),
       'pilot feedback',
     );
+    const sent = mocks.adminPolicyPut.mock.calls[0]?.[2] as { break: Record<string, unknown> };
+    expect(sent.break['bio']).toMatchObject({ max_minutes: 15, enabled: true });
     expect(await within(settings).findByRole('status')).toHaveTextContent('within 15 minutes');
+  });
+
+  it('Breaks: rename, switch off and re-rule a type; all off blocks Save (ADR-0023 §5)', async () => {
+    mocks.myCapabilities.mockResolvedValue(['admin.policy.write']);
+    mocks.adminPolicyGet.mockResolvedValue({ override: null, effective: { policy: effective } });
+    mocks.adminPolicyPut.mockImplementation((_s: string, _i: string | null, document: unknown) =>
+      Promise.resolve({ override: { document }, effective: { policy: effective } }),
+    );
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole('button', { name: 'Settings' }));
+    const settings = screen.getByRole('region', { name: 'settings' });
+    const name = await within(settings).findByLabelText('rest-label');
+    expect(name).toHaveValue('Tea break');
+    await user.clear(name);
+    await user.type(name, 'Chai break');
+    await user.selectOptions(within(settings).getByLabelText('rest-pay'), 'paid');
+    await user.click(within(settings).getByLabelText('personal-enabled'));
+    await user.click(within(settings).getByLabelText('offer-training'));
+    await user.click(within(settings).getByRole('button', { name: 'Save' }));
+    const sent = mocks.adminPolicyPut.mock.calls[0]?.[2] as {
+      break: Record<string, Record<string, unknown>>;
+      away: Record<string, unknown>;
+    };
+    expect(sent.break['rest']).toEqual({
+      enabled: true,
+      label: 'Chai break',
+      pay: 'paid',
+      max_minutes: 15,
+    });
+    expect(sent.break['personal']?.['enabled']).toBe(false);
+    expect(sent.away).toEqual({ offer_training: false });
+
+    for (const id of ['bio', 'meal', 'rest']) {
+      await user.click(within(settings).getByLabelText(`${id}-enabled`));
+    }
+    expect(within(settings).getByText('Keep at least one break type on')).toBeInTheDocument();
+    expect(within(settings).getByRole('button', { name: 'Save' })).toBeDisabled();
   });
 
   it('HR edits a department, and bad values block Save', async () => {

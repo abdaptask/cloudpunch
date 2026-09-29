@@ -19,7 +19,8 @@ export function ClockOutDialog({
   /** "Teams call" while on a detected call, else null. */
   call?: string | null;
   onClockOut: () => void;
-  onBreak: (kind: 'bio' | 'meal') => void;
+  /** Opens "Take a break" (ADR-0023). */
+  onBreak: () => void;
   onCancel: () => void;
 }): JSX.Element {
   const t = useTheme();
@@ -51,14 +52,9 @@ export function ClockOutDialog({
           : 'This ends your shift for now. You can clock in again at any time.'}
       </p>
       {offerBreaks && (
-        <div style={{ display: 'flex', gap: 8 }}>
-          <Button variant="chip" onClick={() => onBreak('bio')}>
-            Take a bio break
-          </Button>
-          <Button variant="chip" onClick={() => onBreak('meal')}>
-            Take a meal break
-          </Button>
-        </div>
+        <Button variant="chip" onClick={onBreak}>
+          Take a break instead
+        </Button>
       )}
       <Button variant="stop" onClick={onClockOut}>
         Yes, clock out

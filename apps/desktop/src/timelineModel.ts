@@ -11,9 +11,13 @@ export type SegmentKind =
   | 'call_other'
   | 'bio_break'
   | 'meal_break'
+  /** Tea break by default (ADR-0023). */
+  | 'rest_break'
+  | 'personal_break'
   | 'other_break'
   | 'away_meeting'
   | 'away_phone'
+  | 'away_training'
   | 'away_working'
   | 'prompt'
   /** Logged idle after an unanswered prompt (ADR-0018): never worked. */
@@ -46,10 +50,13 @@ export function groupOf(kind: SegmentKind): SegmentGroup {
     case 'call_other':
     case 'away_meeting':
     case 'away_phone':
+    case 'away_training':
     case 'away_working':
       return 'working';
     case 'bio_break':
     case 'meal_break':
+    case 'rest_break':
+    case 'personal_break':
     case 'other_break':
       return 'break';
     case 'prompt':
@@ -66,13 +73,36 @@ export const KIND_LABEL: Record<SegmentKind, string> = {
   call_other: 'Other call',
   bio_break: 'Bio break',
   meal_break: 'Meal break',
+  rest_break: 'Tea break',
+  personal_break: 'Personal',
   other_break: 'Break',
   away_meeting: 'In a meeting',
   away_phone: 'On a phone call',
+  away_training: 'Training',
   away_working: 'Working away',
   prompt: 'Idle prompt',
   idle: 'Idle',
 };
+
+const BREAK_KIND: Record<string, SegmentKind> = {
+  bio: 'bio_break',
+  meal: 'meal_break',
+  rest: 'rest_break',
+  personal: 'personal_break',
+  other: 'other_break',
+};
+
+/**
+ * HR can rename break types (ADR-0023 §5): put the policy's names into
+ * `KIND_LABEL`, so the timeline, dial and status all say the same. Types
+ * not offered keep their last (or default) name for history.
+ */
+export function applyBreakLabels(options: readonly { id: string; label: string }[]): void {
+  for (const o of options) {
+    const kind = BREAK_KIND[o.id];
+    if (kind && o.label.trim()) KIND_LABEL[kind] = o.label.trim();
+  }
+}
 
 /** Label for a kind as a line under the Working total. */
 export const WORKING_PART_LABEL: Partial<Record<SegmentKind, string>> = {
@@ -82,6 +112,7 @@ export const WORKING_PART_LABEL: Partial<Record<SegmentKind, string>> = {
   call_other: 'Other calls',
   away_meeting: 'In a meeting',
   away_phone: 'On a phone call',
+  away_training: 'Training',
   away_working: 'Working away',
 };
 

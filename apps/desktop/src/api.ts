@@ -55,11 +55,22 @@ export interface IdleReturn {
   until: number;
 }
 
+/** The fixed break ids (ADR-0023 §1). */
+export type BreakId = 'bio' | 'meal' | 'rest' | 'personal' | 'other';
+
+/** One break type the policy offers, in menu order. */
+export interface BreakOption {
+  id: BreakId;
+  label: string;
+  /** Reminder limit in minutes; null = none. */
+  maxMinutes: number | null;
+}
+
 /** Mirrors `agent::StateView`. Timestamps are epoch ms. */
 export interface StateView {
   status: Status;
-  breakKind: 'bio' | 'meal' | 'other' | null;
-  awayReason: 'phone_call' | 'working_away' | 'meeting' | null;
+  breakKind: BreakId | null;
+  awayReason: 'phone_call' | 'working_away' | 'meeting' | 'training' | null;
   /** Kind of call while `on_call` (ADR-0012). */
   callType: 'teams' | 'zoom' | 'other' | null;
   promptDeadline: number | null;
@@ -84,12 +95,18 @@ export interface StateView {
   signedInAt: number | null;
   /** The daily clock-in popup is showing (8:00 New York by default). */
   clockInPrompt: boolean;
+  /** Break types to offer, in menu order (ADR-0023). */
+  breakOptions: BreakOption[];
+  /** Offer Training as an Away tag. */
+  offerTraining: boolean;
+  /** The break in progress's "Back in?" answer, minutes. */
+  plannedBreakMinutes: number | null;
 }
 
 /** The window's close button was pressed (ADR-0013 §1). */
 export const CLOSE_REQUESTED_EVENT = 'cp://close-requested';
-/** Mirrors `tray::BREAK_ON_CALL_EVENT`: a tray break during a call. */
-export const BREAK_ON_CALL_EVENT = 'cp://break-on-call';
+/** Mirrors `tray::BREAK_PICKER_EVENT`: "Take a break…" in the tray. */
+export const BREAK_PICKER_EVENT = 'cp://break-picker';
 
 /** Emitted by the agent after every state change. */
 /** Mirrors `strip::PIN_EVENT`. */
@@ -148,12 +165,14 @@ export const api = {
   ): Promise<AdminPolicy> =>
     invoke<AdminPolicy>('admin_policy_put', { scope, id, document, reason: reason || null }),
   clockOut: (): Promise<StateView> => invoke<StateView>('clock_out'),
-  startBreak: (kind: 'bio' | 'meal'): Promise<StateView> =>
-    invoke<StateView>('start_break', { kind }),
+  /** `plannedMinutes`: the "Back in?" answer; null = Not sure. */
+  startBreak: (kind: BreakId, plannedMinutes: number | null = null): Promise<StateView> =>
+    invoke<StateView>('start_break', { kind, plannedMinutes }),
   endBreak: (): Promise<StateView> => invoke<StateView>('end_break'),
   markBack: (): Promise<StateView> => invoke<StateView>('mark_back'),
   /** Voluntary tag (ADR-0011 §2). */
-  markAway: (reason: 'meeting'): Promise<StateView> => invoke<StateView>('mark_away', { reason }),
+  markAway: (reason: 'meeting' | 'training'): Promise<StateView> =>
+    invoke<StateView>('mark_away', { reason }),
   explainIdle: (explanation: IdleExplanation, note: string | null): Promise<StateView> =>
     invoke<StateView>('explain_idle', { explanation, note }),
   dismissIdleReturn: (): Promise<StateView> => invoke<StateView>('dismiss_idle_return'),
@@ -180,8 +199,7 @@ export const api = {
   clockOutAndQuit: (): Promise<void> => invoke<void>('clock_out_and_quit'),
   onCloseRequested: (cb: () => void): Promise<UnlistenFn> =>
     listen<null>(CLOSE_REQUESTED_EVENT, () => cb()),
-  onBreakOnCall: (cb: (kind: 'bio' | 'meal') => void): Promise<UnlistenFn> =>
-    listen<'bio' | 'meal'>(BREAK_ON_CALL_EVENT, (e) => cb(e.payload)),
+  onBreakPicker: (cb: () => void): Promise<UnlistenFn> => listen(BREAK_PICKER_EVENT, () => cb()),
   /** Long-shift banner: "Still working" (ADR-0013 §5). */
   ackLongShift: (): Promise<StateView> => invoke<StateView>('ack_long_shift'),
   /**

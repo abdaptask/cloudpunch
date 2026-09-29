@@ -19,7 +19,7 @@ use tauri::{AppHandle, Manager, Runtime};
 
 use crate::agent::Agent;
 use crate::commands::Auth;
-use crate::machine::{AwayReason, BreakKind, CallType, Input};
+use crate::machine::{AwayReason, CallType, Input};
 
 const TRAY_ID: &str = "cp-tray";
 
@@ -56,14 +56,12 @@ pub fn render_status_label(state: &TrayStateSnapshot) -> String {
     .to_string()
 }
 
-/// Asks the main window to confirm a break started from the tray during
-/// a call; the payload is `"bio"` or `"meal"`.
-pub const BREAK_ON_CALL_EVENT: &str = "cp://break-on-call";
+/// "Take a break…" opens the main window's picker (ADR-0023): the
+/// types HR offers, "Back in?", and a word about a call in progress.
+pub const BREAK_PICKER_EVENT: &str = "cp://break-picker";
 
-fn on_call<R: Runtime>(app: &AppHandle<R>) -> bool {
-    app.try_state::<Arc<Agent>>()
-        .is_some_and(|a| a.view().status == "on_call")
-}
+/// Menu id that opens the picker instead of acting in the core.
+pub const TAKE_BREAK: &str = "take_break";
 
 /// `(menu id, label)` for the state's action items. Pure.
 pub fn action_items(state: TrayStateSnapshot) -> &'static [(&'static str, &'static str)] {
@@ -71,16 +69,13 @@ pub fn action_items(state: TrayStateSnapshot) -> &'static [(&'static str, &'stat
         TrayStateSnapshot::NotClockedIn => &[("clock_in", "Clock in")],
         TrayStateSnapshot::ClockedIn => &[
             ("clock_out", "Clock out"),
-            ("bio_break", "Bio break"),
-            ("meal_break", "Meal break"),
+            (TAKE_BREAK, "Take a break…"),
             ("meeting", "In a meeting"),
         ],
         // Away tags are not offered during a call (ADR-0009 §2).
-        TrayStateSnapshot::OnCall(_) => &[
-            ("clock_out", "Clock out"),
-            ("bio_break", "Bio break"),
-            ("meal_break", "Meal break"),
-        ],
+        TrayStateSnapshot::OnCall(_) => {
+            &[("clock_out", "Clock out"), (TAKE_BREAK, "Take a break…")]
+        }
         TrayStateSnapshot::OnBreak => &[("end_break", "End break"), ("clock_out", "Clock out")],
         TrayStateSnapshot::Away(_) => &[("mark_back", "I'm back"), ("clock_out", "Clock out")],
     }
@@ -91,14 +86,6 @@ pub fn input_for(id: &str) -> Option<Input> {
     Some(match id {
         "clock_in" => Input::ClockIn,
         "clock_out" => Input::ClockOut,
-        "bio_break" => Input::StartBreak {
-            kind: BreakKind::Bio,
-            planned_minutes: None,
-        },
-        "meal_break" => Input::StartBreak {
-            kind: BreakKind::Meal,
-            planned_minutes: None,
-        },
         "end_break" => Input::EndBreak,
         "mark_back" => Input::MarkBack,
         "meeting" => Input::MarkAway {
@@ -266,18 +253,14 @@ pub fn install<R: Runtime>(app: &AppHandle<R>, state: TrayStateSnapshot) -> taur
                     let _ = w.set_focus();
                 }
             }
-            // On a call, a break asks first in the window: "You're on a
-            // Teams call — take a break anyway?" (owner request).
-            "bio_break" | "meal_break" if on_call(app) => {
+            // The picker lives in the window: it needs room, and asks
+            // about a call in progress (ADR-0023; owner request).
+            TAKE_BREAK => {
                 if let Some(w) = app.get_webview_window("main") {
                     let _ = w.show();
+                    let _ = w.unminimize();
                     let _ = w.set_focus();
-                    let kind = if event.id.as_ref() == "bio_break" {
-                        "bio"
-                    } else {
-                        "meal"
-                    };
-                    let _ = tauri::Emitter::emit(&w, BREAK_ON_CALL_EVENT, kind);
+                    let _ = tauri::Emitter::emit(&w, BREAK_PICKER_EVENT, ());
                 }
             }
             id => match (input_for(id), app.try_state::<Arc<Agent>>()) {
@@ -377,9 +360,13 @@ mod tests {
     fn every_action_item_maps_to_an_input() {
         for state in ALL {
             for (id, _) in action_items(state) {
-                assert!(input_for(id).is_some(), "{id} has no input");
+                // Take a break opens the window's picker instead.
+                if *id != TAKE_BREAK {
+                    assert!(input_for(id).is_some(), "{id} has no input");
+                }
             }
         }
+        assert_eq!(input_for(TAKE_BREAK), None);
     }
 
     #[test]
@@ -392,7 +379,7 @@ mod tests {
     fn clocked_in_offers_breaks_and_away_tags_not_other() {
         assert_eq!(
             ids(TrayStateSnapshot::ClockedIn),
-            ["clock_out", "bio_break", "meal_break", "meeting"]
+            ["clock_out", "take_break", "meeting"]
         );
     }
 
@@ -400,7 +387,7 @@ mod tests {
     fn on_call_offers_no_away_tags() {
         assert_eq!(
             ids(TrayStateSnapshot::OnCall(CallType::Zoom)),
-            ["clock_out", "bio_break", "meal_break"]
+            ["clock_out", "take_break"]
         );
     }
 
