@@ -244,6 +244,7 @@ pub fn run() {
         .manage(strip::Pin::default())
         .invoke_handler(tauri::generate_handler![
             commands::get_state,
+            commands::install_update_now,
             commands::hide_to_tray,
             commands::quit_app,
             commands::clock_out_and_quit,

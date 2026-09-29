@@ -103,6 +103,32 @@ async fn check_once(app: &AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+/// "Restart to update" (owner request, ADR-0022 amendment): install the
+/// downloaded update now, while clocked out. Unlike the automatic
+/// install it doesn't wait for the next morning: the person chose it,
+/// and clocked out a restart loses nothing. Exits the app on success.
+pub fn install_now(app: &AppHandle) -> Result<(), String> {
+    if !app.state::<Arc<Agent>>().clocked_out() {
+        return Err("not_clocked_out".into());
+    }
+    let pending = app
+        .try_state::<Pending>()
+        .ok_or_else(|| "no_update".to_string())?;
+    let guard = pending.0.lock().map_err(|_| "no_update".to_string())?;
+    let (update, bytes) = guard.as_ref().ok_or_else(|| "no_update".to_string())?;
+    eprintln!(
+        "[cloudpunch] installing update {} (asked for)",
+        update.version
+    );
+    update.install(bytes).map_err(|e| {
+        eprintln!(
+            "[cloudpunch] update {} failed to install: {e}",
+            update.version
+        );
+        "install_failed".to_string()
+    })
+}
+
 /// Install `version` now if it's the one downloaded and a restart still
 /// loses nothing. On Windows this exits the app on success.
 pub fn install(app: &AppHandle, version: &str) {

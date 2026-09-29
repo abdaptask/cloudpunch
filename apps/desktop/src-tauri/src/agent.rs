@@ -45,6 +45,9 @@ pub const PROMPT_WINDOW: &str = "idle-prompt";
 /// Event carrying a [`StateView`] to every webview.
 pub const STATE_EVENT: &str = "cp://state";
 
+/// This build's version (shown on screen and in the tray, owner request).
+pub const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
+
 /// What the webviews see. Timestamps are epoch milliseconds.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -87,6 +90,10 @@ pub struct StateView {
     pub offer_training: bool,
     /// The current break's "Back in?" answer, minutes (ADR-0023 §2).
     pub planned_break_minutes: Option<u8>,
+    /// This build's version.
+    pub app_version: &'static str,
+    /// A downloaded update's version, waiting to install (ADR-0022).
+    pub update_ready: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
@@ -118,6 +125,11 @@ impl StateView {
 
     pub fn with_long_shift(mut self, long_shift: bool) -> Self {
         self.long_shift = long_shift;
+        self
+    }
+
+    pub fn with_update_ready(mut self, version: Option<&str>) -> Self {
+        self.update_ready = version.map(str::to_string);
         self
     }
 
@@ -197,6 +209,8 @@ pub fn view_of(
         break_options: crate::policy::Breaks::default().offered(),
         offer_training: true,
         planned_break_minutes: None,
+        app_version: APP_VERSION,
+        update_ready: None,
     }
 }
 
@@ -407,6 +421,7 @@ impl Inner {
         .with_long_shift(self.long_shift)
         .with_long_day(self.reminder_cfg.long_day)
         .with_breaks(&self.breaks, self.offer_training, self.planned_break)
+        .with_update_ready(self.update.ready())
         .with_idle_return(self.driver.core().idle_return())
         .with_auto_clock_out_reason(self.auto_clock_out_reason)
         .with_clock_in_offer(self.clock_in_offer(SystemTime::now()), self.clock_in_prompt)
@@ -431,7 +446,12 @@ impl Inner {
             .timeline
             .session_started_at()
             .map(|s| reminders::short_duration(now.duration_since(s).unwrap_or_default()));
-        let tip = tray::tooltip(snapshot, elapsed.as_deref());
+        let tip = format!(
+            "{}
+Version {}",
+            tray::tooltip(snapshot, elapsed.as_deref()),
+            APP_VERSION
+        );
         match self.update.ready() {
             // Never a surprise (ADR-0022 §2).
             Some(v) => format!(
@@ -578,7 +598,24 @@ impl<U: Ui> Agent<U> {
     /// The updater downloaded and verified `version` (ADR-0022 §2); it
     /// installs at the next safe moment.
     pub fn update_ready(&self, version: String) {
-        self.lock().update.set_ready(version);
+        let (view, snapshot, tooltip) = {
+            let mut inner = self.lock();
+            inner.update.set_ready(version);
+            let snapshot = tray_snapshot(inner.driver.state(), inner.driver.core().call_type());
+            let tooltip = inner.tooltip(snapshot, SystemTime::now());
+            (inner.view(), snapshot, tooltip)
+        };
+        // The window's "Restart to update" and the tray say so now.
+        if let Some(ui) = self.ui.get() {
+            ui.state_changed(&view, snapshot);
+            ui.tray_status(snapshot, &tooltip);
+        }
+    }
+
+    /// Clocked out: a restart the person asks for loses nothing, even
+    /// after work today (the day's timeline comes back, ADR-0022).
+    pub fn clocked_out(&self) -> bool {
+        self.lock().driver.state() == CoreState::ClockedOut
     }
 
     /// Clocked out with nothing tracked today, so a restart now loses
@@ -1564,6 +1601,31 @@ mod tests {
         assert!(agent.break_offered(BreakKind::Rest));
         assert!(!agent.away_offered(AwayReason::Training));
         assert!(agent.away_offered(AwayReason::Meeting));
+    }
+
+    #[test]
+    fn the_view_carries_the_version_and_a_ready_update() {
+        let (agent, ui) = agent_with_ui();
+        let v = agent.view();
+        assert_eq!(v.app_version, env!("CARGO_PKG_VERSION"));
+        assert_eq!(v.update_ready, None);
+        assert!(agent.clocked_out());
+        agent.update_ready("9.9.9".into());
+        assert_eq!(agent.view().update_ready.as_deref(), Some("9.9.9"));
+        // The window heard at once (its Restart to update button).
+        assert!(ui
+            .calls
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|c| c.starts_with("state:clocked_out")));
+        let tip = agent
+            .lock()
+            .tooltip(TrayStateSnapshot::NotClockedIn, SystemTime::now());
+        assert!(tip.contains(&format!("Version {}", env!("CARGO_PKG_VERSION"))));
+        assert!(tip.contains("Update 9.9.9 ready"));
+        agent.handle(Input::ClockIn).unwrap();
+        assert!(!agent.clocked_out());
     }
 
     #[test]
