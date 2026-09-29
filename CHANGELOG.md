@@ -18,6 +18,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Plumbing:** `GET /v1/admin/employees` now includes each person's
   Entra `oid`, to match People's roles.
 
+### Fix: sessions close at the recorded clock-out time (2026-09-29)
+
+- **The bug:** a clock-out closed the session at the time the laptop's
+  events reached the server. A laptop that was offline for hours got a
+  session that ran on past its real clock-out.
+- **The fix:** `USER_CLOCK_OUT`, `PROMPT_TIMEOUT_30S` and the
+  integrity-freeze events now close at their own `client_ts`, kept
+  within [opened, now], as the idle cap and crash recovery already did.
+- **Existing pilot data isn't affected:** all 19 clock-outs so far
+  closed within 6 s of their recorded time.
+
 ### Presence check for propped keys and mouse jigglers (ADR-0024, in desktop 0.1.5)
 
 - **Detection:** CloudPunch spots either of these from input **timing**

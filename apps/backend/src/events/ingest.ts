@@ -315,10 +315,14 @@ export async function ingestBatch(input: IngestBatchInput): Promise<IngestBatchO
       // CLOCK_OUT after a CLOCK_DRIFT_DETECTED) — we accept that; the
       // last decisive event wins the close_reason, and the batch
       // ends with the session closed either way.
+      // Every close is dated when it happened on the computer, not when
+      // the batch arrived: a laptop may have been offline for hours.
       if (evt.event_type === 'USER_CLOCK_OUT') {
         sessionClosedWith = 'user_clock_out';
+        sessionClosedAt = eventCloseTime(evt.client_ts, session.openedAt, new Date());
       } else if (evt.event_type === 'PROMPT_TIMEOUT_30S') {
         sessionClosedWith = 'idle_auto_clock_out';
+        sessionClosedAt = eventCloseTime(evt.client_ts, session.openedAt, new Date());
       } else if (evt.event_type === 'IDLE_CAP_REACHED') {
         // ADR-0018 §1: closes when the cap was reached, not when the
         // event arrived (it may have been queued offline).
@@ -340,6 +344,7 @@ export async function ingestBatch(input: IngestBatchInput): Promise<IngestBatchO
         // here we just make sure the session is closed with the
         // correct reason so no more events can attach to it.
         sessionClosedWith = 'error_frozen';
+        sessionClosedAt = eventCloseTime(evt.client_ts, session.openedAt, new Date());
       }
     } else if (insertResult.status === 'duplicate_noop') {
       results.push({
@@ -422,6 +427,18 @@ function base64Decode(input: string): Uint8Array {
  * clamped to [openedAt, now]. Falls back to `now` if it is missing or
  * unparseable — the session still closes and is flagged for review.
  */
+/**
+ * When a session closed, from the closing event's own `client_ts`,
+ * kept within [opened_at, now]. An unreadable time falls back to now.
+ */
+export function eventCloseTime(clientTs: string, openedAt: Date, now: Date): Date {
+  const t = new Date(clientTs);
+  if (Number.isNaN(t.getTime())) return now;
+  if (t < openedAt) return openedAt;
+  if (t > now) return now;
+  return t;
+}
+
 export function recoveredCloseTime(
   payload: Record<string, unknown>,
   openedAt: Date,
