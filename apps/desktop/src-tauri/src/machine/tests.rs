@@ -103,7 +103,13 @@ fn clock_out_from_each_open_state() {
         .unwrap();
     let mut on_break = clocked_in();
     on_break
-        .handle(Input::StartBreak(BreakKind::Bio), t(1))
+        .handle(
+            Input::StartBreak {
+                kind: BreakKind::Bio,
+                planned_minutes: None,
+            },
+            t(1),
+        )
         .unwrap();
     let mut away = prompting();
     respond(&mut away, PromptResponse::OnPhoneCall, None).unwrap();
@@ -144,7 +150,13 @@ fn clock_out_when_clocked_out_is_rejected() {
 fn break_round_trip_re_arms_idle_timer() {
     let mut core = clocked_in();
     let fx = core
-        .handle(Input::StartBreak(BreakKind::Meal), t(100))
+        .handle(
+            Input::StartBreak {
+                kind: BreakKind::Meal,
+                planned_minutes: None,
+            },
+            t(100),
+        )
         .unwrap();
     assert_eq!(emitted(&fx), ["USER_START_BREAK"]);
     assert_eq!(
@@ -168,7 +180,13 @@ fn break_round_trip_re_arms_idle_timer() {
 fn break_start_payload_carries_kind() {
     let mut core = clocked_in();
     let fx = core
-        .handle(Input::StartBreak(BreakKind::Bio), t(1))
+        .handle(
+            Input::StartBreak {
+                kind: BreakKind::Bio,
+                planned_minutes: None,
+            },
+            t(1),
+        )
         .unwrap();
     let Some(Effect::Emit { event, .. }) = fx.first() else {
         panic!("expected an emit first");
@@ -628,8 +646,14 @@ fn call_start_dismisses_the_prompt() {
 #[test]
 fn call_during_break_is_not_recorded_until_break_ends() {
     let mut core = clocked_in();
-    core.handle(Input::StartBreak(BreakKind::Bio), t(10))
-        .unwrap();
+    core.handle(
+        Input::StartBreak {
+            kind: BreakKind::Bio,
+            planned_minutes: None,
+        },
+        t(10),
+    )
+    .unwrap();
     let fx = core
         .handle(Input::MediaInUse(Some(CallType::Teams)), t(20))
         .unwrap();
@@ -651,8 +675,14 @@ fn call_ending_during_break_leaves_active_on_return() {
     let mut core = clocked_in();
     core.handle(Input::MediaInUse(Some(CallType::Teams)), t(10))
         .unwrap();
-    core.handle(Input::StartBreak(BreakKind::Bio), t(20))
-        .unwrap();
+    core.handle(
+        Input::StartBreak {
+            kind: BreakKind::Bio,
+            planned_minutes: None,
+        },
+        t(20),
+    )
+    .unwrap();
     core.handle(Input::MediaInUse(None), t(30)).unwrap();
     assert!(emitted(&tick(&mut core, 0, 40)).is_empty());
     let fx = core.handle(Input::EndBreak, t(50)).unwrap();
@@ -694,8 +724,14 @@ fn start_break_from_on_call_is_allowed() {
     let mut core = clocked_in();
     core.handle(Input::MediaInUse(Some(CallType::Teams)), t(10))
         .unwrap();
-    core.handle(Input::StartBreak(BreakKind::Other), t(20))
-        .unwrap();
+    core.handle(
+        Input::StartBreak {
+            kind: BreakKind::Other,
+            planned_minutes: None,
+        },
+        t(20),
+    )
+    .unwrap();
     assert_eq!(
         core.state(),
         CoreState::OnBreak {
@@ -750,7 +786,14 @@ fn emitted_stream_is_accepted_by_server_machine() {
         2_800,
     );
     run(&mut core, Input::MediaInUse(Some(CallType::Teams)), 2_810);
-    run(&mut core, Input::StartBreak(BreakKind::Meal), 3_000);
+    run(
+        &mut core,
+        Input::StartBreak {
+            kind: BreakKind::Meal,
+            planned_minutes: None,
+        },
+        3_000,
+    );
     run(&mut core, Input::EndBreak, 6_000);
     run(&mut core, Input::ClockOut, 9_000);
 
@@ -860,7 +903,13 @@ fn away_tags_are_rejected_during_a_call_and_on_break() {
     );
     let mut on_break = clocked_in();
     on_break
-        .handle(Input::StartBreak(BreakKind::Bio), t(10))
+        .handle(
+            Input::StartBreak {
+                kind: BreakKind::Bio,
+                planned_minutes: None,
+            },
+            t(10),
+        )
         .unwrap();
     assert_eq!(
         mark_away(&mut on_break, AwayReason::PhoneCall, None),
@@ -930,8 +979,14 @@ fn call_end_payload_has_no_call_type() {
 #[test]
 fn call_type_is_none_unless_on_call() {
     let mut core = clocked_in();
-    core.handle(Input::StartBreak(BreakKind::Bio), t(5))
-        .unwrap();
+    core.handle(
+        Input::StartBreak {
+            kind: BreakKind::Bio,
+            planned_minutes: None,
+        },
+        t(5),
+    )
+    .unwrap();
     core.handle(Input::MediaInUse(Some(CallType::Teams)), t(10))
         .unwrap();
     assert_eq!(core.call_type(), None);
@@ -1101,7 +1156,13 @@ fn cap_disabled_keeps_logging_idle() {
 fn a_click_while_idle_ends_idle_first() {
     let mut core = idle();
     let fx = core
-        .handle(Input::StartBreak(BreakKind::Meal), t(2_000))
+        .handle(
+            Input::StartBreak {
+                kind: BreakKind::Meal,
+                planned_minutes: None,
+            },
+            t(2_000),
+        )
         .unwrap();
     assert_eq!(emitted(&fx), ["IDLE_ENDED", "USER_START_BREAK"]);
     assert_eq!(

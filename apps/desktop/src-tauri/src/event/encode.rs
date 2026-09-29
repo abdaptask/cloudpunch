@@ -424,11 +424,23 @@ pub(crate) mod tests {
         assert_eq!(
             wire_payload(
                 &CoreEvent::UserStartBreak {
-                    kind: BreakKind::Meal
+                    kind: BreakKind::Meal,
+                    planned_minutes: None
                 },
                 &z
             ),
             json!({ "break_kind": "meal" })
+        );
+        // "Back in 20" (ADR-0023 §2).
+        assert_eq!(
+            wire_payload(
+                &CoreEvent::UserStartBreak {
+                    kind: BreakKind::Personal,
+                    planned_minutes: Some(20)
+                },
+                &z
+            ),
+            json!({ "break_kind": "personal", "planned_minutes": 20 })
         );
         assert_eq!(wire_payload(&CoreEvent::UserClockIn, &z), json!({}));
     }
@@ -474,6 +486,7 @@ pub(crate) mod tests {
             CoreEvent::UserMarkBack,
             CoreEvent::UserStartBreak {
                 kind: BreakKind::Meal,
+                planned_minutes: None,
             },
             CoreEvent::UserEndBreak,
             CoreEvent::UserMarkAway {

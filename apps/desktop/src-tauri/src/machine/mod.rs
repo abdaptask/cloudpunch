@@ -91,27 +91,52 @@ impl PromptResponse {
 pub enum BreakKind {
     Bio,
     Meal,
+    /// "Tea break" by default (ADR-0023 §1).
+    Rest,
+    Personal,
     Other,
 }
 
 impl BreakKind {
+    /// The fixed catalogue, in menu order (ADR-0023 §1).
+    pub const ALL: [BreakKind; 5] = [
+        BreakKind::Bio,
+        BreakKind::Meal,
+        BreakKind::Rest,
+        BreakKind::Personal,
+        BreakKind::Other,
+    ];
+
+    /// `USER_START_BREAK.payload.break_kind`: the permanent id.
     pub fn as_str(self) -> &'static str {
         match self {
             BreakKind::Bio => "bio",
             BreakKind::Meal => "meal",
+            BreakKind::Rest => "rest",
+            BreakKind::Personal => "personal",
             BreakKind::Other => "other",
         }
     }
+
+    pub fn from_wire(s: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|k| k.as_str() == s)
+    }
 }
 
+/// "Back in?" choices, in minutes (ADR-0023 §2; the backend accepts
+/// only these).
+pub const PLANNED_MINUTES: [u8; 7] = [5, 10, 15, 20, 30, 45, 60];
+
 /// Why the employee is away from the computer. `PhoneCall` and
-/// `WorkingAway` come from the prompt or a tag; `Meeting` only from a
-/// voluntary tag (ADR-0011 §2). `other` is not offered yet.
+/// `WorkingAway` come from the prompt or a tag; `Meeting` and
+/// `Training` (ADR-0023 §1) only from a voluntary tag (ADR-0011 §2).
+/// `other` is not offered yet.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AwayReason {
     PhoneCall,
     WorkingAway,
     Meeting,
+    Training,
 }
 
 impl AwayReason {
@@ -121,6 +146,7 @@ impl AwayReason {
             AwayReason::PhoneCall => "phone_call",
             AwayReason::WorkingAway => "working_away",
             AwayReason::Meeting => "meeting",
+            AwayReason::Training => "training",
         }
     }
 }
@@ -285,7 +311,12 @@ pub enum Input {
     /// (ADR-0018 §4): no later than now, at most 12 hours before it.
     ClockInFrom(SystemTime),
     ClockOut,
-    StartBreak(BreakKind),
+    /// `planned_minutes`: the "Back in?" answer, one of
+    /// [`PLANNED_MINUTES`] (ADR-0023 §2); `None` is "Not sure".
+    StartBreak {
+        kind: BreakKind,
+        planned_minutes: Option<u8>,
+    },
     EndBreak,
     /// "I'm back" from `AWAY`.
     MarkBack,
@@ -328,6 +359,7 @@ pub enum CoreEvent {
     UserClockOut,
     UserStartBreak {
         kind: BreakKind,
+        planned_minutes: Option<u8>,
     },
     UserEndBreak,
     UserMarkBack,
@@ -391,7 +423,14 @@ impl CoreEvent {
     /// note are added by the wire encoder.
     pub fn transition_payload(&self) -> Value {
         match self {
-            CoreEvent::UserStartBreak { kind } => json!({ "break_kind": kind.as_str() }),
+            CoreEvent::UserStartBreak {
+                kind,
+                planned_minutes: None,
+            } => json!({ "break_kind": kind.as_str() }),
+            CoreEvent::UserStartBreak {
+                kind,
+                planned_minutes: Some(m),
+            } => json!({ "break_kind": kind.as_str(), "planned_minutes": m }),
             CoreEvent::UserPromptResponse { response, .. } => {
                 json!({ "response": response.as_str() })
             }
@@ -557,8 +596,18 @@ impl Core {
             Input::ClockOut => {
                 self.apply(CoreEvent::UserClockOut, now, &mut fx)?;
             }
-            Input::StartBreak(kind) => {
-                self.apply(CoreEvent::UserStartBreak { kind }, now, &mut fx)?;
+            Input::StartBreak {
+                kind,
+                planned_minutes,
+            } => {
+                self.apply(
+                    CoreEvent::UserStartBreak {
+                        kind,
+                        planned_minutes,
+                    },
+                    now,
+                    &mut fx,
+                )?;
             }
             Input::EndBreak => {
                 self.apply(CoreEvent::UserEndBreak, now, &mut fx)?;
@@ -647,7 +696,7 @@ impl Core {
             }
             // An annotation: the state (and its details) stay as they are.
             (_, CoreEvent::UserIdleExplained { .. }) => self.state,
-            (PayrollState::OnBreak, CoreEvent::UserStartBreak { kind }) => {
+            (PayrollState::OnBreak, CoreEvent::UserStartBreak { kind, .. }) => {
                 CoreState::OnBreak { kind: *kind }
             }
             (PayrollState::OnBreak, CoreEvent::UserPromptResponse { response, .. }) => {

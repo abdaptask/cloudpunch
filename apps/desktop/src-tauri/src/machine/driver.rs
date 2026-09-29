@@ -195,7 +195,15 @@ mod tests {
         // The core moved on regardless.
         assert_eq!(d.state(), CoreState::Active);
 
-        let out = d.handle(Input::StartBreak(BreakKind::Bio), t(10)).unwrap();
+        let out = d
+            .handle(
+                Input::StartBreak {
+                    kind: BreakKind::Bio,
+                    planned_minutes: None,
+                },
+                t(10),
+            )
+            .unwrap();
         assert_eq!(out.backlog, 2);
         assert!(recorded.events().is_empty());
 

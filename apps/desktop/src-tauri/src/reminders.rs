@@ -17,6 +17,12 @@ pub struct ReminderConfig {
     pub bio_cap: Duration,
     /// `break.meal.max_minutes`.
     pub meal_cap: Duration,
+    /// `break.rest.max_minutes` (Tea break, ADR-0023).
+    pub rest_cap: Duration,
+    /// `break.personal.max_minutes`.
+    pub personal_cap: Duration,
+    /// `break.other.max_minutes`; `None` = no reminder.
+    pub other_cap: Option<Duration>,
     /// `reminders.long_shift_hours`.
     pub long_shift: Duration,
     /// `reminders.long_shift_repeat_hours`.
@@ -40,6 +46,9 @@ impl Default for ReminderConfig {
             on_clock_every: Duration::from_secs(30 * 60),
             bio_cap: Duration::from_secs(10 * 60),
             meal_cap: Duration::from_secs(60 * 60),
+            rest_cap: Duration::from_secs(15 * 60),
+            personal_cap: Duration::from_secs(30 * 60),
+            other_cap: None,
             long_shift: Duration::from_secs(9 * 3600),
             long_shift_repeat: Duration::from_secs(2 * 3600),
             quiet_start: 22 * 60,
@@ -67,6 +76,8 @@ pub enum Reminder {
     OnTheClock { elapsed: Duration },
     /// "Still on your bio break? (12 min)"
     BreakOverCap { kind: BreakKind, elapsed: Duration },
+    /// "Back yet? You planned 20 min" (ADR-0023 §2).
+    BackYet { planned: Duration },
     /// "You've been clocked in for 9 hours — still working?"
     LongShift { elapsed: Duration },
     /// Signed in, using the computer, but not clocked in yet today.
@@ -82,6 +93,8 @@ pub struct Inputs {
     pub session_started_at: Option<SystemTime>,
     /// Start of the current timeline segment (for break length).
     pub segment_started_at: Option<SystemTime>,
+    /// The current break's "Back in?" answer (ADR-0023 §2).
+    pub planned_break: Option<Duration>,
     pub window_visible: bool,
     /// Local minutes after midnight.
     pub minute_of_day: u16,
@@ -92,6 +105,8 @@ pub struct Inputs {
 pub struct ReminderState {
     last_on_clock: Option<SystemTime>,
     nudged_break: Option<SystemTime>,
+    /// The break the "Back yet?" reminder fired for.
+    nudged_planned: Option<SystemTime>,
     long_shift_next: Option<SystemTime>,
     session: Option<SystemTime>,
 }
@@ -143,11 +158,24 @@ pub fn due(cfg: &ReminderConfig, inp: Inputs, st: &mut ReminderState) -> Vec<Rem
             let cap = match kind {
                 BreakKind::Bio => Some(cfg.bio_cap),
                 BreakKind::Meal => Some(cfg.meal_cap),
-                BreakKind::Other => None,
+                BreakKind::Rest => Some(cfg.rest_cap),
+                BreakKind::Personal => Some(cfg.personal_cap),
+                BreakKind::Other => cfg.other_cap,
             };
+            // "Back yet?" at the planned time, once per break; the
+            // type's limit reminder can still follow, on a later tick
+            // (ADR-0023 §2).
+            let mut back_yet = false;
+            if let (Some(planned), Some(start)) = (inp.planned_break, inp.segment_started_at) {
+                if since(start, inp.now) >= planned && st.nudged_planned != Some(start) && !quiet {
+                    out.push(Reminder::BackYet { planned });
+                    st.nudged_planned = Some(start);
+                    back_yet = true;
+                }
+            }
             if let (Some(cap), Some(start)) = (cap, inp.segment_started_at) {
                 let len = since(start, inp.now);
-                if len >= cap && st.nudged_break != Some(start) && !quiet {
+                if len >= cap && st.nudged_break != Some(start) && !quiet && !back_yet {
                     out.push(Reminder::BreakOverCap { kind, elapsed: len });
                     st.nudged_break = Some(start);
                 }
@@ -258,9 +286,88 @@ mod tests {
             state,
             session_started_at: Some(t(0)),
             segment_started_at: Some(t(0)),
+            planned_break: None,
             window_visible: false,
             minute_of_day: 12 * 60,
         }
+    }
+
+    #[test]
+    fn new_break_types_nudge_at_their_limits() {
+        let cfg = ReminderConfig::default();
+        let on = |kind| CoreState::OnBreak { kind };
+        for (kind, limit) in [(BreakKind::Rest, 15), (BreakKind::Personal, 30)] {
+            let mut st = ReminderState::default();
+            assert!(due(&cfg, inp(on(kind), limit - 1), &mut st).is_empty());
+            assert_eq!(
+                due(&cfg, inp(on(kind), limit), &mut st),
+                [Reminder::BreakOverCap {
+                    kind,
+                    elapsed: Duration::from_secs(limit * 60)
+                }]
+            );
+        }
+        // Other has no limit by default.
+        let mut st = ReminderState::default();
+        assert!(due(&cfg, inp(on(BreakKind::Other), 240), &mut st).is_empty());
+    }
+
+    #[test]
+    fn back_yet_at_the_planned_time_then_the_limit_later() {
+        let cfg = ReminderConfig::default();
+        let mut st = ReminderState::default();
+        let planned = |now| Inputs {
+            planned_break: Some(Duration::from_secs(20 * 60)),
+            ..inp(
+                CoreState::OnBreak {
+                    kind: BreakKind::Personal,
+                },
+                now,
+            )
+        };
+        assert!(due(&cfg, planned(19), &mut st).is_empty());
+        assert_eq!(
+            due(&cfg, planned(20), &mut st),
+            [Reminder::BackYet {
+                planned: Duration::from_secs(20 * 60)
+            }]
+        );
+        assert!(due(&cfg, planned(25), &mut st).is_empty(), "once");
+        assert!(matches!(
+            due(&cfg, planned(30), &mut st)[..],
+            [Reminder::BreakOverCap { .. }]
+        ));
+        // Quiet hours mute it, like the other break nudges.
+        let mut st = ReminderState::default();
+        let quiet = Inputs {
+            minute_of_day: 23 * 60,
+            ..planned(20)
+        };
+        assert!(due(&cfg, quiet, &mut st).is_empty());
+    }
+
+    #[test]
+    fn a_planned_time_past_the_limit_waits_a_tick_for_the_limit() {
+        let cfg = ReminderConfig::default();
+        let mut st = ReminderState::default();
+        let at = |now| Inputs {
+            planned_break: Some(Duration::from_secs(10 * 60)),
+            ..inp(
+                CoreState::OnBreak {
+                    kind: BreakKind::Bio,
+                },
+                now,
+            )
+        };
+        // Planned and limit both 10: "Back yet?" first, the limit next tick.
+        assert!(matches!(
+            due(&cfg, at(10), &mut st)[..],
+            [Reminder::BackYet { .. }]
+        ));
+        assert!(matches!(
+            due(&cfg, at(11), &mut st)[..],
+            [Reminder::BreakOverCap { .. }]
+        ));
     }
 
     #[test]

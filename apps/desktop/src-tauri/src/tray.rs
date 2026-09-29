@@ -51,6 +51,7 @@ pub fn render_status_label(state: &TrayStateSnapshot) -> String {
         TrayStateSnapshot::Away(AwayReason::Meeting) => "Status: In a meeting",
         TrayStateSnapshot::Away(AwayReason::PhoneCall) => "Status: On a phone call",
         TrayStateSnapshot::Away(AwayReason::WorkingAway) => "Status: Working away",
+        TrayStateSnapshot::Away(AwayReason::Training) => "Status: In training",
     }
     .to_string()
 }
@@ -90,8 +91,14 @@ pub fn input_for(id: &str) -> Option<Input> {
     Some(match id {
         "clock_in" => Input::ClockIn,
         "clock_out" => Input::ClockOut,
-        "bio_break" => Input::StartBreak(BreakKind::Bio),
-        "meal_break" => Input::StartBreak(BreakKind::Meal),
+        "bio_break" => Input::StartBreak {
+            kind: BreakKind::Bio,
+            planned_minutes: None,
+        },
+        "meal_break" => Input::StartBreak {
+            kind: BreakKind::Meal,
+            planned_minutes: None,
+        },
         "end_break" => Input::EndBreak,
         "mark_back" => Input::MarkBack,
         "meeting" => Input::MarkAway {
