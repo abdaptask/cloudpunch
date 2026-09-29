@@ -51,17 +51,20 @@ impl SegmentKind {
     }
 
     /// Every kind, for parsing stored segments.
-    const ALL: [SegmentKind; 12] = [
+    const ALL: [SegmentKind; 15] = [
         SegmentKind::Working,
         SegmentKind::OnCall(CallType::Teams),
         SegmentKind::OnCall(CallType::Zoom),
         SegmentKind::OnCall(CallType::Other),
         SegmentKind::Break(BreakKind::Bio),
         SegmentKind::Break(BreakKind::Meal),
+        SegmentKind::Break(BreakKind::Rest),
+        SegmentKind::Break(BreakKind::Personal),
         SegmentKind::Break(BreakKind::Other),
         SegmentKind::Away(AwayReason::PhoneCall),
         SegmentKind::Away(AwayReason::WorkingAway),
         SegmentKind::Away(AwayReason::Meeting),
+        SegmentKind::Away(AwayReason::Training),
         SegmentKind::Prompt,
         SegmentKind::Idle,
     ];
@@ -78,10 +81,13 @@ impl SegmentKind {
             SegmentKind::OnCall(CallType::Other) => "call_other",
             SegmentKind::Break(BreakKind::Bio) => "bio_break",
             SegmentKind::Break(BreakKind::Meal) => "meal_break",
+            SegmentKind::Break(BreakKind::Rest) => "rest_break",
+            SegmentKind::Break(BreakKind::Personal) => "personal_break",
             SegmentKind::Break(BreakKind::Other) => "other_break",
             SegmentKind::Away(AwayReason::PhoneCall) => "away_phone",
             SegmentKind::Away(AwayReason::WorkingAway) => "away_working",
             SegmentKind::Away(AwayReason::Meeting) => "away_meeting",
+            SegmentKind::Away(AwayReason::Training) => "away_training",
             SegmentKind::Prompt => "prompt",
             SegmentKind::Idle => "idle",
         }

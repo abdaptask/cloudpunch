@@ -120,6 +120,7 @@ mod tests {
             .record(
                 &CoreEvent::UserStartBreak {
                     kind: BreakKind::Bio,
+                    planned_minutes: None,
                 },
                 t(2),
             )

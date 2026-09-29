@@ -14,7 +14,9 @@ use std::time::{Duration, SystemTime};
 use tauri::{AppHandle, Emitter, LogicalSize, Manager, State, WebviewWindow};
 
 use crate::admin;
-use crate::agent::{parse_away_tag, parse_break_kind, rejection_code, Agent, StateView};
+use crate::agent::{
+    parse_away_tag, parse_break_kind, parse_planned_minutes, rejection_code, Agent, StateView,
+};
 use crate::auth::{open_system_browser, AuthError, AuthManager, AuthStatus};
 use crate::backend_http;
 use crate::days::{self, DayCache, DayError};
@@ -903,10 +905,26 @@ pub fn clock_out(agent: State<'_, Arc<Agent>>) -> CommandResult {
     run(&agent, Input::ClockOut)
 }
 
+/// `kind`: a break id the policy offers; `planned_minutes`: the "Back
+/// in?" answer, or none for "Not sure" (ADR-0023).
 #[tauri::command]
-pub fn start_break(agent: State<'_, Arc<Agent>>, kind: String) -> CommandResult {
+pub fn start_break(
+    agent: State<'_, Arc<Agent>>,
+    kind: String,
+    planned_minutes: Option<u32>,
+) -> CommandResult {
     let kind = parse_break_kind(&kind).ok_or_else(|| "invalid_argument".to_string())?;
-    run(&agent, Input::StartBreak(kind))
+    let planned_minutes = parse_planned_minutes(planned_minutes).map_err(str::to_string)?;
+    if !agent.break_offered(kind) {
+        return Err("option_not_offered".into());
+    }
+    run(
+        &agent,
+        Input::StartBreak {
+            kind,
+            planned_minutes,
+        },
+    )
 }
 
 #[tauri::command]
@@ -914,7 +932,8 @@ pub fn end_break(agent: State<'_, Arc<Agent>>) -> CommandResult {
     run(&agent, Input::EndBreak)
 }
 
-/// Voluntary away tag: `meeting` (ADR-0011 §2).
+/// Voluntary away tag: `meeting` (ADR-0011 §2) or `training`
+/// (ADR-0023, when offered).
 #[tauri::command]
 pub fn mark_away(
     agent: State<'_, Arc<Agent>>,
@@ -922,6 +941,9 @@ pub fn mark_away(
     note: Option<String>,
 ) -> CommandResult {
     let reason = parse_away_tag(&reason).ok_or_else(|| "invalid_argument".to_string())?;
+    if !agent.away_offered(reason) {
+        return Err("option_not_offered".into());
+    }
     run(&agent, Input::MarkAway { reason, note })
 }
 

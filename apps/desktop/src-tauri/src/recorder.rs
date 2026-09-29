@@ -622,6 +622,7 @@ mod tests {
             CoreEvent::UserClockIn,
             CoreEvent::UserStartBreak {
                 kind: BreakKind::Meal,
+                planned_minutes: None,
             },
             CoreEvent::UserEndBreak,
             CoreEvent::UserClockOut,
@@ -824,6 +825,7 @@ mod tests {
         sink.record(
             &CoreEvent::UserStartBreak {
                 kind: BreakKind::Bio,
+                planned_minutes: None,
             },
             t(60),
         )

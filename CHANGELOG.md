@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Break types, desktop core (ADR-0023 PR 2, 2026-09-29)
+
+- **Types:**
+  - `BreakKind` gains `Rest` (Tea break) and `Personal`;
+  - `AwayReason` gains `Training`;
+  - the timeline records `rest_break`, `personal_break` and
+    `away_training`.
+- **"Back in?":**
+  - `start_break` takes an optional `planned_minutes`
+    (5/10/15/20/30/45/60) and sends it on `USER_START_BREAK`;
+  - a **"Back yet? You planned 20 min"** notification fires once at that
+    time;
+  - the type's limit reminder can still follow;
+  - quiet hours mute both.
+- **Policy:**
+  - the app reads each type's on/off, name and limit;
+  - a disabled type, or Training when it's switched off, is refused
+    with `option_not_offered`;
+  - reminders use the type's own name ("Still on your break?  Tea
+    break: 17 min so far").
+- **For the screens (PR 3):** the state view carries `breakOptions`,
+  `offerTraining` and `plannedBreakMinutes`. The tray and chips are
+  unchanged until then.
+
 ### Break types, backend (ADR-0023 PR 1, 2026-09-29)
 
 - **Policy schema:**

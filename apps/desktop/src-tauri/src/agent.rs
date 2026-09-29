@@ -81,6 +81,12 @@ pub struct StateView {
     pub clock_in_prompt: bool,
     /// Policy's long day for the end-of-day summary, ms (ADR-0013 §8).
     pub long_day_ms: u64,
+    /// The break types to offer, in menu order (ADR-0023 §1).
+    pub break_options: Vec<crate::policy::BreakOption>,
+    /// Offer Training as an Away reason (ADR-0023 §1).
+    pub offer_training: bool,
+    /// The current break's "Back in?" answer, minutes (ADR-0023 §2).
+    pub planned_break_minutes: Option<u8>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
@@ -112,6 +118,23 @@ impl StateView {
 
     pub fn with_long_shift(mut self, long_shift: bool) -> Self {
         self.long_shift = long_shift;
+        self
+    }
+
+    /// What the break menu offers, and the break in progress's plan.
+    pub fn with_breaks(
+        mut self,
+        breaks: &crate::policy::Breaks,
+        offer_training: bool,
+        planned: Option<u8>,
+    ) -> Self {
+        self.break_options = breaks.offered();
+        self.offer_training = offer_training;
+        self.planned_break_minutes = if self.status == "on_break" {
+            planned
+        } else {
+            None
+        };
         self
     }
 
@@ -171,6 +194,9 @@ pub fn view_of(
         auto_clock_out_reason: None,
         signed_in_at: None,
         clock_in_prompt: false,
+        break_options: crate::policy::Breaks::default().offered(),
+        offer_training: true,
+        planned_break_minutes: None,
     }
 }
 
@@ -199,21 +225,31 @@ pub fn rejection_code(r: &Rejected) -> &'static str {
     }
 }
 
-/// Tags the UI may set directly: only `meeting` (ADR-0011 §2). Phone
-/// and working-away are prompt answers only; `other` isn't offered.
+/// Tags the UI may set directly: `meeting` (ADR-0011 §2) and
+/// `training` (ADR-0023 §1). Phone and working-away are prompt answers
+/// only; `other` isn't offered.
 pub fn parse_away_tag(s: &str) -> Option<AwayReason> {
     match s {
         "meeting" => Some(AwayReason::Meeting),
+        "training" => Some(AwayReason::Training),
         _ => None,
     }
 }
 
 pub fn parse_break_kind(s: &str) -> Option<BreakKind> {
-    match s {
-        "bio" => Some(BreakKind::Bio),
-        "meal" => Some(BreakKind::Meal),
-        "other" => Some(BreakKind::Other),
-        _ => None,
+    BreakKind::from_wire(s)
+}
+
+/// A "Back in?" answer: one of [`PLANNED_MINUTES`], or `None` for
+/// "Not sure". Anything else is refused (the server would too).
+pub fn parse_planned_minutes(m: Option<u32>) -> Result<Option<u8>, &'static str> {
+    match m {
+        None => Ok(None),
+        Some(m) => crate::machine::PLANNED_MINUTES
+            .into_iter()
+            .find(|p| u32::from(*p) == m)
+            .map(Some)
+            .ok_or("invalid_argument"),
     }
 }
 
@@ -341,6 +377,11 @@ struct Inner {
     /// Local minutes after midnight, for quiet hours; the OS clock
     /// outside tests.
     minute_of_day: fn() -> u16,
+    /// The break catalogue and Training, from the policy (ADR-0023).
+    breaks: crate::policy::Breaks,
+    offer_training: bool,
+    /// The current break's "Back in?" answer (ADR-0023 §2).
+    planned_break: Option<u8>,
     /// A downloaded update waiting for its moment (ADR-0022 §2).
     update: crate::app_update::UpdateState,
     /// When this run started: an update may also install just after.
@@ -365,6 +406,7 @@ impl Inner {
         .with_timeline(&self.timeline)
         .with_long_shift(self.long_shift)
         .with_long_day(self.reminder_cfg.long_day)
+        .with_breaks(&self.breaks, self.offer_training, self.planned_break)
         .with_idle_return(self.driver.core().idle_return())
         .with_auto_clock_out_reason(self.auto_clock_out_reason)
         .with_clock_in_offer(self.clock_in_offer(SystemTime::now()), self.clock_in_prompt)
@@ -401,8 +443,9 @@ Update {v} ready: installs next time you sign in"
     }
 }
 
-/// Notification text for a reminder (ADR-0013 §2, §4, §5, §7).
-fn reminder_text(r: &Reminder) -> (String, String) {
+/// Notification text for a reminder (ADR-0013 §2, §4, §5, §7; the
+/// break's own name from the policy, ADR-0023).
+fn reminder_text(r: &Reminder, breaks: &crate::policy::Breaks) -> (String, String) {
     match r {
         Reminder::NotClockedIn => (
             "Ready to clock in?".into(),
@@ -416,10 +459,18 @@ fn reminder_text(r: &Reminder) -> (String, String) {
             ),
         ),
         Reminder::BreakOverCap { kind, elapsed } => (
-            format!("Still on your {} break?", kind.as_str()),
+            "Still on your break?".into(),
             format!(
-                "{} min so far. End it in CloudPunch when you're back.",
+                "{}: {} min so far. End it in CloudPunch when you're back.",
+                breaks.get(*kind).label,
                 elapsed.as_secs() / 60
+            ),
+        ),
+        Reminder::BackYet { planned } => (
+            "Back yet?".into(),
+            format!(
+                "You planned {} min. End your break in CloudPunch when you're back.",
+                planned.as_secs() / 60
             ),
         ),
         Reminder::LongShift { elapsed } => (
@@ -467,6 +518,9 @@ impl<U: Ui> Agent<U> {
                 minute_of_day: reminders::local_minute_of_day,
                 update: Default::default(),
                 started_at: SystemTime::now(),
+                breaks: Default::default(),
+                offer_training: true,
+                planned_break: None,
             }),
             ui: OnceLock::new(),
             tray_notice: AtomicBool::new(false),
@@ -481,6 +535,9 @@ impl<U: Ui> Agent<U> {
     pub fn apply_policy(&self, doc: &PolicyDoc, version: Option<String>) {
         let mut inner = self.lock();
         inner.reminder_cfg = doc.reminder_config();
+        // What to offer changes at once; a break in progress keeps going.
+        inner.breaks = doc.breaks.clone();
+        inner.offer_training = doc.away.offer_training;
         inner.pending_policy = Some(PendingPolicy {
             core: doc.core_config(),
             rules: doc.call_rules(),
@@ -535,6 +592,20 @@ impl<U: Ui> Agent<U> {
                 .is_none()
     }
 
+    /// Whether the policy offers this break type now (ADR-0023 §1).
+    pub fn break_offered(&self, kind: BreakKind) -> bool {
+        self.lock()
+            .breaks
+            .offered()
+            .iter()
+            .any(|o| o.id == kind.as_str())
+    }
+
+    /// Whether this away tag is offered (Training can be switched off).
+    pub fn away_offered(&self, reason: AwayReason) -> bool {
+        reason != AwayReason::Training || self.lock().offer_training
+    }
+
     /// The person signed in to, unlocked or woke the computer at `at`.
     pub fn note_signed_in(&self, at: SystemTime) {
         let mut inner = self.lock();
@@ -581,6 +652,13 @@ impl<U: Ui> Agent<U> {
             Input::ClockInFrom(at) => Some(at),
             _ => None,
         };
+        // A break's "Back in?" answer (ADR-0023 §2).
+        let planned_in = match input {
+            Input::StartBreak {
+                planned_minutes, ..
+            } => Some(planned_minutes),
+            _ => None,
+        };
         let visible = self.ui.get().is_some_and(|u| u.main_visible());
 
         let (view, plan, snapshot) = {
@@ -589,6 +667,11 @@ impl<U: Ui> Agent<U> {
             let call_before = inner.driver.core().call_type();
             let outcome = inner.driver.handle(input, now)?;
             let after = inner.driver.state();
+            match (after, planned_in) {
+                (CoreState::OnBreak { .. }, Some(p)) => inner.planned_break = p,
+                (CoreState::OnBreak { .. }, None) => {}
+                _ => inner.planned_break = None,
+            }
             // A policy that arrived mid-session takes over once it ends.
             if after == CoreState::ClockedOut && before != CoreState::ClockedOut {
                 self.adopt_pending(&mut inner);
@@ -658,6 +741,12 @@ impl<U: Ui> Agent<U> {
                     state: after,
                     session_started_at: inner.timeline.session_started_at(),
                     segment_started_at: inner.timeline.open_segment_started_at(),
+                    planned_break: match after {
+                        CoreState::OnBreak { .. } => inner
+                            .planned_break
+                            .map(|m| Duration::from_secs(u64::from(m) * 60)),
+                        _ => None,
+                    },
                     window_visible: visible,
                     minute_of_day: (inner.minute_of_day)(),
                 };
@@ -688,7 +777,7 @@ impl<U: Ui> Agent<U> {
                         minute_of_day: (inner.minute_of_day)(),
                     };
                     if let Some(r) = reminders::clock_in_nudge(&cfg, nudge, &mut inner.nudge) {
-                        plan.notes.push(reminder_text(&r));
+                        plan.notes.push(reminder_text(&r, &inner.breaks));
                     }
                 }
                 let update = crate::app_update::UpdateInputs {
@@ -706,7 +795,7 @@ impl<U: Ui> Agent<U> {
                         plan.show_main = true;
                         plan.broadcast = true;
                     }
-                    plan.notes.push(reminder_text(&r));
+                    plan.notes.push(reminder_text(&r, &inner.breaks));
                 }
                 let minute = epoch_ms(now) / 60_000;
                 if inner.tooltip_minute != Some(minute) {
@@ -1175,7 +1264,12 @@ mod tests {
     fn state_changes_broadcast_view_and_tray() {
         let (agent, ui) = agent_with_ui();
         agent.handle(Input::ClockIn).unwrap();
-        agent.handle(Input::StartBreak(BreakKind::Bio)).unwrap();
+        agent
+            .handle(Input::StartBreak {
+                kind: BreakKind::Bio,
+                planned_minutes: None,
+            })
+            .unwrap();
         assert_eq!(
             *ui.calls.lock().unwrap(),
             ["state:active:ClockedIn", "state:on_break:OnBreak"]
@@ -1363,7 +1457,10 @@ mod tests {
         agent.handle_at(Input::ClockIn, base).unwrap();
         agent
             .handle_at(
-                Input::StartBreak(BreakKind::Meal),
+                Input::StartBreak {
+                    kind: BreakKind::Meal,
+                    planned_minutes: None,
+                },
                 base + Duration::from_secs(60),
             )
             .unwrap();
@@ -1402,6 +1499,83 @@ mod tests {
 
     fn idle_threshold(agent: &Agent<Arc<FakeUi>>) -> Duration {
         agent.lock().driver.core().config().idle_threshold
+    }
+
+    #[test]
+    fn adr_0023_a_planned_break_says_back_yet_by_name_and_the_menu_follows_policy() {
+        let (agent, ui) = agent_with_ui();
+        let base = SystemTime::now();
+        agent.handle_at(Input::ClockIn, base).unwrap();
+        let view = agent
+            .handle_at(
+                Input::StartBreak {
+                    kind: BreakKind::Personal,
+                    planned_minutes: Some(20),
+                },
+                base,
+            )
+            .unwrap();
+        assert_eq!(view.planned_break_minutes, Some(20));
+        assert_eq!(view.break_kind, Some("personal"));
+        let tick = |min: u64| {
+            let now = base + Duration::from_secs(min * 60);
+            agent
+                .handle_at(Input::Tick { last_input_at: now }, now)
+                .unwrap()
+        };
+        tick(19);
+        assert!(notes(&ui).is_empty());
+        tick(20);
+        assert_eq!(notes(&ui), ["notify:Back yet?"]);
+        tick(30);
+        assert_eq!(notes(&ui)[1], "notify:Still on your break?");
+        assert_eq!(
+            agent
+                .handle_at(Input::EndBreak, base + Duration::from_secs(1860))
+                .unwrap()
+                .planned_break_minutes,
+            None
+        );
+
+        // A renamed Tea break, Meal switched off, Training off.
+        agent.apply_policy(
+            &PolicyDoc::from_value(&serde_json::json!({
+                "break": { "rest": { "label": "Chai break" }, "meal": { "enabled": false } },
+                "away": { "offer_training": false }
+            })),
+            None,
+        );
+        let v = agent.view();
+        let menu: Vec<_> = v
+            .break_options
+            .iter()
+            .map(|o| (o.id, o.label.as_str()))
+            .collect();
+        assert_eq!(
+            menu,
+            [
+                ("bio", "Bio break"),
+                ("rest", "Chai break"),
+                ("personal", "Personal")
+            ]
+        );
+        assert!(!v.offer_training);
+        assert!(!agent.break_offered(BreakKind::Meal));
+        assert!(agent.break_offered(BreakKind::Rest));
+        assert!(!agent.away_offered(AwayReason::Training));
+        assert!(agent.away_offered(AwayReason::Meeting));
+    }
+
+    #[test]
+    fn planned_minutes_only_from_the_fixed_list() {
+        assert_eq!(parse_planned_minutes(None), Ok(None));
+        assert_eq!(parse_planned_minutes(Some(20)), Ok(Some(20)));
+        for bad in [0, 7, 61, 120] {
+            assert!(parse_planned_minutes(Some(bad)).is_err());
+        }
+        assert_eq!(parse_break_kind("rest"), Some(BreakKind::Rest));
+        assert_eq!(parse_break_kind("prayer"), None);
+        assert_eq!(parse_away_tag("training"), Some(AwayReason::Training));
     }
 
     #[test]
@@ -1456,7 +1630,12 @@ mod tests {
         recorder.arm(Target::in_memory(id, SigningKey::from_bytes(&[7u8; 32])));
         let first = Agent::<Arc<FakeUi>>::with_recorder(CoreConfig::default(), &recorder);
         first.handle(Input::ClockIn).unwrap();
-        first.handle(Input::StartBreak(BreakKind::Meal)).unwrap();
+        first
+            .handle(Input::StartBreak {
+                kind: BreakKind::Meal,
+                planned_minutes: None,
+            })
+            .unwrap();
         first.handle(Input::EndBreak).unwrap();
         first.handle(Input::ClockOut).unwrap();
         let before = first.view().timeline;
