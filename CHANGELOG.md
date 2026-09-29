@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Desktop auto-update at the first sign-in of the day (ADR-0022, 2026-09-29)
+
+Owner request: the app updates itself without losing the day's data,
+ideally when people sign in for the day.
+
+- **ADR-0022** (Accepted). An update installs only when clocked out, with
+  nothing tracked yet today, just after a Windows sign-in, unlock or wake
+  (or app start). Never while clocked in, because the app always comes
+  back clocked out after a restart.
+- **API:** `GET /v1/desktop/update/windows/:current` returns the newest
+  *signed* release as a Tauri update manifest, or 204.
+  `GET /v1/desktop/update/files/windows/:file` serves it. Both need the
+  app's token. `releases.json` entries gain an optional `signature`.
+- **Desktop:** the timing rules (`app_update.rs`) and their agent wiring,
+  tested. The updater plugin, signing and the publish step follow.
+
+### Fix: agent tests no longer depend on the time of day (2026-09-29)
+
+- The on-the-clock reminder test failed whenever CI ran during quiet
+  hours (22:00–07:00). The agent now takes its minute of day from an
+  injected clock, and the tests pin it to noon.
+
 ### People: welcome emails from noreply@aptask.com (ADR-0021, 2026-09-28)
 
 Owner request: new users are told what to do, with support in the loop.

@@ -30,6 +30,7 @@
 
 pub mod admin;
 pub mod agent;
+pub mod app_update;
 pub mod auth;
 pub mod backend_http;
 pub mod call_type;

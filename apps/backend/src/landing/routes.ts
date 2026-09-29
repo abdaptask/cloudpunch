@@ -32,6 +32,8 @@ export interface Release {
   published_at: string;
   /** What's new, one line each. */
   notes: string[];
+  /** The updater signature (`<file>.sig`), when signed (ADR-0022 §4). */
+  signature?: string;
 }
 
 const isRelease = (r: Partial<Release>): r is Release =>
@@ -44,7 +46,8 @@ const isRelease = (r: Partial<Release>): r is Release =>
   /^[0-9a-f]{64}$/.test(r.sha256) &&
   typeof r.published_at === 'string' &&
   Array.isArray(r.notes) &&
-  r.notes.every((n) => typeof n === 'string');
+  r.notes.every((n) => typeof n === 'string') &&
+  (r.signature === undefined || typeof r.signature === 'string');
 
 /** Published releases, newest first; only well-formed entries. */
 export async function readReleases(downloadsDir: string | undefined): Promise<Release[]> {
