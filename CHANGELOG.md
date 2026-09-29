@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### ADR-0024 and ADR-0025 (2026-09-29, Accepted)
+
+- **ADR-0024, presence check for propped keys and mouse jigglers:**
+  - it spots continuous or strictly periodic input from input timing
+    only (never keys);
+  - it asks "Are you there?" through the idle prompt
+    (`trigger: input_pattern`);
+  - if unanswered, the time is idle from when the pattern began, and the
+    manager decides;
+  - the employee and the manager both see it;
+  - off until HR turns it on.
+- **ADR-0025, manager team views and reports:**
+  - reporting lines set in People;
+  - a server-side scope check (a manager sees only direct reports, HR
+    sees everyone, 404 outside scope);
+  - Team today, a person's day, Exceptions, and App versions;
+  - each view of someone's day is audited;
+  - a desktop Team tab (this amends ADR-0016).
+  - Timesheets and a payroll preview are deferred (owner).
+
 ### Privacy notice: break types and planned breaks (ADR-0023 PR 4, 2026-09-29)
 
 - "What CloudPunch records" now includes:
