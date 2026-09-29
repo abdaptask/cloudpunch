@@ -20,7 +20,7 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::thread;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime};
 
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
@@ -1052,7 +1052,7 @@ fn last_input_at() -> SystemTime {
     let ms = WindowsLastInput.ms_since_last_input();
     let now = SystemTime::now();
     now.checked_sub(Duration::from_millis(u64::from(ms)))
-        .unwrap_or(UNIX_EPOCH)
+        .unwrap_or(SystemTime::UNIX_EPOCH)
 }
 
 /// No input source off Windows until macOS parity (2b.8): report
@@ -1091,7 +1091,7 @@ mod tests {
     use crate::machine::PromptResponse;
 
     fn t(ms: u64) -> SystemTime {
-        UNIX_EPOCH + Duration::from_millis(ms)
+        SystemTime::UNIX_EPOCH + Duration::from_millis(ms)
     }
 
     #[test]

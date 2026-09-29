@@ -52,11 +52,11 @@ pub mod tray;
 pub mod updater;
 pub mod watchers;
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
 use agent::Agent;
-use machine::{CallType, CoreConfig, Input};
+use machine::CoreConfig;
 use tauri::{Emitter, Manager};
 use watchers::supervisor::Supervisor;
 
@@ -117,7 +117,7 @@ pub fn start_watchers(agent: Arc<Agent>) -> WatchersGuard {
             while let Ok(signal) = rx.recv() {
                 match &signal {
                     OsSignal::NetworkReachabilityChanged { reachable, .. } => {
-                        is_online_drain.store(*reachable, Ordering::Release);
+                        is_online_drain.store(*reachable, std::sync::atomic::Ordering::Release);
                     }
                     // Arriving at the computer (ADR-0018 §4).
                     OsSignal::SessionUnlocked { at } | OsSignal::Resumed { at } => {
@@ -130,8 +130,9 @@ pub fn start_watchers(agent: Arc<Agent>) -> WatchersGuard {
                         ..
                     } => {
                         // Mic OR camera, with the kind of call (ADR-0012).
-                        let raw = (*mic || *cam).then_some(call_type.unwrap_or(CallType::Other));
-                        let _ = agent.handle(Input::MediaInUse(raw));
+                        let raw =
+                            (*mic || *cam).then_some(call_type.unwrap_or(machine::CallType::Other));
+                        let _ = agent.handle(machine::Input::MediaInUse(raw));
                     }
                     _ => {}
                 }
