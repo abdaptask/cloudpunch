@@ -205,3 +205,66 @@ describe('GET /v1/desktop/update/files/windows/:file', () => {
     expect(res.statusCode).toBe(503);
   });
 });
+
+describe('macOS updates (ADR-0026)', () => {
+  const MAC_BYTES = 'tarball';
+  function publishMac(dir: string): void {
+    mkdirSync(join(dir, 'macos'), { recursive: true });
+    writeFileSync(join(dir, 'macos', 'CloudPunch_0.1.7_universal.dmg'), 'dmg');
+    writeFileSync(join(dir, 'macos', 'CloudPunch_0.1.7_universal.app.tar.gz'), MAC_BYTES);
+    writeFileSync(
+      join(dir, 'macos', 'releases.json'),
+      JSON.stringify([
+        release({
+          version: '0.1.7',
+          file: 'CloudPunch_0.1.7_universal.dmg',
+          size: 3,
+          update_file: 'CloudPunch_0.1.7_universal.app.tar.gz',
+          update_size: Buffer.byteLength(MAC_BYTES),
+        }),
+      ]),
+    );
+  }
+
+  it('darwin gets the .app.tar.gz; windows is untouched', async () => {
+    const dir = publish([release()]);
+    publishMac(dir);
+    const a = await app(dir);
+    const auth = { authorization: await bearer() };
+    const mac = await a.inject({
+      method: 'GET',
+      url: '/v1/desktop/update/darwin/0.1.6',
+      headers: auth,
+    });
+    expect(mac.statusCode).toBe(200);
+    expect((mac.json() as { version: string; url: string }).url).toBe(
+      'https://cloudpunch.aptask.com/v1/desktop/update/files/darwin/CloudPunch_0.1.7_universal.app.tar.gz',
+    );
+    const file = await a.inject({
+      method: 'GET',
+      url: '/v1/desktop/update/files/darwin/CloudPunch_0.1.7_universal.app.tar.gz',
+      headers: auth,
+    });
+    expect(file.statusCode).toBe(200);
+    expect(file.body).toBe(MAC_BYTES);
+    // The dmg is for people, not the updater.
+    const dmg = await a.inject({
+      method: 'GET',
+      url: '/v1/desktop/update/files/darwin/CloudPunch_0.1.7_universal.dmg',
+      headers: auth,
+    });
+    expect(dmg.statusCode).toBe(404);
+    const win = await a.inject({
+      method: 'GET',
+      url: '/v1/desktop/update/windows/0.1.1',
+      headers: auth,
+    });
+    expect((win.json() as { version: string }).version).toBe('0.1.2');
+    const other = await a.inject({
+      method: 'GET',
+      url: '/v1/desktop/update/linux/0.1.0',
+      headers: auth,
+    });
+    expect(other.statusCode).toBe(204);
+  });
+});

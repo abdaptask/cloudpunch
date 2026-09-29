@@ -116,3 +116,34 @@ describe('landing page', () => {
     expect(html).toContain('&#60;script&#62;');
   });
 });
+
+describe('Download for Mac (ADR-0026)', () => {
+  it('shows the Mac button and serves the newest dmg', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'cp-landing-mac-'));
+    publish(dir, [release()]);
+    mkdirSync(join(dir, 'macos'), { recursive: true });
+    writeFileSync(join(dir, 'macos', 'CloudPunch_0.1.7_universal.dmg'), 'dmg-bytes');
+    writeFileSync(
+      join(dir, 'macos', 'releases.json'),
+      JSON.stringify([
+        release({ version: '0.1.7', file: 'CloudPunch_0.1.7_universal.dmg', size: 9 }),
+      ]),
+    );
+    const a = await app(dir);
+    const home = await a.inject({ method: 'GET', url: '/' });
+    expect(home.body).toContain('href="/download/mac">Download for Mac');
+    expect(home.body).toContain('macOS 14 or later');
+    const dmg = await a.inject({ method: 'GET', url: '/download/mac' });
+    expect(dmg.statusCode).toBe(200);
+    expect(dmg.headers['content-type']).toContain('application/x-apple-diskimage');
+    expect(dmg.body).toBe('dmg-bytes');
+  });
+
+  it('no Mac release: no Mac button, and /download/mac is 404', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'cp-landing-nomac-'));
+    publish(dir, [release()]);
+    const a = await app(dir);
+    expect((await a.inject({ method: 'GET', url: '/' })).body).not.toContain('Download for Mac');
+    expect((await a.inject({ method: 'GET', url: '/download/mac' })).statusCode).toBe(404);
+  });
+});

@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### macOS app, steps 4–5: Mac packaging, updates and download (ADR-0026)
+
+- **`tauri.pilot.macos.conf.json`:**
+  - `app` and `dmg` targets, macOS 14 minimum, hardened runtime;
+  - updater artefacts, with the same updater key as Windows.
+- **Signing and notarization** go through Tauri's `APPLE_*` variables.
+  `docs/ops/pilot-vm.md` has one-time Mac setup (tools, the Developer ID
+  certificate, an app-specific password, the updater key) and the build
+  command.
+- **Updates:**
+  - `GET /v1/desktop/update/darwin/:current` and
+    `/files/darwin/:file` serve the signed `.app.tar.gz`, from
+    `downloads/macos/releases.json`;
+  - Windows is unchanged;
+  - the desktop updater asks for `darwin` on macOS.
+- **Website:** **Download for Mac** (`/download/mac`, the `.dmg`, behind
+  Access) appears next to Windows once a Mac release exists.
+- **`scripts/publish-installer.sh --mac`** publishes the `.dmg` and the
+  `.app.tar.gz` (as `update_file`), and runs on macOS or Windows.
+
 ### macOS app, step 3: mic, camera and call type (ADR-0026)
 
 - **Mic in use:** any *input* device Core Audio reports running

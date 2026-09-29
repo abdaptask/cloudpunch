@@ -1,7 +1,7 @@
 import { createReadStream, readFileSync } from 'node:fs';
 import { readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { FastifyPluginAsync } from 'fastify';
+import type { FastifyPluginAsync, FastifyReply } from 'fastify';
 import fp from 'fastify-plugin';
 
 /**
@@ -15,8 +15,10 @@ import fp from 'fastify-plugin';
  * - `/download/windows` serves the newest installer. Cloudflare Access in
  *   front of `/download*` limits it to ApTask accounts; the app's `/v1`
  *   traffic is not behind Access.
- * - Releases live in `<DOWNLOADS_DIR>/windows/releases.json`, newest
- *   first; `scripts/publish-installer.sh` adds to it.
+ * - Releases live in `<DOWNLOADS_DIR>/<windows|macos>/releases.json`,
+ *   newest first; `scripts/publish-installer.sh` adds to them. macOS
+ *   (ADR-0026) serves a `.dmg` here and its `.app.tar.gz` to the updater.
+ * - `/download/mac` serves the newest `.dmg`, also behind Access.
  */
 
 export interface LandingOptions {
@@ -34,13 +36,23 @@ export interface Release {
   notes: string[];
   /** The updater signature (`<file>.sig`), when signed (ADR-0022 §4). */
   signature?: string;
+  /** macOS: the updater's `.app.tar.gz` (signed) beside the `.dmg`. */
+  update_file?: string;
+  update_size?: number;
 }
+
+/** Where a platform's releases live under `DOWNLOADS_DIR`. */
+export type Platform = 'windows' | 'macos';
 
 const isRelease = (r: Partial<Release>): r is Release =>
   typeof r.version === 'string' &&
   /^\d+\.\d+\.\d+([-+][\w.]+)?$/.test(r.version) &&
   typeof r.file === 'string' &&
-  /^[\w.-]+\.exe$/.test(r.file) &&
+  /^[\w.-]+\.(exe|dmg)$/.test(r.file) &&
+  (r.update_file === undefined ||
+    (typeof r.update_file === 'string' &&
+      /^[\w.-]+\.app\.tar\.gz$/.test(r.update_file) &&
+      typeof r.update_size === 'number')) &&
   typeof r.size === 'number' &&
   typeof r.sha256 === 'string' &&
   /^[0-9a-f]{64}$/.test(r.sha256) &&
@@ -50,11 +62,14 @@ const isRelease = (r: Partial<Release>): r is Release =>
   (r.signature === undefined || typeof r.signature === 'string');
 
 /** Published releases, newest first; only well-formed entries. */
-export async function readReleases(downloadsDir: string | undefined): Promise<Release[]> {
+export async function readReleases(
+  downloadsDir: string | undefined,
+  platform: Platform = 'windows',
+): Promise<Release[]> {
   if (!downloadsDir) return [];
   try {
     const raw = JSON.parse(
-      await readFile(join(downloadsDir, 'windows', 'releases.json'), 'utf8'),
+      await readFile(join(downloadsDir, platform, 'releases.json'), 'utf8'),
     ) as unknown;
     return Array.isArray(raw) ? (raw as Partial<Release>[]).filter(isRelease) : [];
   } catch {
@@ -81,10 +96,15 @@ const notesList = (notes: string[]): string =>
 /** How many earlier versions the page lists. */
 const HISTORY = 5;
 
-export function page(releases: Release[]): string {
+export function page(releases: Release[], mac: Release[] = []): string {
   const [latest, ...earlier] = releases;
+  const macLatest = mac[0];
+  const macButton = macLatest
+    ? `<a class="btn" href="/download/mac">Download for Mac</a>
+  <p class="meta">Mac version ${esc(macLatest.version)} · ${esc(day(macLatest.published_at))} · ${esc(mb(macLatest.size))} · macOS 14 or later</p>`
+    : '';
   const download = latest
-    ? `<a class="btn" href="/download/windows">Download for Windows</a>
+    ? `<a class="btn" href="/download/windows">Download for Windows</a> ${macButton}
   <p class="meta">Version ${esc(latest.version)} · ${esc(day(latest.published_at))} · ${esc(mb(latest.size))} · ApTask account required</p>
   <p class="meta">Windows may say "unknown publisher" for this pilot build: choose <b>More info → Run anyway</b>.</p>
   ${latest.notes.length > 0 ? `<h2>What's new in ${esc(latest.version)}</h2>${notesList(latest.notes)}` : ''}
@@ -103,7 +123,7 @@ export function page(releases: Release[]): string {
           .join('')}</details>`
       : ''
   }`
-    : `<p class="meta">Ask your manager or HR for the CloudPunch app.</p>`;
+    : macButton || `<p class="meta">Ask your manager or HR for the CloudPunch app.</p>`;
   return `<!doctype html>
 <html lang="en">
 <head>
@@ -194,10 +214,39 @@ const landingRoutesImpl: FastifyPluginAsync<LandingOptions> = async (app, opts) 
       .header('x-content-type-options', 'nosniff')
       .header('referrer-policy', 'no-referrer')
       .header('cache-control', 'no-cache')
-      .send(page(await readReleases(opts.downloadsDir))),
+      .send(
+        page(await readReleases(opts.downloadsDir), await readReleases(opts.downloadsDir, 'macos')),
+      ),
   );
 
   app.get('/download', async (_req, reply) => reply.redirect('/download/windows'));
+
+  const serveLatest =
+    (platform: Platform, type: string) => async (_req: unknown, reply: FastifyReply) => {
+      const [latest] = await readReleases(opts.downloadsDir, platform);
+      if (!latest || !opts.downloadsDir) {
+        return reply.code(404).type('text/plain').send('No installer is published yet.');
+      }
+      const path = join(opts.downloadsDir, platform, latest.file);
+      const info = await stat(path).catch(() => null);
+      if (!info || info.size !== latest.size) {
+        return reply
+          .code(503)
+          .type('text/plain')
+          .send('The installer is being updated. Try again shortly.');
+      }
+      return reply
+        .code(200)
+        .type(type)
+        .header('content-disposition', `attachment; filename="${latest.file}"`)
+        .header('content-length', String(info.size))
+        .header('x-content-type-options', 'nosniff')
+        .header('cache-control', 'private, no-store')
+        .header('x-checksum-sha256', latest.sha256)
+        .send(createReadStream(path));
+    };
+
+  app.get('/download/mac', serveLatest('macos', 'application/x-apple-diskimage'));
 
   app.get('/download/windows', async (_req, reply) => {
     const [latest] = await readReleases(opts.downloadsDir);
