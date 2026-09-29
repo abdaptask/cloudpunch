@@ -30,6 +30,10 @@ const ALLOWLIST: &[(&str, CallType)] = &[
     ("ms-teams.exe", CallType::Teams),
     ("teams.exe", CallType::Teams),
     ("zoom.exe", CallType::Zoom),
+    // macOS bundle ids (ADR-0026 §2): new and classic Teams, Zoom.
+    ("com.microsoft.teams2", CallType::Teams),
+    ("com.microsoft.teams", CallType::Teams),
+    ("us.zoom.xos", CallType::Zoom),
 ];
 
 /// Apps that keep the microphone open while idle, so their microphone
@@ -128,6 +132,13 @@ pub fn pick<I: IntoIterator<Item = CallType>>(types: I) -> Option<CallType> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn classifies_macos_bundle_ids() {
+        assert_eq!(classify("com.microsoft.teams2"), CallType::Teams);
+        assert_eq!(classify("us.zoom.xos"), CallType::Zoom);
+        assert_eq!(classify("com.apple.FaceTime"), CallType::Other);
+    }
 
     #[test]
     fn classifies_allowlisted_apps_case_insensitively() {

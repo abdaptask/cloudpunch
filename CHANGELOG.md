@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### macOS app, step 3: mic, camera and call type (ADR-0026)
+
+- **Mic in use:** any *input* device Core Audio reports running
+  somewhere. Speakers alone don't count.
+- **Camera in use:** from CoreMediaIO.
+- **Call type (macOS 14+):** Core Audio's process objects list the apps
+  capturing input. Their bundle ids are matched to the ADR-0012
+  allowlist and never recorded. `com.microsoft.teams2` and
+  `com.microsoft.teams` are Teams, `us.zoom.xos` is Zoom, anything else
+  is "other".
+- **Ignore list:** apps on it don't count as a call.
+- **Allowlist:** the macOS bundle ids are added to the built-in list and
+  to the policy default (`idle.call_type_apps`).
+- **The macOS poller** reports mic/camera changes through the same pure
+  step as lock and network.
+
 ### macOS app, step 2: idle, lock, sleep, network, local time (ADR-0026)
 
 - **Idle:** on macOS the core's tick reads CoreGraphics' seconds since the

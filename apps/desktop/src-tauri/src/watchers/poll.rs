@@ -7,10 +7,20 @@
 //! - **Sleep / wake:** the wall clock jumping far past the poll interval
 //!   (the process was suspended), dated at the last sample and now.
 //! - **Network:** reachability flipping.
+//! - **Mic / camera:** in use, with the kind of call (ADR-0012).
 
 use std::time::{Duration, SystemTime};
 
 use super::OsSignal;
+use crate::call_type::CallType;
+
+/// Mic and camera in use, and the kind of call while in use.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Media {
+    pub mic: bool,
+    pub cam: bool,
+    pub call_type: Option<CallType>,
+}
 
 /// A wall-clock jump longer than this between samples was a sleep.
 pub const SLEEP_GAP: Duration = Duration::from_secs(20);
@@ -21,6 +31,7 @@ pub struct Sample {
     pub at: SystemTime,
     pub locked: Option<bool>,
     pub reachable: Option<bool>,
+    pub media: Option<Media>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -28,6 +39,8 @@ pub struct PollState {
     last_at: Option<SystemTime>,
     locked: Option<bool>,
     reachable: Option<bool>,
+    /// Starts as "nothing in use", so a call already running is reported.
+    media: Media,
 }
 
 impl PollState {
@@ -62,6 +75,17 @@ impl PollState {
             }
             self.reachable = Some(reachable);
         }
+        if let Some(media) = s.media {
+            if media != self.media {
+                out.push(OsSignal::MediaInUseChanged {
+                    mic: media.mic,
+                    cam: media.cam,
+                    call_type: media.call_type,
+                    at: s.at,
+                });
+            }
+            self.media = media;
+        }
         out
     }
 }
@@ -80,7 +104,44 @@ mod tests {
             at: t(secs),
             locked,
             reachable,
+            media: None,
         }
+    }
+
+    #[test]
+    fn mic_and_camera_changes_with_the_kind_of_call() {
+        let mut p = PollState::default();
+        let at = |secs, media| Sample {
+            media: Some(media),
+            ..sample(secs, None, None)
+        };
+        assert!(p.step(at(0, Media::default())).is_empty(), "nothing in use");
+        let teams = Media {
+            mic: true,
+            cam: false,
+            call_type: Some(CallType::Teams),
+        };
+        assert_eq!(
+            p.step(at(1, teams)),
+            [OsSignal::MediaInUseChanged {
+                mic: true,
+                cam: false,
+                call_type: Some(CallType::Teams),
+                at: t(1)
+            }]
+        );
+        assert!(p.step(at(2, teams)).is_empty());
+        let camera_too = Media { cam: true, ..teams };
+        assert_eq!(p.step(at(3, camera_too)).len(), 1);
+        assert_eq!(
+            p.step(at(4, Media::default())),
+            [OsSignal::MediaInUseChanged {
+                mic: false,
+                cam: false,
+                call_type: None,
+                at: t(4)
+            }]
+        );
     }
 
     #[test]
