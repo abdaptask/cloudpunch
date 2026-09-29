@@ -23,8 +23,38 @@ describe('schemaDefaults', () => {
       working_away: true,
       phone_call: false,
       meeting: false,
+      training: false,
       other: true,
     });
+    // ADR-0023 §1: the break catalogue.
+    const b = d['break'] as Record<string, Record<string, unknown>>;
+    expect(b['rest']).toEqual({
+      enabled: true,
+      label: 'Tea break',
+      pay: 'paid_up_to_limit',
+      max_minutes: 15,
+    });
+    expect(b['personal']).toEqual({
+      enabled: true,
+      label: 'Personal',
+      pay: 'unpaid',
+      max_minutes: 30,
+    });
+    expect(b['other']).toEqual({
+      enabled: false,
+      label: 'Other break',
+      pay: 'unpaid',
+      max_minutes: null,
+    });
+    expect(b['bio']?.['pay']).toBe('paid_up_to_limit');
+    expect(b['meal']?.['pay']).toBe('unpaid');
+    expect(d['away']?.['payable_reasons']).toEqual([
+      'working_away',
+      'phone_call',
+      'meeting',
+      'training',
+    ]);
+    expect(d['away']?.['offer_training']).toBe(true);
     expect(d['reminders']?.['on_clock_minutes']).toBe(30);
     expect(d['notifications']?.['quiet_hours_start']).toBe('22:00');
     expect(d['idle']?.['call_type_ignored']).toEqual(['ace dialer.exe']);

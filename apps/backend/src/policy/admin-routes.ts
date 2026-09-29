@@ -5,7 +5,7 @@ import fp from 'fastify-plugin';
 import { z } from 'zod';
 import type { DbRepositories, PolicyOverride, PolicyScope } from '../db/index.js';
 import { requireCapability } from '../auth/require.js';
-import { PolicyInvalidError, policyIssues } from './resolve.js';
+import { PolicyInvalidError, breakIssues, policyIssues } from './resolve.js';
 import { effectivePolicyFor, effectivePolicyForScope } from './service.js';
 
 export interface PolicyAdminRoutesOptions {
@@ -158,6 +158,7 @@ const policyAdminRoutesImpl: FastifyPluginAsync<PolicyAdminRoutesOptions> = asyn
         return problem(reply, 400, 'reason_required', 'a per-employee override needs a reason');
       }
       const issues = policyIssues(body.data.document);
+      if (issues.length === 0) issues.push(...breakIssues(body.data.document));
       if (issues.length > 0) {
         return problem(reply, 400, 'policy_invalid', 'the policy document is invalid', { issues });
       }

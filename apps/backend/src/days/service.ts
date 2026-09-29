@@ -8,6 +8,8 @@ import {
   type DayTotals,
   type WorkingDay,
 } from './build.js';
+import { effectivePolicyFor } from '../policy/service.js';
+import { breakRules, DEFAULT_BREAK_RULES, type BreakRules } from './pay.js';
 
 /** ADR-0016 §4: today and the previous 30 days. */
 export const LOOKBACK_DAYS = 30;
@@ -31,6 +33,8 @@ export interface DaySessionView {
     ended_at: string;
     /** Idle stretches: the person's account, if they gave one. */
     explanation?: { explanation: string; note: string | null };
+    /** Breaks: the "Back in?" answer (ADR-0023 §2). */
+    planned_minutes?: number;
   }[];
 }
 
@@ -74,6 +78,16 @@ async function daysAround(
   return workingDays(built);
 }
 
+/**
+ * The employee's break pay rules: their policy as it stands now
+ * (ADR-0023 §3; policy history isn't kept, see the ADR's note).
+ */
+async function rulesFor(db: DbRepositories, employeeId: string): Promise<BreakRules> {
+  const employee = await db.employees.findById(employeeId);
+  if (!employee) return DEFAULT_BREAK_RULES;
+  return breakRules((await effectivePolicyFor(db, employee)).policy);
+}
+
 function sessionView(s: BuiltSession): DaySessionView {
   const lastOffset = s.segments.at(-1)?.offsetMinutes ?? s.offsetMinutes;
   return {
@@ -91,6 +105,7 @@ function sessionView(s: BuiltSession): DaySessionView {
       started_at: isoWithOffset(g.startedAt, g.offsetMinutes),
       ended_at: isoWithOffset(g.endedAt, g.offsetMinutes),
       ...(g.explanation ? { explanation: g.explanation } : {}),
+      ...(g.plannedMinutes !== undefined ? { planned_minutes: g.plannedMinutes } : {}),
     })),
   };
 }
@@ -106,7 +121,7 @@ export async function dayView(
   return {
     date,
     sessions: day ? day.sessions.map(sessionView) : [],
-    totals: totals(day ?? null),
+    totals: totals(day ?? null, await rulesFor(db, employeeId)),
   };
 }
 
@@ -119,9 +134,10 @@ export async function daySummaries(
   now: Date,
 ): Promise<DaySummary[]> {
   const days = await daysAround(db, employeeId, from, to, now);
+  const rules = await rulesFor(db, employeeId);
   return days
     .filter((d) => d.date >= from && d.date <= to)
-    .map((d) => ({ date: d.date, sessions: d.sessions.length, ...totals(d) }));
+    .map((d) => ({ date: d.date, sessions: d.sessions.length, ...totals(d, rules) }));
 }
 
 /**

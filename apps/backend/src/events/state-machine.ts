@@ -54,8 +54,33 @@ const AWAY_REASONS: ReadonlySet<string> = new Set([
   'working_away',
   'phone_call',
   'meeting',
+  'training',
   'other',
 ]);
+
+/** `USER_START_BREAK.payload.break_kind`: the fixed ids (ADR-0023 §1). */
+export const BREAK_KINDS: ReadonlySet<string> = new Set([
+  'bio',
+  'meal',
+  'rest',
+  'personal',
+  'other',
+]);
+
+/** `USER_START_BREAK.payload.planned_minutes` ("Back in?", ADR-0023 §2). */
+const PLANNED_MINUTES: ReadonlySet<number> = new Set([5, 10, 15, 20, 30, 45, 60]);
+
+/** ADR-0023 §7: a known kind, and a planned time from the fixed list if any. */
+function validBreakPayload(payload: Record<string, unknown> | undefined): boolean {
+  const kind = payload?.['break_kind'];
+  if (typeof kind !== 'string' || !BREAK_KINDS.has(kind)) return false;
+  const planned = payload?.['planned_minutes'];
+  return (
+    planned === undefined ||
+    planned === null ||
+    (typeof planned === 'number' && PLANNED_MINUTES.has(planned))
+  );
+}
 
 /** `USER_IDLE_EXPLAINED.payload.explanation` (ADR-0018 §2). */
 export const IDLE_EXPLANATIONS: ReadonlySet<string> = new Set([
@@ -133,6 +158,7 @@ export function nextState(
 
     case 'USER_START_BREAK':
       if (current !== 'ACTIVE' && current !== 'ON_CALL') return null;
+      if (!validBreakPayload(payload)) return null;
       return 'ON_BREAK';
 
     case 'USER_END_BREAK':

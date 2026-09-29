@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Break types, backend (ADR-0023 PR 1, 2026-09-29)
+
+- **Policy schema:**
+  - `break.rest` (Tea break), `break.personal` and `break.other`;
+  - every type gains `enabled`, `label`, `pay` (`paid` / `unpaid` /
+    `paid_up_to_limit`) and `max_minutes` (5–180);
+  - `away.offer_training`, and `training` in `require_note` and
+    `payable_reasons`;
+  - the old `payable_up_to_cap` / `payable` are accepted but ignored.
+- **Events:**
+  - a new `user-start-break.schema.json`;
+  - ingest now **rejects** an unknown `break_kind` or an off-list
+    `planned_minutes` (5/10/15/20/30/45/60/null) instead of filing it
+    as "other";
+  - `USER_MARK_AWAY` accepts `training`.
+- **Day view:**
+  - new segment kinds `rest_break`, `personal_break` and
+    `away_training`;
+  - breaks carry `planned_minutes`;
+  - totals gain `paid_break_ms` / `unpaid_break_ms`, from the person's
+    current policy.
+- **Settings save** refuses to turn every break type off.
+- Installed apps (0.1.2) ignore the new settings, and their events stay
+  valid.
+
 ### ADR-0023: break types, planned breaks, break settings (2026-09-29)
 
 Owner request: break categories set from Settings, plus a way to say
