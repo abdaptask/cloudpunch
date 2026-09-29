@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Desktop 0.1.7: the first version on both Windows and macOS
+
+- **Why a bump:** Windows 0.1.6 was built before the macOS work (ADR-0026
+  steps 1–5). 0.1.7 is the same code on both platforms, and the first
+  Mac release.
+
 ### macOS app, steps 4–5: Mac packaging, updates and download (ADR-0026)
 
 - **`tauri.pilot.macos.conf.json`:**
