@@ -134,13 +134,14 @@ describe('PostgresDb — employees + users', () => {
       correlationId: randomUUID(),
       at: new Date(),
     });
-    const rows = await sql<{ action: string; new_value: unknown; previous_value: unknown }[]>`
-      SELECT action, new_value, previous_value FROM audit_log
+    // The client camelCases column names.
+    const rows = await sql<{ action: string; before: unknown; after: unknown }[]>`
+      SELECT action, previous_value AS before, new_value AS after FROM audit_log
       WHERE entity_type = 'employee' AND entity_id = ${a} ORDER BY occurred_at`;
     expect(rows.map((r) => r.action)).toEqual(['reporting_manager_set', 'day_viewed']);
-    expect(rows[0]?.previous_value).toEqual({ manager_employee_id: null });
-    expect(rows[0]?.new_value).toEqual({ manager_employee_id: mgr });
-    expect(rows[1]?.new_value).toEqual({ date: '2026-09-29' });
+    expect(rows[0]?.before).toEqual({ manager_employee_id: null });
+    expect(rows[0]?.after).toEqual({ manager_employee_id: mgr });
+    expect(rows[1]?.after).toEqual({ date: '2026-09-29' });
   });
 });
 
