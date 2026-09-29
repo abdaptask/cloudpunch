@@ -543,7 +543,10 @@ mod tests {
                 "call_type_apps": [
                     { "process": "ms-teams.exe", "call_type": "teams" },
                     { "process": "teams.exe", "call_type": "teams" },
-                    { "process": "zoom.exe", "call_type": "zoom" }
+                    { "process": "zoom.exe", "call_type": "zoom" },
+                    { "process": "com.microsoft.teams2", "call_type": "teams" },
+                    { "process": "com.microsoft.teams", "call_type": "teams" },
+                    { "process": "us.zoom.xos", "call_type": "zoom" }
                 ],
                 "call_type_ignored": ["ace dialer.exe"]
             },

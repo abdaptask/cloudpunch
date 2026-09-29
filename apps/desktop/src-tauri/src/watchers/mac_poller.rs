@@ -1,6 +1,6 @@
 //! macOS watcher (ADR-0026 §2): samples screen lock, network
-//! reachability and the wall clock once a second, and reports what
-//! changed through [`super::poll::PollState`]. Idle needs no watcher:
+//! reachability, mic/camera in use and the wall clock once a second,
+//! and reports what changed through [`super::poll::PollState`]. Idle needs no watcher:
 //! the core's tick reads the last-input time directly.
 
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -52,6 +52,7 @@ impl Watcher for MacPoller {
                         at: SystemTime::now(),
                         locked: crate::macos::screen_locked(),
                         reachable,
+                        media: Some(crate::macos::media()),
                     };
                     for signal in state.step(sample) {
                         let _ = tx.send(signal);
