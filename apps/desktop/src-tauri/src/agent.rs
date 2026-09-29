@@ -229,6 +229,8 @@ struct UiPlan {
     tooltip: String,
     /// Notifications to show, as (title, body).
     notes: Vec<(String, String)>,
+    /// Install this downloaded update now (ADR-0022 §2).
+    install_update: Option<String>,
 }
 
 /// The window/tray side of the agent. Production uses [`TauriUi`];
@@ -246,6 +248,8 @@ pub trait Ui: Send + Sync + 'static {
     fn notify(&self, title: &str, body: &str);
     /// Tray icon colour and tooltip (ADR-0013 §3).
     fn tray_status(&self, tray: TrayStateSnapshot, tooltip: &str);
+    /// Install the downloaded update `version` and restart (ADR-0022).
+    fn install_update(&self, _version: &str) {}
 }
 
 pub struct TauriUi {
@@ -333,6 +337,10 @@ struct Inner {
     /// Local minutes after midnight, for quiet hours; the OS clock
     /// outside tests.
     minute_of_day: fn() -> u16,
+    /// A downloaded update waiting for its moment (ADR-0022 §2).
+    update: crate::app_update::UpdateState,
+    /// When this run started: an update may also install just after.
+    started_at: SystemTime,
 }
 
 /// Core settings from a policy, adopted only while clocked out.
@@ -445,6 +453,8 @@ impl<U: Ui> Agent<U> {
                 tooltip_minute: None,
                 pending_policy: None,
                 minute_of_day: reminders::local_minute_of_day,
+                update: Default::default(),
+                started_at: SystemTime::now(),
             }),
             ui: OnceLock::new(),
             tray_notice: AtomicBool::new(false),
@@ -494,6 +504,23 @@ impl<U: Ui> Agent<U> {
 
     pub fn view(&self) -> StateView {
         self.lock().view()
+    }
+
+    /// The updater downloaded and verified `version` (ADR-0022 §2); it
+    /// installs at the next safe moment.
+    pub fn update_ready(&self, version: String) {
+        self.lock().update.set_ready(version);
+    }
+
+    /// Clocked out with nothing tracked today, so a restart now loses
+    /// nothing: checked again just before installing (ADR-0022 §2).
+    pub fn safe_to_restart(&self) -> bool {
+        let inner = self.lock();
+        inner.driver.state() == CoreState::ClockedOut
+            && inner
+                .timeline
+                .current_day_start(SystemTime::now())
+                .is_none()
     }
 
     /// The person signed in to, unlocked or woke the computer at `at`.
@@ -652,6 +679,15 @@ impl<U: Ui> Agent<U> {
                         plan.notes.push(reminder_text(&r));
                     }
                 }
+                let update = crate::app_update::UpdateInputs {
+                    now,
+                    clocked_out: after == CoreState::ClockedOut,
+                    worked_today: inner.timeline.current_day_start(now).is_some(),
+                    clock_in_prompt_open: inner.clock_in_prompt,
+                    signed_in_at: inner.signed_in_at,
+                    started_at: inner.started_at,
+                };
+                plan.install_update = crate::app_update::install_now(&mut inner.update, update);
                 for r in reminders::due(&cfg, inputs, &mut inner.reminders) {
                     if matches!(r, Reminder::LongShift { .. }) {
                         inner.long_shift = true;
@@ -697,6 +733,9 @@ impl<U: Ui> Agent<U> {
         }
         for (title, body) in &plan.notes {
             ui.notify(title, body);
+        }
+        if let Some(version) = &plan.install_update {
+            ui.install_update(version);
         }
     }
 
@@ -1000,6 +1039,12 @@ mod tests {
             self.calls.lock().unwrap().push(format!("notify:{title}"));
         }
         fn tray_status(&self, _tray: TrayStateSnapshot, _tooltip: &str) {}
+        fn install_update(&self, version: &str) {
+            self.calls
+                .lock()
+                .unwrap()
+                .push(format!("install_update:{version}"));
+        }
     }
 
     fn notes(ui: &FakeUi) -> Vec<String> {
@@ -1031,6 +1076,43 @@ mod tests {
         ui.visible.store(true, Ordering::Release);
         tick(61 * 60);
         assert_eq!(notes(&ui).len(), 1, "not while the window is open");
+    }
+
+    #[test]
+    fn a_ready_update_installs_at_sign_in_only_while_clocked_out_with_nothing_today() {
+        let installs = |ui: &FakeUi| {
+            ui.calls
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|c| c.starts_with("install_update:"))
+                .cloned()
+                .collect::<Vec<_>>()
+        };
+        let now = SystemTime::now();
+        let tick = |agent: &Agent<Arc<FakeUi>>| {
+            agent
+                .handle_at(Input::Tick { last_input_at: now }, now)
+                .unwrap();
+        };
+
+        // Clocked in: the update waits, and a restart isn't safe.
+        let (agent, ui) = agent_with_ui();
+        agent.handle(Input::ClockIn).unwrap();
+        agent.update_ready("9.9.9".into());
+        agent.note_signed_in(now);
+        tick(&agent);
+        assert!(installs(&ui).is_empty());
+        assert!(!agent.safe_to_restart());
+
+        // Morning: clocked out, nothing today, just signed in.
+        let (agent, ui) = agent_with_ui();
+        agent.update_ready("9.9.9".into());
+        agent.note_signed_in(now);
+        assert!(agent.safe_to_restart());
+        tick(&agent);
+        tick(&agent);
+        assert_eq!(installs(&ui), ["install_update:9.9.9"], "once");
     }
 
     #[test]

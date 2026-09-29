@@ -18,6 +18,7 @@ import { readReleases } from './landing/routes.js';
 import { peopleRoutes, type PeopleRoutesOptions } from './people/routes.js';
 import { policyAdminRoutes } from './policy/admin-routes.js';
 import { policyRoutes } from './policy/routes.js';
+import { updateRoutes } from './updates/routes.js';
 
 export interface BuildAppOptions {
   /** Tests inject a fake Graph; otherwise built from the OBO certificate. */
@@ -83,6 +84,12 @@ export async function buildApp(opts: BuildAppOptions) {
       'ENTRA_TENANT_ID / ENTRA_API_CLIENT_ID / ENTRA_API_APPLICATION_ID_URI not set; auth plugin skipped. All non-health routes will 401 until configured.',
     );
   }
+
+  // Desktop auto-update (ADR-0022): needs only a valid token, no db.
+  await app.register(updateRoutes, {
+    downloadsDir: opts.env.DOWNLOADS_DIR,
+    siteUrl: opts.env.PUBLIC_SITE_URL,
+  });
 
   if (opts.db) {
     await app.register(meRoutes, { db: opts.db });
