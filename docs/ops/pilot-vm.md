@@ -114,18 +114,19 @@ because that would allow any mailbox.
 
 ## Build the pilot installer (Windows)
 
-From PowerShell, so the vendored OpenSSL builds:
+In PowerShell (5.1 or 7), from the repo root:
 
 ```powershell
-cd apps\desktop
-$env:CLOUDPUNCH_BACKEND_URL='https://cloudpunch.aptask.com'
-Remove-Item Env:CLOUDPUNCH_BUILD_CA_PEM -ErrorAction SilentlyContinue   # public cert: no pinned CA
-# Sign the update (ADR-0022 §5); the key never leaves this machine.
-# Tauri 2.11 reads the key file's path (or the key itself) from this; there's no _PATH variant.
-$env:TAURI_SIGNING_PRIVATE_KEY="$env:USERPROFILE\.cloudpunch\updater.key"
-$env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = Read-Host 'Updater key password'
-pnpm tauri build --config src-tauri/tauri.pilot.conf.json
+.\scripts\build-windows.ps1 -Publish
 ```
+
+It asks for the "what's new" notes (one per line, an empty line ends),
+then the updater key password (not shown, not saved), builds, and
+publishes. Without `-Publish` it only builds. It sets
+`CLOUDPUNCH_BACKEND_URL`, clears `CLOUDPUNCH_BUILD_CA_PEM` and points
+`TAURI_SIGNING_PRIVATE_KEY` at `%USERPROFILE%\.cloudpunch\updater.key`
+(Tauri 2.11 reads the key file's path from it; there's no `_PATH`
+variant).
 
 Next to the installer you'll get `CloudPunch_<version>_x64-setup.exe.sig`,
 the update signature. `publish-installer.sh` refuses an installer without
@@ -167,21 +168,24 @@ notarize it, and signs the update for auto-update.
 
 ```sh
 git pull
-bash scripts/build-mac.sh admin@aptask.com
+bash scripts/build-mac.sh admin@aptask.com --publish
 ```
 
-It finds the certificate and Team ID itself, checks the setup above, and
-asks for the app-specific password and the updater key password (not
-shown, not saved).
+It finds the certificate and Team ID itself, checks the setup above,
+asks for the "what's new" notes, then the app-specific password and the
+updater key password (not shown, not saved), and publishes when the
+build is done. That needs the Mac's SSH key on the VM (added
+2026-09-30). The first time, run `ssh aptask@172.16.46.54 true` and check
+the fingerprint is `SHA256:Edg/s3L+tsKU729Ch5CNyW4HHd2CKofxTYYfJ/mYhbg`.
 
 **Output** (under `target/universal-apple-darwin/release/bundle/`):
 - `dmg/CloudPunch_<version>_universal.dmg`, for the website;
 - `macos/CloudPunch.app.tar.gz` and `.sig`, for auto-update.
 
-Notarization takes a few minutes; the build waits for it. Then publish
-with `scripts/publish-installer.sh --mac "…"`. That needs SSH to the VM.
-If the Mac can't reach it, copy the `bundle` folder to the same path on
-the Windows machine and publish from there.
+Notarization takes a few minutes; the build waits for it. If the Mac
+ever can't reach the VM, build without `--publish`, copy the `bundle`
+folder and `cloudpunch-desktop` to the same paths on the Windows machine,
+and publish from there.
 
 ## Publish an installer (the website's Download button)
 
@@ -193,7 +197,8 @@ Every release that people should get is published, so it shows on
    `apps/desktop/src-tauri/Cargo.toml` and `apps/desktop/package.json`.
    The script refuses to re-publish a version with a different file.
 2. **Build the pilot installer** (above).
-3. **Publish it** with one line per change:
+3. **Publish it.** The build scripts do this with `-Publish` /
+   `--publish`. By hand, give one line per change (or none, and it asks):
    ```sh
    scripts/publish-installer.sh "Idle popup after 2 minutes" "Clock-in popup at 8 am ET"
    ```

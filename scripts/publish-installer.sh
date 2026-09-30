@@ -5,6 +5,7 @@
 #
 #   scripts/publish-installer.sh "Idle popup after 2 minutes" "Clock-in popup at 8 am ET"
 #   scripts/publish-installer.sh --mac "First Mac version"      # ADR-0026
+#   scripts/publish-installer.sh --mac                          # asks for the notes
 #
 # Checks before anything is uploaded:
 #   - the installer for the version in tauri.conf.json exists;
@@ -28,6 +29,20 @@ PLATFORM=windows
 if [ "${1:-}" = "--mac" ]; then
   PLATFORM=macos
   shift
+fi
+# Notes: the arguments; else CLOUDPUNCH_NOTES (one per line, as the
+# build scripts pass them); else asked for here, one per line.
+if [ "$#" -eq 0 ] && [ -n "${CLOUDPUNCH_NOTES:-}" ]; then
+  while IFS= read -r line; do
+    line="${line%$''}"
+    [ -n "$line" ] && set -- "$@" "$line"
+  done <<< "$CLOUDPUNCH_NOTES"
+fi
+if [ "$#" -eq 0 ] && [ -t 0 ]; then
+  echo "What's new in this version? One line each; an empty line ends."
+  while IFS= read -r -p '  - ' line && [ -n "$line" ]; do
+    set -- "$@" "$line"
+  done
 fi
 if [ "$#" -eq 0 ]; then
   echo "publish-installer: give at least one \"what's new\" note" >&2

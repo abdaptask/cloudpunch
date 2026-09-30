@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### One command per release on each machine
+
+- **`scripts/build-windows.ps1 -Publish`** (new; PowerShell 5.1 and 7)
+  and **`scripts/build-mac.sh … --publish`**: ask for the notes, check
+  SSH to the VM, build, sign and publish. No more copying files between
+  machines; the owner's Mac now has its own SSH key on the VM.
+- **`publish-installer.sh`** asks for the notes when none are given, or
+  reads them from `CLOUDPUNCH_NOTES` (one per line), so there's no quoting
+  across shells. It and `deploy-pilot.sh` are now executable in git.
+
 ### Desktop 0.1.9, ADR-0028: one machine at a time
 
 - **Blocked while clocked in elsewhere:** after sign-in and enrolment,

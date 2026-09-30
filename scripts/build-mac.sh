@@ -2,12 +2,14 @@
 # Build the signed, notarized Mac pilot app (ADR-0026) on the owner's Mac.
 #
 #   bash scripts/build-mac.sh you@aptask.com
+#   bash scripts/build-mac.sh you@aptask.com --publish   # and publish it
 #
 # It finds the Developer ID certificate and Team ID in the keychain, asks
 # for the two passwords (nothing is shown or saved), checks everything,
 # then runs the universal build. Output goes under
-# target/universal-apple-darwin/release/bundle/; publish it with
-# scripts/publish-installer.sh --mac "…".
+# target/universal-apple-darwin/release/bundle/. With --publish it asks
+# for the "what's new" notes first, then publishes to the pilot server
+# when the build is done (needs SSH to the VM; checked before building).
 set -euo pipefail
 
 fail() { echo "build-mac: $*" >&2; exit 1; }
@@ -17,7 +19,14 @@ fail() { echo "build-mac: $*" >&2; exit 1; }
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT/apps/desktop"
 
-APPLE_ID="${1:-}"
+APPLE_ID=""
+PUBLISH=0
+for arg in "$@"; do
+  case "$arg" in
+    --publish) PUBLISH=1 ;;
+    *) APPLE_ID="$arg" ;;
+  esac
+done
 if [ -z "$APPLE_ID" ]; then
   read -r -p 'Apple ID email: ' APPLE_ID
 fi
@@ -46,6 +55,18 @@ done
 [ -d "$ROOT/node_modules" ] || fail "packages not installed. Run: pnpm install (in $ROOT)"
 
 VERSION="$(node -p "require('./src-tauri/tauri.conf.json').version")"
+
+NOTES=()
+if [ "$PUBLISH" = 1 ]; then
+  HOST="${PILOT_HOST:-aptask@172.16.46.54}"
+  ssh -o BatchMode=yes -o ConnectTimeout=5 "$HOST" true 2>/dev/null ||
+    fail "can't reach $HOST over SSH to publish. Run once: ssh $HOST true (and answer yes), or build without --publish."
+  echo "What's new in $VERSION? One line each; an empty line ends."
+  while IFS= read -r -p '  - ' line && [ -n "$line" ]; do
+    NOTES+=("$line")
+  done
+  [ "${#NOTES[@]}" -gt 0 ] || fail "--publish needs at least one note"
+fi
 echo
 echo "  Version:     $VERSION"
 echo "  Certificate: $IDENTITY"
@@ -65,10 +86,16 @@ export TAURI_SIGNING_PRIVATE_KEY="$KEY" TAURI_SIGNING_PRIVATE_KEY_PASSWORD
 
 echo "Building $VERSION. This takes a while, then a few more minutes while Apple notarizes it."
 pnpm tauri build --target universal-apple-darwin --config src-tauri/tauri.pilot.macos.conf.json
+unset APPLE_PASSWORD TAURI_SIGNING_PRIVATE_KEY_PASSWORD
 
 BUNDLE="$ROOT/target/universal-apple-darwin/release/bundle"
 echo
 echo "Done:"
 ls -l "$BUNDLE/dmg/CloudPunch_${VERSION}_universal.dmg" "$BUNDLE/macos/CloudPunch.app.tar.gz" "$BUNDLE/macos/CloudPunch.app.tar.gz.sig"
 echo
-echo "Next: scripts/publish-installer.sh --mac \"First Mac version\""
+if [ "$PUBLISH" = 1 ]; then
+  echo
+  bash "$ROOT/scripts/publish-installer.sh" --mac "${NOTES[@]}"
+else
+  echo "Next: bash scripts/publish-installer.sh --mac (it asks for the notes)"
+fi
