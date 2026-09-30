@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fix: Mac sign-in couldn't save to the keychain (ADR-0007 §5, ADR-0026)
+
+- **Symptom:** on the Mac, sign-in with Microsoft succeeded but the app
+  said "Couldn't save your sign-in securely on this computer".
+- **Cause:** `keyring` reads an entry's target as the keychain to use on
+  macOS, and rejected our Windows-style `CloudPunch/…` targets.
+- **Fix:** on macOS, entries are service + account (the ADR-0007 names)
+  in the login keychain. Windows is unchanged. A new test makes an entry
+  for every slot, so the macOS CI job catches this.
+- **`build-mac.sh`:** checks the updater key is one line of base64 before
+  building, instead of failing at the end.
+- Still 0.1.7: it was never published.
+
 ### `scripts/build-mac.sh`: one command for the Mac build (ADR-0026)
 
 - Finds the Developer ID certificate and Team ID in the keychain, checks
