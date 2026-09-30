@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import { AccountMenu } from './AccountMenu.js';
 import { api, type StateView } from './api.js';
 import { BlockedElsewherePanel } from './BlockedElsewhere.js';
 import { BreakPicker, callName } from './BreakPicker.js';
@@ -414,37 +415,7 @@ export function App(): JSX.Element {
           <h1 style={{ margin: 0, lineHeight: 0 }}>
             <Logo height={24} />
           </h1>
-          <span style={{ fontSize: 12, color: t.muted }}>
-            {signedIn && (auth.name ?? auth.username) && (
-              <>
-                {auth.name ?? auth.username}
-                {view?.status === 'clocked_out' && (
-                  <>
-                    {' · '}
-                    <button
-                      type="button"
-                      onClick={() => signOutWithSummary()}
-                      style={linkButton(t)}
-                    >
-                      Sign out
-                    </button>
-                  </>
-                )}
-                {view && view.status !== 'clocked_out' && (
-                  <>
-                    {' · '}
-                    <button
-                      type="button"
-                      onClick={() => setSignOutAsked(true)}
-                      style={linkButton(t)}
-                    >
-                      Clock out and sign out
-                    </button>
-                  </>
-                )}
-                {' · '}
-              </>
-            )}
+          <span style={{ fontSize: 12, color: t.muted, whiteSpace: 'nowrap' }}>
             {formatClock(now)}
             {canSeeTeam && (
               <TeamButton
@@ -465,6 +436,13 @@ export function App(): JSX.Element {
               />
             )}
             <PinButton onClick={pin} />
+            <AccountMenu
+              name={auth.name ?? null}
+              username={auth.username ?? null}
+              clockedIn={!!view && view.status !== 'clocked_out'}
+              onSignOut={() => signOutWithSummary()}
+              onClockOutAndSignOut={() => setSignOutAsked(true)}
+            />
           </span>
         </header>
       )}

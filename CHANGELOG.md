@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Desktop 0.1.11: account menu in the header
+
+- The header's name and sign-out links wrapped the pin icon onto a
+  second line (owner feedback). They're now an **account button** (your
+  initials) on the right, opening a menu with your name, sign-in name and
+  **Sign out**, or **Clock out and sign out** while clocked in. The
+  header stays on one line.
+
 ### Desktop 0.1.10: "Clock out and sign out", and today after signing in again
 
 - **Clock out and sign out** (owner request): while clocked in, the

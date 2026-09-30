@@ -326,7 +326,8 @@ describe('sign-in (2b.4 F2)', () => {
     );
     await act(async () => finish(SIGNED_IN));
     expect(await screen.findByRole('button', { name: 'Clock in' })).toBeInTheDocument();
-    expect(screen.getByText(/Test User/)).toBeInTheDocument();
+    // The header shows initials; the name is in the account menu.
+    expect(screen.getByRole('button', { name: 'Account' })).toHaveTextContent('TU');
   });
 
   it('a failed sign-in explains why', async () => {
@@ -350,7 +351,8 @@ describe('sign-in (2b.4 F2)', () => {
     mocks.signOut.mockResolvedValue({ ...SIGNED_OUT, unsentKept: 3 });
     const user = userEvent.setup();
     render(<App />);
-    await user.click(await screen.findByRole('button', { name: 'Sign out' }));
+    await user.click(await screen.findByRole('button', { name: 'Account' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Sign out' }));
     expect(
       await screen.findByText(
         'Signed out. 3 events will be sent the next time you sign in on this computer.',
@@ -371,7 +373,8 @@ describe('sign-in (2b.4 F2)', () => {
     mocks.signOut.mockResolvedValue(SIGNED_OUT);
     const user = userEvent.setup();
     const { unmount } = render(<App />);
-    await user.click(await screen.findByRole('button', { name: 'Sign out' }));
+    await user.click(await screen.findByRole('button', { name: 'Account' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Sign out' }));
     expect(mocks.signOut).toHaveBeenCalledOnce();
     expect(
       await screen.findByRole('button', { name: 'Sign in with Microsoft' }),
@@ -381,7 +384,18 @@ describe('sign-in (2b.4 F2)', () => {
     mocks.getState.mockResolvedValue(view({ status: 'active' }));
     render(<App />);
     await screen.findByRole('button', { name: 'Clock out' });
-    expect(screen.queryByRole('button', { name: 'Sign out' })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Account' }));
+    expect(screen.queryByRole('menuitem', { name: 'Sign out' })).not.toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: 'Clock out and sign out' })).toBeInTheDocument();
+  });
+
+  it('the account menu shows the name and closes on Escape', async () => {
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole('button', { name: 'Account' }));
+    expect(screen.getByRole('menu', { name: 'Account menu' })).toBeInTheDocument();
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('menu', { name: 'Account menu' })).not.toBeInTheDocument();
   });
 
   it('clocked in, "Clock out and sign out" asks first, then does both', async () => {
@@ -389,7 +403,8 @@ describe('sign-in (2b.4 F2)', () => {
     mocks.signOut.mockResolvedValue(SIGNED_OUT);
     const user = userEvent.setup();
     render(<App />);
-    await user.click(await screen.findByRole('button', { name: 'Clock out and sign out' }));
+    await user.click(await screen.findByRole('button', { name: 'Account' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Clock out and sign out' }));
     const dialog = screen.getByRole('dialog', { name: 'clock-out-dialog' });
     expect(dialog).toHaveTextContent('Clock out and sign out?');
     expect(screen.queryByRole('button', { name: 'Take a break instead' })).not.toBeInTheDocument();
@@ -404,7 +419,8 @@ describe('sign-in (2b.4 F2)', () => {
     mocks.getState.mockResolvedValue(view({ status: 'on_break', breakKind: 'meal' }));
     const user = userEvent.setup();
     render(<App />);
-    await user.click(await screen.findByRole('button', { name: 'Clock out and sign out' }));
+    await user.click(await screen.findByRole('button', { name: 'Account' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Clock out and sign out' }));
     await user.click(screen.getByRole('button', { name: 'Cancel, keep working' }));
     expect(screen.queryByRole('dialog', { name: 'clock-out-dialog' })).not.toBeInTheDocument();
     expect(mocks.signOut).not.toHaveBeenCalled();
@@ -1305,7 +1321,8 @@ describe('end-of-day summary (ADR-0013 §8)', () => {
     mocks.signOut.mockResolvedValue(SIGNED_OUT);
     const user = userEvent.setup();
     render(<App />);
-    await user.click(await screen.findByRole('button', { name: 'Sign out' }));
+    await user.click(await screen.findByRole('button', { name: 'Account' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Sign out' }));
     const trip = await screen.findByRole('dialog', { name: 'trip-complete' });
     expect(trip).toHaveTextContent('Signed out · See you tomorrow');
   });
