@@ -6,6 +6,11 @@
 //! unlocked or woken the computer (or the app has just started). That's
 //! normally first thing in the morning. Clocked in means never.
 //!
+//! The 8 am clock-in popup doesn't hold it back (ADR-0022 amendment,
+//! 2026-09-30): it opens on the same first tick, so it used to block
+//! every morning install for people who start after 8 am ET. The
+//! restart takes seconds and the popup opens again on the new version.
+//!
 //! Pure logic: the Tauri updater plugin downloads and installs.
 
 use std::time::{Duration, SystemTime};
@@ -19,9 +24,6 @@ pub struct UpdateInputs {
     pub clocked_out: bool,
     /// Anything tracked in the current working day (ADR-0016 §1).
     pub worked_today: bool,
-    /// The daily clock-in popup is open (ADR-0018 §4): don't pull it
-    /// away from someone reading it.
-    pub clock_in_prompt_open: bool,
     /// Latest Windows logon / unlock / wake.
     pub signed_in_at: Option<SystemTime>,
     /// When this run of the app started.
@@ -35,6 +37,8 @@ pub struct UpdateState {
     /// The version an install was last started for: once per run, so a
     /// failing install can't loop.
     tried: Option<String>,
+    /// The last reason logged for waiting, so the log says it once.
+    logged_wait: Option<(String, &'static str)>,
 }
 
 impl UpdateState {
@@ -53,23 +57,43 @@ fn recent(at: SystemTime, now: SystemTime) -> bool {
         .is_ok_and(|ago| ago <= JUST_SIGNED_IN)
 }
 
-/// The version to install now, if this is the moment; marks it tried.
-pub fn install_now(st: &mut UpdateState, inp: UpdateInputs) -> Option<String> {
-    let version = st.ready.clone()?;
-    if st.tried.as_ref() == Some(&version)
-        || !inp.clocked_out
-        || inp.worked_today
-        || inp.clock_in_prompt_open
-    {
-        return None;
+/// Why a downloaded update isn't installing now (`None`: it can).
+fn wait_reason(inp: &UpdateInputs) -> Option<&'static str> {
+    if !inp.clocked_out {
+        return Some("clocked in");
+    }
+    if inp.worked_today {
+        return Some("already worked today");
     }
     let moment =
         inp.signed_in_at.is_some_and(|at| recent(at, inp.now)) || recent(inp.started_at, inp.now);
-    if !moment {
+    (!moment).then_some("waiting for the next sign-in, unlock, wake or start")
+}
+
+/// The version to install now, if this is the moment; marks it tried.
+pub fn install_now(st: &mut UpdateState, inp: UpdateInputs) -> Option<String> {
+    let version = st.ready.clone()?;
+    if st.tried.as_ref() == Some(&version) || wait_reason(&inp).is_some() {
         return None;
     }
     st.tried = Some(version.clone());
     Some(version)
+}
+
+/// A line for the update log when the reason a downloaded update waits
+/// changes (once per version and reason, not every tick).
+pub fn wait_note(st: &mut UpdateState, inp: UpdateInputs) -> Option<String> {
+    let version = st.ready.clone()?;
+    if st.tried.as_ref() == Some(&version) {
+        return None;
+    }
+    let reason = wait_reason(&inp)?;
+    let key = (version.clone(), reason);
+    if st.logged_wait.as_ref() == Some(&key) {
+        return None;
+    }
+    st.logged_wait = Some(key);
+    Some(format!("update {version} waits: {reason}"))
 }
 
 #[cfg(test)]
@@ -86,7 +110,6 @@ mod tests {
             now,
             clocked_out: true,
             worked_today: false,
-            clock_in_prompt_open: false,
             signed_in_at: Some(now - Duration::from_secs(60)),
             started_at: now - 20 * HOUR,
         };
@@ -116,11 +139,6 @@ mod tests {
             ..inp
         };
         assert_eq!(install_now(&mut st, worked), None, "lunch unlock waits");
-        let prompt = UpdateInputs {
-            clock_in_prompt_open: true,
-            ..inp
-        };
-        assert_eq!(install_now(&mut st, prompt), None);
         // None of those used up the attempt.
         assert_eq!(install_now(&mut st, inp).as_deref(), Some("0.1.2"));
     }
@@ -143,6 +161,25 @@ mod tests {
             ..long_ago
         };
         assert_eq!(install_now(&mut st, just_started).as_deref(), Some("0.1.2"));
+    }
+
+    #[test]
+    fn wait_note_says_each_reason_once_per_version() {
+        let (mut st, inp) = morning();
+        let clocked_in = UpdateInputs {
+            clocked_out: false,
+            ..inp
+        };
+        assert_eq!(
+            wait_note(&mut st, clocked_in).as_deref(),
+            Some("update 0.1.2 waits: clocked in")
+        );
+        assert_eq!(wait_note(&mut st, clocked_in), None, "said once");
+        assert_eq!(wait_note(&mut st, inp), None, "can install: no wait");
+        st.set_ready("0.1.3".into());
+        assert!(wait_note(&mut st, clocked_in).is_some(), "new version");
+        install_now(&mut st, inp);
+        assert_eq!(wait_note(&mut st, clocked_in), None, "already tried");
     }
 
     #[test]

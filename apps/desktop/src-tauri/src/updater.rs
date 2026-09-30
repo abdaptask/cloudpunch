@@ -11,6 +11,9 @@
 //!   exits the app and starts the new one).
 //! - Only in builds whose config has `plugins.updater` (the pilot
 //!   config): the plugin needs its public key.
+//! - Every check, download, install attempt and reason to wait goes to
+//!   `update.log` in the app's log folder (versions and reasons only),
+//!   so a missed update can be explained afterwards.
 
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
@@ -23,6 +26,33 @@ use crate::backend_http;
 use crate::commands::Auth;
 
 const FIRST_CHECK: Duration = Duration::from_secs(60);
+const LOG_FILE: &str = "update.log";
+/// Past this the log starts again (the old one is kept as `.old`).
+const LOG_MAX_BYTES: u64 = 256 * 1024;
+
+/// Append a timestamped line to `update.log`; never fails the caller.
+pub fn log<R: tauri::Runtime>(app: &AppHandle<R>, line: &str) {
+    eprintln!("[cloudpunch] {line}");
+    let Ok(dir) = app.path().app_log_dir() else {
+        return;
+    };
+    let _ = append_log(&dir, line, SystemTime::now());
+}
+
+fn append_log(dir: &std::path::Path, line: &str, now: SystemTime) -> std::io::Result<()> {
+    use std::io::Write;
+    std::fs::create_dir_all(dir)?;
+    let path = dir.join(LOG_FILE);
+    if std::fs::metadata(&path).is_ok_and(|m| m.len() > LOG_MAX_BYTES) {
+        let _ = std::fs::rename(&path, dir.join(format!("{LOG_FILE}.old")));
+    }
+    let at = chrono::DateTime::<chrono::Utc>::from(now).format("%Y-%m-%dT%H:%M:%SZ");
+    let mut f = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)?;
+    writeln!(f, "{at} {} {line}", env!("CARGO_PKG_VERSION"))
+}
 
 /// The server's name for this platform's updates (ADR-0026 §4).
 #[cfg(target_os = "macos")]
@@ -49,7 +79,7 @@ pub fn start(app: AppHandle) {
             std::thread::sleep(FIRST_CHECK);
             loop {
                 if let Err(e) = tauri::async_runtime::block_on(check_once(&app)) {
-                    eprintln!("[cloudpunch] update check failed: {e}");
+                    log(&app, &format!("update check failed: {e}"));
                 }
                 std::thread::sleep(EVERY);
             }
@@ -66,7 +96,8 @@ async fn check_once(app: &AppHandle) -> Result<(), String> {
     let auth = app.state::<Arc<Auth>>().inner().clone();
     // On the updater's own thread, so a blocking refresh is fine.
     let Ok(token) = auth.access_token(SystemTime::now()) else {
-        return Ok(()); // Signed out: nothing to ask with.
+        log(app, "update check skipped: signed out");
+        return Ok(());
     };
     let endpoint = format!(
         "{}/v1/desktop/update/{UPDATE_PLATFORM}/{{{{current_version}}}}",
@@ -85,6 +116,7 @@ async fn check_once(app: &AppHandle) -> Result<(), String> {
         .await
         .map_err(|e| e.to_string())?
     else {
+        log(app, "update check: up to date");
         return Ok(());
     };
     let pending = app.state::<Pending>();
@@ -104,7 +136,7 @@ async fn check_once(app: &AppHandle) -> Result<(), String> {
     if let Ok(mut p) = pending.0.lock() {
         *p = Some((update, bytes));
     }
-    eprintln!("[cloudpunch] update {version} downloaded; installs at the next sign-in");
+    log(app, &format!("update {version} downloaded"));
     app.state::<Arc<Agent>>().update_ready(version);
     Ok(())
 }
@@ -122,14 +154,14 @@ pub fn install_now(app: &AppHandle) -> Result<(), String> {
         .ok_or_else(|| "no_update".to_string())?;
     let guard = pending.0.lock().map_err(|_| "no_update".to_string())?;
     let (update, bytes) = guard.as_ref().ok_or_else(|| "no_update".to_string())?;
-    eprintln!(
-        "[cloudpunch] installing update {} (asked for)",
-        update.version
+    log(
+        app,
+        &format!("installing update {} (Restart to update)", update.version),
     );
     update.install(bytes).map_err(|e| {
-        eprintln!(
-            "[cloudpunch] update {} failed to install: {e}",
-            update.version
+        log(
+            app,
+            &format!("update {} failed to install: {e}", update.version),
         );
         "install_failed".to_string()
     })
@@ -139,6 +171,10 @@ pub fn install_now(app: &AppHandle) -> Result<(), String> {
 /// loses nothing. On Windows this exits the app on success.
 pub fn install(app: &AppHandle, version: &str) {
     if !app.state::<Arc<Agent>>().safe_to_restart() {
+        log(
+            app,
+            &format!("update {version} not installed: restart not safe"),
+        );
         return;
     }
     let Some(pending) = app.try_state::<Pending>() else {
@@ -153,8 +189,33 @@ pub fn install(app: &AppHandle, version: &str) {
     if update.version != version {
         return;
     }
-    eprintln!("[cloudpunch] installing update {version}");
+    log(app, &format!("installing update {version}"));
     if let Err(e) = update.install(bytes) {
-        eprintln!("[cloudpunch] update {version} failed to install: {e}");
+        log(app, &format!("update {version} failed to install: {e}"));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn log_appends_timestamped_lines_and_rolls_over() {
+        let dir = std::env::temp_dir().join(format!("cp-update-log-{}", uuid::Uuid::new_v4()));
+        let t = SystemTime::UNIX_EPOCH + Duration::from_secs(1_790_000_000);
+        append_log(&dir, "update 0.1.8 downloaded", t).unwrap();
+        append_log(&dir, "installing update 0.1.8", t).unwrap();
+        let text = std::fs::read_to_string(dir.join(LOG_FILE)).unwrap();
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(lines.len(), 2);
+        assert!(lines[0].starts_with("2026-09-21T"), "{}", lines[0]);
+        assert!(lines[0].ends_with(" update 0.1.8 downloaded"));
+
+        std::fs::write(dir.join(LOG_FILE), vec![b'x'; LOG_MAX_BYTES as usize + 1]).unwrap();
+        append_log(&dir, "after roll", t).unwrap();
+        assert!(dir.join(format!("{LOG_FILE}.old")).exists());
+        let fresh = std::fs::read_to_string(dir.join(LOG_FILE)).unwrap();
+        assert_eq!(fresh.lines().count(), 1);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

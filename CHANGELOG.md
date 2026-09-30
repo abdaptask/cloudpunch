@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Desktop 0.1.8: false idle ends, and updates for late starters
+
+- **Idle ended a moment after it started (all testers):** the OS
+  last-input time is re-read each tick and wobbles by a few ms, which
+  counted as coming back. Idle then flickered: zero-length idle, the
+  "what were you doing?" popup for a 1 ms stretch, and real idle counted
+  as work (76 of 88 idle ends in the pilot were false). Input must now
+  be more than 1 s after the mark (`INPUT_JITTER`), for idle and Away.
+- **Auto-update held by the clock-in popup (ADR-0022 amendment):** it
+  no longer blocks the install, so people who start after 8 am ET get
+  updates at sign-in.
+- **`update.log`:** each check, download, install and reason to wait.
+
 ### Fix: Mac sign-in couldn't save to the keychain (ADR-0007 §5, ADR-0026)
 
 - **Symptom:** on the Mac, sign-in with Microsoft succeeded but the app

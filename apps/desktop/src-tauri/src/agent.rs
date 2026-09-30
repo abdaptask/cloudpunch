@@ -310,6 +310,8 @@ struct UiPlan {
     notes: Vec<(String, String)>,
     /// Install this downloaded update now (ADR-0022 §2).
     install_update: Option<String>,
+    /// A line for the update log (why an update waits).
+    update_note: Option<String>,
 }
 
 /// The window/tray side of the agent. Production uses [`TauriUi`];
@@ -329,6 +331,8 @@ pub trait Ui: Send + Sync + 'static {
     fn tray_status(&self, tray: TrayStateSnapshot, tooltip: &str);
     /// Install the downloaded update `version` and restart (ADR-0022).
     fn install_update(&self, _version: &str) {}
+    /// Append a line to the local update log.
+    fn log_update(&self, _line: &str) {}
 }
 
 pub struct TauriUi {
@@ -344,6 +348,10 @@ impl TauriUi {
 impl Ui for TauriUi {
     fn install_update(&self, version: &str) {
         crate::updater::install(&self.app, version);
+    }
+
+    fn log_update(&self, line: &str) {
+        crate::updater::log(&self.app, line);
     }
 
     fn show_prompt(&self) {
@@ -871,10 +879,10 @@ impl<U: Ui> Agent<U> {
                     now,
                     clocked_out: after == CoreState::ClockedOut,
                     worked_today: inner.timeline.current_day_start(now).is_some(),
-                    clock_in_prompt_open: inner.clock_in_prompt,
                     signed_in_at: inner.signed_in_at,
                     started_at: inner.started_at,
                 };
+                plan.update_note = crate::app_update::wait_note(&mut inner.update, update);
                 plan.install_update = crate::app_update::install_now(&mut inner.update, update);
                 for r in reminders::due(&cfg, inputs, &mut inner.reminders) {
                     if matches!(r, Reminder::LongShift { .. }) {
@@ -921,6 +929,9 @@ impl<U: Ui> Agent<U> {
         }
         for (title, body) in &plan.notes {
             ui.notify(title, body);
+        }
+        if let Some(line) = &plan.update_note {
+            ui.log_update(line);
         }
         if let Some(version) = &plan.install_update {
             ui.install_update(version);
