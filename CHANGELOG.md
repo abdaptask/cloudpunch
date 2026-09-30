@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### ADR-0028 backend: one machine at a time
+
+- **`GET /v1/me/active-device?device_id=`:** whether the caller is
+  clocked in on another of their machines (`elsewhere`), and whether an
+  Administrator signed this one out (`this_device.signed_out`).
+- **Admin, by employee id (Administrator only):**
+  `GET /v1/people/:employeeId/active-device` (the open session's
+  machine, or 204) and `POST …/active-device/sign-out` `{device_id}`:
+  closes that machine's open session at its last event time
+  (`remote_takeover`, flagged as reconstructed), marks the device signed
+  out and writes an `audit_log` row (`device_signed_out`).
+- **Ingest:** a signed-out device's batches get
+  `409 device_signed_out`; `take_over: true` counts only for an
+  Administrator, so a second-machine clock-in still gets
+  `409 multi_device_conflict`.
+- **Enrolment** (after each sign-in) clears the sign-out mark.
+- **Migration 0005** adds `device.signout_requested_at` and
+  `signout_requested_by`.
+
 ### Desktop 0.1.8: false idle ends, and updates for late starters
 
 - **Idle ended a moment after it started (all testers):** the OS

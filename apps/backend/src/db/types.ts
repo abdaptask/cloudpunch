@@ -86,6 +86,14 @@ export interface Device {
   revokedAt: Date | null;
   revokedReason: string | null;
   revokedByUserId: string | null;
+  /**
+   * An Administrator signed this machine out (ADR-0028 §4). Until it
+   * re-enrols, its event batches get 409 `device_signed_out`. Absent
+   * is the same as null.
+   */
+  signoutRequestedAt?: Date | null;
+  /** The Administrator's app_user id, with `signoutRequestedAt`. */
+  signoutRequestedBy?: string | null;
 }
 
 /** A device plus who enrolled it, for the admin device list. */
@@ -136,6 +144,24 @@ export interface DeviceEnrollInput {
   hostnameHash: string;
   publicKeyEd25519: Uint8Array;
   appVersion: string;
+}
+
+/**
+ * An Administrator signing a machine out (ADR-0028 §4). Closes the
+ * open session on it (if any), marks the device signed out and writes
+ * the audit_log row, together.
+ */
+export interface DeviceSignOutInput {
+  deviceId: string;
+  /** Whose machine it is (for the audit row). */
+  employeeId: string;
+  /** The open session on that device, or null if it has none. */
+  sessionId: string | null;
+  /** When to close it: its last event time, kept within [opened_at, now]. */
+  closedAt: Date | null;
+  actorUserId: string;
+  correlationId: string;
+  at: Date;
 }
 
 export interface OpenSessionInput {
@@ -220,6 +246,15 @@ export interface DeviceRepo {
   touchLastSeen(id: string, at: Date, appVersion?: string): Promise<void>;
   /** Every device with its owner, most recently seen first. */
   listWithOwners(): Promise<readonly DeviceWithOwner[]>;
+  /**
+   * ADR-0028 §4: close the device's open session as `remote_takeover`
+   * (reconstructed), set `signout_requested_*` and write the audit row,
+   * in one transaction. Returns when the session was closed, or null if
+   * there was none (or it had already closed). Repeating is harmless.
+   */
+  signOut(input: DeviceSignOutInput): Promise<{ closedAt: Date | null }>;
+  /** Clear `signout_requested_*` (the device enrolled again after signing in). */
+  clearSignOut(id: string): Promise<void>;
 }
 
 export interface TimeSessionRepo {

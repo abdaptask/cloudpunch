@@ -63,7 +63,13 @@ export async function enrollDeviceService(
     // "last signed in from this device" (ingest touches it too).
     const now = input.now ?? new Date();
     await input.db.devices.touchLastSeen(enrolled.id, now);
-    return { ok: true, device: { ...enrolled, lastSeenAt: now } };
+    // A new sign-in after an Administrator signed this machine out
+    // (ADR-0028 §4) works normally again.
+    if (enrolled.signoutRequestedAt) await input.db.devices.clearSignOut(enrolled.id);
+    return {
+      ok: true,
+      device: { ...enrolled, lastSeenAt: now, signoutRequestedAt: null, signoutRequestedBy: null },
+    };
   } catch (err) {
     if (err instanceof Error && /different user/.test(err.message)) {
       return {
