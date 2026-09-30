@@ -61,11 +61,19 @@ if [ "$PUBLISH" = 1 ]; then
   HOST="${PILOT_HOST:-aptask@172.16.46.54}"
   ssh -o BatchMode=yes -o ConnectTimeout=5 "$HOST" true 2>/dev/null ||
     fail "can't reach $HOST over SSH to publish. Run once: ssh $HOST true (and answer yes), or build without --publish."
-  echo "What's new in $VERSION? One line each; an empty line ends."
-  while IFS= read -r -p '  - ' line && [ -n "$line" ]; do
+  echo "What's new in $VERSION? Type each note and press Enter; press Enter on an empty note when done."
+  # A counter, not ${#NOTES[@]}: macOS bash 3.2 with set -u.
+  n=0
+  while IFS= read -r -p "  Note $((n + 1)): " line; do
+    if [ -z "$line" ]; then
+      [ "$n" -gt 0 ] && break
+      echo "  At least one note is needed."
+      continue
+    fi
     NOTES+=("$line")
+    n=$((n + 1))
   done
-  [ "${#NOTES[@]}" -gt 0 ] || fail "--publish needs at least one note"
+  [ "$n" -gt 0 ] || fail "--publish needs at least one note"
 fi
 echo
 echo "  Version:     $VERSION"
