@@ -162,20 +162,17 @@ notarize it, and signs the update for auto-update.
    `~/.cloudpunch/updater.key`. It's the same key as Windows, and it never
    goes into the repo.
 
-**Each release** (after the version bump):
+**Each release** (after the version bump), in the Mac's own Terminal
+(not over SSH to the VM), from the repo root:
 
 ```sh
-cd apps/desktop
-export CLOUDPUNCH_BACKEND_URL=https://cloudpunch.aptask.com
-export APPLE_SIGNING_IDENTITY="Developer ID Application: <ApTask name> (<TEAM ID>)"
-export APPLE_ID=<the Apple ID email>
-export APPLE_TEAM_ID=<TEAM ID>
-read -rs -p 'App-specific password: ' APPLE_PASSWORD; export APPLE_PASSWORD; echo
-export TAURI_SIGNING_PRIVATE_KEY="$HOME/.cloudpunch/updater.key"
-read -rs -p 'Updater key password: ' TAURI_SIGNING_PRIVATE_KEY_PASSWORD; export TAURI_SIGNING_PRIVATE_KEY_PASSWORD; echo
-pnpm tauri build --target universal-apple-darwin --config src-tauri/tauri.pilot.macos.conf.json
-unset APPLE_PASSWORD TAURI_SIGNING_PRIVATE_KEY_PASSWORD
+git pull
+bash scripts/build-mac.sh admin@aptask.com
 ```
+
+It finds the certificate and Team ID itself, checks the setup above, and
+asks for the app-specific password and the updater key password (not
+shown, not saved).
 
 **Output** (under `target/universal-apple-darwin/release/bundle/`):
 - `dmg/CloudPunch_<version>_universal.dmg`, for the website;
