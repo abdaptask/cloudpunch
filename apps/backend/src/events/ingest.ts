@@ -27,7 +27,8 @@ export interface IngestBatchInput {
    * When true, if the employee already has an open session on a
    * different session_id, that session is closed with
    * closed_reason='remote_takeover' before this batch opens a new
-   * session. See ADR-0003 §8.
+   * session. See ADR-0003 §8. Honoured only for an Administrator
+   * (ADR-0028 §3); the route passes false for anyone else.
    */
   takeOver?: boolean;
 }
@@ -63,6 +64,7 @@ export type IngestBatchOutcome =
   | { status: 'device_unknown' }
   | { status: 'device_revoked' }
   | { status: 'device_owner_mismatch' }
+  | { status: 'device_signed_out' }
   | { status: 'session_not_open' }
   | { status: 'session_closed' }
   | { status: 'session_owner_mismatch' }
@@ -108,6 +110,9 @@ export async function ingestBatch(input: IngestBatchInput): Promise<IngestBatchO
   if (!device) return { status: 'device_unknown' };
   if (device.revokedAt !== null) return { status: 'device_revoked' };
   if (device.userId !== user.id) return { status: 'device_owner_mismatch' };
+  // ADR-0028 §4: an Administrator signed this machine out. Nothing from
+  // it is recorded until it signs in (and enrols) again.
+  if (device.signoutRequestedAt) return { status: 'device_signed_out' };
 
   // Session lookup / lazy creation on USER_CLOCK_IN.
   let session = await input.db.timeSessions.findById(input.sessionId);

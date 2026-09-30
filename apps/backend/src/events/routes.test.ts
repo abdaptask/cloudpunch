@@ -371,3 +371,77 @@ describe('POST /v1/events — per-event rejections in a 200 batch', () => {
     await app.close();
   });
 });
+
+describe('POST /v1/events — one machine at a time (ADR-0028)', () => {
+  /** Alice is already clocked in on another of her machines. */
+  async function clockedInElsewhere(): Promise<string> {
+    const otherDevice = randomUUID();
+    await db.devices.enroll({
+      id: otherDevice,
+      userId,
+      os: 'windows',
+      hostnameHash: 'sha256-' + '1'.repeat(64),
+      publicKeyEd25519: new Uint8Array(32).fill(0x33),
+      appVersion: '0.1.8',
+    });
+    const s = await db.timeSessions.open({
+      employeeId,
+      deviceId: otherDevice,
+      openedAt: new Date(Date.now() - 3600_000),
+    });
+    return s.id;
+  }
+
+  async function clockIn(roles: string[], takeOver: boolean) {
+    const app = await buildApp();
+    const token = await signToken({ roles });
+    const evt = await signedEvent({ event_type: 'USER_CLOCK_IN', sequence_number: 1 });
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/events',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { ...batch([evt]), take_over: takeOver },
+    });
+    await app.close();
+    return res;
+  }
+
+  it('a signed-out device gets 409 device_signed_out and nothing is written', async () => {
+    await db.devices.signOut({
+      deviceId,
+      employeeId,
+      sessionId: null,
+      closedAt: null,
+      actorUserId: randomUUID(),
+      correlationId: randomUUID(),
+      at: new Date(),
+    });
+    const res = await clockIn([AppRole.Employee], false);
+    expect(res.statusCode).toBe(409);
+    expect(res.json()).toMatchObject({ code: 'device_signed_out' });
+    expect(await db.timeSessions.findById(sessionId)).toBeNull();
+    expect(await db.timeEvents.findByUlid(mkUlid(1))).toBeNull();
+  });
+
+  it('take_over from a non-Administrator is ignored: still 409 multi_device_conflict', async () => {
+    const other = await clockedInElsewhere();
+    const res = await clockIn([AppRole.Employee, AppRole.HR, AppRole.Manager], true);
+    expect(res.statusCode).toBe(409);
+    expect(res.json()).toMatchObject({
+      code: 'multi_device_conflict',
+      existing_session_id: other,
+    });
+    expect((await db.timeSessions.findById(other))?.closedAt).toBeNull();
+    expect(await db.timeSessions.findById(sessionId)).toBeNull();
+  });
+
+  it('take_over from an Administrator closes the other session and opens this one', async () => {
+    const other = await clockedInElsewhere();
+    const res = await clockIn([AppRole.Employee, AppRole.Administrator], true);
+    expect(res.statusCode).toBe(200);
+    expect(await db.timeSessions.findById(other)).toMatchObject({
+      closedReason: 'remote_takeover',
+    });
+    expect((await db.timeSessions.findById(sessionId))?.closedAt).toBeNull();
+  });
+});

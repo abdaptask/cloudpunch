@@ -350,6 +350,8 @@ export class PostgresDb implements DbRepositories {
       revokedAt: row.revokedAt,
       revokedReason: row.revokedReason,
       revokedByUserId: row.revokedByUserId,
+      signoutRequestedAt: row.signoutRequestedAt,
+      signoutRequestedBy: row.signoutRequestedBy,
     });
 
     return {
@@ -359,7 +361,8 @@ export class PostgresDb implements DbRepositories {
         const existingRows = await this.sql<DeviceRow[]>`
           SELECT id, user_id, os, hostname_hash, public_key_ed25519,
                  app_version, enrolled_at, last_seen_at,
-                 revoked_at, revoked_reason, revoked_by_user_id
+                 revoked_at, revoked_reason, revoked_by_user_id,
+                 signout_requested_at, signout_requested_by
           FROM device WHERE id = ${input.id} LIMIT 1
         `;
         const existing = existingRows[0];
@@ -376,7 +379,8 @@ export class PostgresDb implements DbRepositories {
             WHERE id = ${input.id}
             RETURNING id, user_id, os, hostname_hash, public_key_ed25519,
                       app_version, enrolled_at, last_seen_at,
-                      revoked_at, revoked_reason, revoked_by_user_id
+                      revoked_at, revoked_reason, revoked_by_user_id,
+                 signout_requested_at, signout_requested_by
           `;
           const row = updated[0];
           if (!row) throw new Error('device update returned no rows');
@@ -392,7 +396,8 @@ export class PostgresDb implements DbRepositories {
           )
           RETURNING id, user_id, os, hostname_hash, public_key_ed25519,
                     app_version, enrolled_at, last_seen_at,
-                    revoked_at, revoked_reason, revoked_by_user_id
+                    revoked_at, revoked_reason, revoked_by_user_id,
+                 signout_requested_at, signout_requested_by
         `;
         const row = inserted[0];
         if (!row) throw new Error('device insert returned no rows');
@@ -402,7 +407,8 @@ export class PostgresDb implements DbRepositories {
         const rows = await this.sql<DeviceRow[]>`
           SELECT id, user_id, os, hostname_hash, public_key_ed25519,
                  app_version, enrolled_at, last_seen_at,
-                 revoked_at, revoked_reason, revoked_by_user_id
+                 revoked_at, revoked_reason, revoked_by_user_id,
+                 signout_requested_at, signout_requested_by
           FROM device WHERE id = ${id} LIMIT 1
         `;
         const row = rows[0];
@@ -412,7 +418,8 @@ export class PostgresDb implements DbRepositories {
         const rows = await this.sql<DeviceRow[]>`
           SELECT id, user_id, os, hostname_hash, public_key_ed25519,
                  app_version, enrolled_at, last_seen_at,
-                 revoked_at, revoked_reason, revoked_by_user_id
+                 revoked_at, revoked_reason, revoked_by_user_id,
+                 signout_requested_at, signout_requested_by
           FROM device WHERE user_id = ${userId}
         `;
         return rows.map(map);
@@ -439,6 +446,7 @@ export class PostgresDb implements DbRepositories {
           SELECT d.id, d.user_id, d.os, d.hostname_hash, d.public_key_ed25519,
                  d.app_version, d.enrolled_at, d.last_seen_at,
                  d.revoked_at, d.revoked_reason, d.revoked_by_user_id,
+                 d.signout_requested_at, d.signout_requested_by,
                  u.work_email AS owner_work_email, u.display_name AS owner_display_name
           FROM device d JOIN app_user u ON u.id = d.user_id
           ORDER BY d.last_seen_at DESC NULLS LAST, d.enrolled_at DESC
@@ -448,6 +456,42 @@ export class PostgresDb implements DbRepositories {
           ownerWorkEmail: r.ownerWorkEmail,
           ownerDisplayName: r.ownerDisplayName,
         }));
+      },
+      signOut: async (i) =>
+        this.sql.begin(async (tx) => {
+          let closedAt: Date | null = null;
+          if (i.sessionId && i.closedAt) {
+            // Only an open session changes (invariant 2: time_event is
+            // untouched; the session row is the one that closes).
+            const [closed] = await tx<{ closedAt: Date }[]>`
+              UPDATE time_session
+              SET closed_at = ${i.closedAt}, closed_reason = 'remote_takeover',
+                  reconstructed = true
+              WHERE id = ${i.sessionId} AND device_id = ${i.deviceId} AND closed_at IS NULL
+              RETURNING closed_at`;
+            closedAt = closed?.closedAt ?? null;
+          }
+          await tx`
+            UPDATE device
+            SET signout_requested_at = ${i.at}, signout_requested_by = ${i.actorUserId}
+            WHERE id = ${i.deviceId}`;
+          await tx`
+            INSERT INTO audit_log (actor_type, actor_user_id, entity_type, entity_id, action,
+                                   previous_value, new_value, reason, correlation_id, occurred_at)
+            VALUES ('user', ${i.actorUserId}, 'device', ${i.deviceId}, 'device_signed_out',
+                    NULL,
+                    ${tx.json({
+                      employee_id: i.employeeId,
+                      session_id: closedAt ? i.sessionId : null,
+                      closed_at: closedAt ? closedAt.toISOString() : null,
+                    })},
+                    NULL, ${i.correlationId}, ${i.at})`;
+          return { closedAt };
+        }),
+      clearSignOut: async (id) => {
+        await this.sql`
+          UPDATE device SET signout_requested_at = NULL, signout_requested_by = NULL
+          WHERE id = ${id} AND signout_requested_at IS NOT NULL`;
       },
     };
   }
@@ -720,6 +764,8 @@ interface DeviceRow {
   revokedAt: Date | null;
   revokedReason: string | null;
   revokedByUserId: string | null;
+  signoutRequestedAt: Date | null;
+  signoutRequestedBy: string | null;
 }
 
 interface TimeSessionRow {
