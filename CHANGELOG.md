@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Release scripts: clearer notes prompt
+
+- `build-windows.ps1` showed "What's new in " with no version
+  (PowerShell read `$version?` as a variable name) and stopped on an
+  empty first note. Both scripts now ask "Note 1:", "Note 2:"… with the
+  version shown, and an empty first note asks again instead of failing.
+
 ### Desktop 0.1.10: "Clock out and sign out", and today after signing in again
 
 - **Clock out and sign out** (owner request): while clocked in, the

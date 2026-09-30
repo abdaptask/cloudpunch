@@ -26,13 +26,16 @@ if ($Publish) {
   if (-not (Test-Path $bash)) { Fail "Git Bash not found at $bash (the publish script needs it)" }
   & ssh -o BatchMode=yes -o ConnectTimeout=5 $pilotHost true 2>$null
   if ($LASTEXITCODE -ne 0) { Fail "can't reach $pilotHost over SSH to publish" }
-  Write-Host "What's new in $version? One line each; an empty line ends."
+  Write-Host "What's new in ${version}? Type each note and press Enter; press Enter on an empty note when done."
   while ($true) {
-    $line = Read-Host '  -'
-    if ([string]::IsNullOrWhiteSpace($line)) { break }
+    $line = Read-Host "  Note $($notes.Count + 1)"
+    if ([string]::IsNullOrWhiteSpace($line)) {
+      if ($notes.Count -gt 0) { break }
+      Write-Host '  At least one note is needed.'
+      continue
+    }
     $notes += $line.Trim()
   }
-  if ($notes.Count -eq 0) { Fail '-Publish needs at least one note' }
 }
 
 $secure = Read-Host 'Updater key password' -AsSecureString
@@ -49,7 +52,7 @@ Remove-Item Env:CLOUDPUNCH_BUILD_CA_PEM -ErrorAction SilentlyContinue
 # Tauri 2.11 reads the key file's path from this; there's no _PATH variant.
 $env:TAURI_SIGNING_PRIVATE_KEY = $key
 
-Write-Host "Building $version..."
+Write-Host "Building ${version}..."
 Push-Location (Join-Path $root 'apps\desktop')
 try {
   & pnpm tauri build --config src-tauri/tauri.pilot.conf.json
