@@ -248,8 +248,9 @@ session is either a forgotten clock-out or an unattended device.
 ## 10. Multi-device conflict resolution
 
 **Setting:** `multi_device.on_second_signin`
-**Default:** `prompt_take_over` (offer the user Take Over Here /
-Cancel)
+**Default:** `deny` (ADR-0028, 2026-09-30: blocked while clocked in on
+another machine; only an Administrator can sign the person out of it).
+Previously `prompt_take_over` (offer the user Take Over Here / Cancel).
 **Alternatives:**
 - `auto_take_over` — silently close the other session and open here.
 - `deny` — refuse the second sign-in until the other session ends.
