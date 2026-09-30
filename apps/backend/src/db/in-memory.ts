@@ -9,6 +9,7 @@ import type {
   Device,
   DeviceEnrollInput,
   DeviceRepo,
+  DeviceSignOutInput,
   Employee,
   EmployeeRepo,
   InsertEventResult,
@@ -55,6 +56,8 @@ export class InMemoryDb implements DbRepositories {
   readonly managerAudit: SetManagerInput[] = [];
   /** Read-audit rows (ADR-0025 §4), for tests. */
   readonly viewAudit: ViewAudit[] = [];
+  /** Admin machine sign-outs (ADR-0028 §4) and when each closed, for tests. */
+  readonly signOutAudit: (DeviceSignOutInput & { closed: Date | null })[] = [];
 
   private readonly policyByScope = new Map<string, PolicyOverride>();
   private readonly departmentById = new Map<string, { code: string; name: string }>();
@@ -199,6 +202,28 @@ export class InMemoryDb implements DbRepositories {
             };
           })
           .sort(byLastSeenDesc),
+      signOut: async (input) => {
+        const d = this.deviceById.get(input.deviceId);
+        if (!d) throw new Error(`device ${input.deviceId} not found`);
+        let closedAt: Date | null = null;
+        const s = input.sessionId ? this.sessionById.get(input.sessionId) : undefined;
+        if (s && s.closedAt === null && input.closedAt) {
+          closedAt = (await this.closeSession(s.id, input.closedAt, 'remote_takeover', true))
+            .closedAt;
+        }
+        this.deviceById.set(d.id, {
+          ...d,
+          signoutRequestedAt: input.at,
+          signoutRequestedBy: input.actorUserId,
+        });
+        this.signOutAudit.push({ ...input, closed: closedAt });
+        return { closedAt };
+      },
+      clearSignOut: async (id) => {
+        const d = this.deviceById.get(id);
+        if (d)
+          this.deviceById.set(id, { ...d, signoutRequestedAt: null, signoutRequestedBy: null });
+      },
     };
 
     this.timeSessions = {
@@ -313,6 +338,8 @@ export class InMemoryDb implements DbRepositories {
       revokedAt: null,
       revokedReason: null,
       revokedByUserId: null,
+      signoutRequestedAt: null,
+      signoutRequestedBy: null,
     };
     this.deviceById.set(device.id, device);
     return device;

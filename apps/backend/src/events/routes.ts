@@ -1,4 +1,4 @@
-import { Capability } from '@cloudpunch/shared';
+import { AppRole, Capability } from '@cloudpunch/shared';
 import type { FastifyPluginAsync } from 'fastify';
 import fp from 'fastify-plugin';
 import { requireCapability } from '../auth/require.js';
@@ -18,6 +18,7 @@ const HTTP_STATUS_FOR: Record<Exclude<IngestBatchOutcome['status'], 'batch_accep
   device_unknown: 409,
   device_revoked: 409,
   device_owner_mismatch: 409,
+  device_signed_out: 409,
   session_not_open: 409,
   session_closed: 409,
   session_owner_mismatch: 409,
@@ -55,7 +56,10 @@ const eventsRoutesImpl: FastifyPluginAsync<EventsRoutesOptions> = async (app, op
         employeeId: parsed.data.employee_id,
         correlationId: parsed.data.correlation_id,
         events: parsed.data.events,
-        takeOver: parsed.data.take_over,
+        // Only an Administrator may take over another machine's
+        // session (ADR-0028 §3); for anyone else it is ignored, so a
+        // second-device clock-in still gets multi_device_conflict.
+        takeOver: parsed.data.take_over && auth.roles.includes(AppRole.Administrator),
       });
 
       if (outcome.status === 'batch_accepted') {
@@ -79,7 +83,9 @@ const eventsRoutesImpl: FastifyPluginAsync<EventsRoutesOptions> = async (app, op
         body['existing_session_id'] = outcome.existingSessionId;
         body['existing_device_id'] = outcome.existingDeviceId;
         body['opened_at'] = outcome.openedAt.toISOString();
-        body['hint'] = 'resubmit with take_over: true to close the existing session and continue';
+        body['hint'] = auth.roles.includes(AppRole.Administrator)
+          ? 'resubmit with take_over: true to close the existing session and continue'
+          : 'clock out on the other machine first, or ask an administrator to sign it out';
       }
       return reply.code(status).type('application/problem+json').send(body);
     },
@@ -102,6 +108,8 @@ function humanFor(status: string): string {
       return 'device has been revoked';
     case 'device_owner_mismatch':
       return 'device is enrolled to a different user';
+    case 'device_signed_out':
+      return 'an administrator signed this device out; sign in again';
     case 'session_not_open':
       return 'no open session for this session_id (and first event is not USER_CLOCK_IN)';
     case 'session_closed':

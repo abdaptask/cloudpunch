@@ -250,6 +250,64 @@ describe('PostgresDb — devices', () => {
     expect(d?.revokedReason).toBe('first');
     expect(d?.revokedAt?.getTime()).toBe(firstAt.getTime());
   });
+
+  it('ADR-0028: signOut closes the open session, marks the device, audits; clearSignOut undoes the mark', async () => {
+    const empId = await seedEmployee();
+    const { userId } = await seedUser({ employeeId: empId });
+    const { userId: adminId } = await seedUser({ oid: randomUUID() });
+    const d = await db.devices.enroll({
+      id: randomUUID(),
+      userId,
+      os: 'windows',
+      hostnameHash: 'sha256-' + '0'.repeat(64),
+      publicKeyEd25519: pk,
+      appVersion: '0.1.8',
+    });
+    expect(d.signoutRequestedAt).toBeNull();
+    const openedAt = new Date(Date.now() - 3 * 3600_000);
+    const s = await db.timeSessions.open({ employeeId: empId, deviceId: d.id, openedAt });
+    const closedAt = new Date(Date.now() - 3600_000);
+    const at = new Date();
+    const input = {
+      deviceId: d.id,
+      employeeId: empId,
+      sessionId: s.id,
+      closedAt,
+      actorUserId: adminId,
+      correlationId: randomUUID(),
+      at,
+    };
+
+    expect(await db.devices.signOut(input)).toEqual({ closedAt });
+    expect(await db.timeSessions.findById(s.id)).toMatchObject({
+      closedAt,
+      closedReason: 'remote_takeover',
+      reconstructed: true,
+    });
+    const marked = await db.devices.findById(d.id);
+    expect(marked?.signoutRequestedAt?.getTime()).toBe(at.getTime());
+    expect(marked?.signoutRequestedBy).toBe(adminId);
+    const rows = await sql<{ actorUserId: string; action: string; after: unknown }[]>`
+      SELECT actor_user_id, action, new_value AS after FROM audit_log
+      WHERE entity_type = 'device' AND entity_id = ${d.id}`;
+    expect(rows).toEqual([
+      {
+        actorUserId: adminId,
+        action: 'device_signed_out',
+        after: { employee_id: empId, session_id: s.id, closed_at: closedAt.toISOString() },
+      },
+    ]);
+
+    // Repeating: the session is already closed, so nothing more closes.
+    expect(await db.devices.signOut({ ...input, correlationId: randomUUID() })).toEqual({
+      closedAt: null,
+    });
+
+    await db.devices.clearSignOut(d.id);
+    const cleared = await db.devices.findById(d.id);
+    expect(cleared?.signoutRequestedAt).toBeNull();
+    expect(cleared?.signoutRequestedBy).toBeNull();
+  });
 });
 
 // ---------------------------------------------------------------------

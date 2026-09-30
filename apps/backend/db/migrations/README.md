@@ -46,3 +46,6 @@ Postgres integration tests that would have caught it are not in CI yet.
 | ---- | ----------------- | --------------------------------------------------------------------------------------------- | ------------- |
 | 0001 | baseline_identity | users, employees (with source column), devices, departments, audit_log foundation             | Phase 1c      |
 | 0002 | time_events       | time_session + append-only time_event ledger; UPDATE/DELETE trigger on time_event + audit_log | Phase 2a      |
+| 0003 | policy_override   | partial policy documents per scope (ADR-0015)                                                 | Phase 2b      |
+| 0004 | idle_logging      | idle event types + idle_cap close reason (ADR-0018)                                           | Pilot         |
+| 0005 | device_signout    | device.signout_requested_at/_by for admin sign-out of a machine (ADR-0028)                    | Pilot         |

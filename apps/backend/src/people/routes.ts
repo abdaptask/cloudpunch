@@ -5,6 +5,7 @@ import fp from 'fastify-plugin';
 import { z } from 'zod';
 import { requireCapability } from '../auth/require.js';
 import type { DbRepositories } from '../db/index.js';
+import { activeDeviceOf, lastEventAt } from '../devices/active.js';
 import { GraphError, type Graph } from './graph.js';
 import { OboError } from './obo.js';
 import { checkRoleChange, diffRoles } from './rules.js';
@@ -17,6 +18,11 @@ import { welcomeMessage, type WelcomeMessage, type WelcomeSettings } from './wel
  *   GET /v1/admin/people                everyone with a CloudPunch role
  *   GET /v1/admin/people/search?q=      directory search (2+ characters)
  *   PUT /v1/admin/people/:oid/roles     {roles, reason?}: set exactly these
+ *
+ * One machine at a time (ADR-0028 §4), Administrators only, by employee id:
+ *
+ *   GET  /v1/people/:employeeId/active-device            the open session's machine, or 204
+ *   POST /v1/people/:employeeId/active-device/sign-out   {device_id}: sign that machine out
  *
  * Roles stay in Entra (invariant 6): every change is an Entra app-role
  * assignment, made with the caller's own delegated rights (OBO). Giving
@@ -42,6 +48,11 @@ const WELCOME_GAP_MS = 10 * 60_000;
 
 const READ = [Capability.AdminEmployeeAssignRole, Capability.HrEmployeeWrite];
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Signing someone out of a machine (ADR-0028 §4): Administrator only. */
+const SIGN_OUT = [Capability.AdminDeviceRevoke];
+
+const signOutBody = z.object({ device_id: z.string().uuid() }).strict();
 
 const putBody = z
   .object({
@@ -297,6 +308,81 @@ const peopleRoutesImpl: FastifyPluginAsync<PeopleRoutesOptions> = async (app, op
         });
         return reply.code(200).send({ oid, roles: wanted, changed: true });
       });
+    },
+  );
+
+  /** The employee `:employeeId`, or a reply already sent. */
+  async function employeeParam(req: FastifyRequest, reply: FastifyReply): Promise<string | null> {
+    const id = String((req.params as { employeeId?: string }).employeeId ?? '').toLowerCase();
+    if (!UUID.test(id)) {
+      await problem(reply, 400, 'validation', 'employeeId must be a UUID');
+      return null;
+    }
+    if (!(await db.employees.findById(id))) {
+      await problem(reply, 404, 'unknown_person', 'no such employee');
+      return null;
+    }
+    return id;
+  }
+
+  app.get(
+    '/v1/people/:employeeId/active-device',
+    { preHandler: [requireCapability(SIGN_OUT)] },
+    async (req, reply) => {
+      const employeeId = await employeeParam(req, reply);
+      if (!employeeId) return reply;
+      const active = await activeDeviceOf(db, employeeId);
+      if (!active) return reply.code(204).send();
+      return reply.code(200).send({
+        device_id: active.deviceId,
+        os: active.os,
+        enrolled_at: active.enrolledAt.toISOString(),
+        opened_at: active.openedAt.toISOString(),
+        last_event_at: (await lastEventAt(db, active.session, new Date())).toISOString(),
+      });
+    },
+  );
+
+  app.post(
+    '/v1/people/:employeeId/active-device/sign-out',
+    { preHandler: [requireCapability(SIGN_OUT)] },
+    async (req, reply) => {
+      const body = signOutBody.safeParse(req.body ?? {});
+      if (!body.success) return problem(reply, 400, 'validation', 'body must be {device_id}');
+      const auth = req.auth;
+      if (!auth) return problem(reply, 401, 'unauthorized', 'authentication required');
+      const actor = await db.users.findByEntraObjectId(auth.oid);
+      if (!actor)
+        return problem(reply, 403, 'no_user_for_oid', 'your account has no CloudPunch user');
+      const employeeId = await employeeParam(req, reply);
+      if (!employeeId) return reply;
+
+      // The device must be this employee's (invariant 5: no acting on
+      // someone else's machine through the wrong person).
+      const deviceId = body.data.device_id.toLowerCase();
+      const device = await db.devices.findById(deviceId);
+      const owner = device ? await db.users.findById(device.userId) : null;
+      if (!device || owner?.employeeId !== employeeId) {
+        return problem(reply, 404, 'unknown_device', 'no such device for this employee');
+      }
+
+      const now = new Date();
+      const open = await db.timeSessions.findOpenByEmployeeId(employeeId);
+      const session = open && open.deviceId === device.id ? open : null;
+      const { closedAt } = await db.devices.signOut({
+        deviceId: device.id,
+        employeeId,
+        sessionId: session?.id ?? null,
+        closedAt: session ? await lastEventAt(db, session, now) : null,
+        actorUserId: actor.id,
+        correlationId: randomUUID(),
+        at: now,
+      });
+      req.log.info(
+        { deviceId: device.id, employeeId, closed: closedAt !== null },
+        'people: machine signed out (ADR-0028)',
+      );
+      return reply.code(200).send({ closed_at: closedAt ? closedAt.toISOString() : null });
     },
   );
 };
