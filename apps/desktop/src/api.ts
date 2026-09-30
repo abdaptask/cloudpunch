@@ -151,6 +151,22 @@ export interface DeviceRow {
   revoked_at: string | null;
 }
 
+/** People → Active machine (ADR-0028 §4): where someone is clocked in. */
+export interface ActiveMachine {
+  device_id: string;
+  os: 'windows' | 'macos';
+  enrolled_at: string;
+  opened_at: string;
+  last_event_at: string | null;
+}
+
+/** Clocked in on another computer (ADR-0028); epoch ms. */
+export interface BlockedElsewhere {
+  /** Null until the server has said. */
+  os: 'windows' | 'macos' | null;
+  openedAt: number | null;
+}
+
 /** The fixed break ids (ADR-0023 §1). */
 export type BreakId = 'bio' | 'meal' | 'rest' | 'personal' | 'other';
 
@@ -205,6 +221,8 @@ export interface StateView {
   presenceCheck: 'continuous' | 'periodic' | null;
   /** "Welcome back?" while Away (ADR-0027), epoch ms. */
   awayCheck: { inputSince: number; deadline: number } | null;
+  /** Clocked in on another computer: no clock-in here (ADR-0028). */
+  blockedElsewhere: BlockedElsewhere | null;
 }
 
 /** The window's close button was pressed (ADR-0013 §1). */
@@ -225,6 +243,8 @@ export interface AuthStatus {
   username: string | null;
   /** After sign-out: events kept here until this user signs in again. */
   unsentKept?: number;
+  /** Why the app signed out on its own (ADR-0028 §4). */
+  notice?: 'signed_out_by_admin';
 }
 
 /** Emitted after sign-in, sign-out, and the silent start-up restore. */
@@ -286,6 +306,17 @@ export const api = {
   ): Promise<{ id: string; reporting_manager_id: string | null }> =>
     invoke('admin_set_manager', { employeeId, managerId, reason: reason || null }),
   adminDevices: (): Promise<{ devices: DeviceRow[] }> => invoke('admin_devices'),
+  /** Administrators (ADR-0028 §4): null when not clocked in anywhere. */
+  adminActiveDevice: (employeeId: string): Promise<ActiveMachine | null> =>
+    invoke('admin_active_device', { employeeId }),
+  /** Clocks them out at their last activity and signs that computer out. */
+  adminActiveDeviceSignOut: (
+    employeeId: string,
+    deviceId: string,
+  ): Promise<{ closed_at: string | null }> =>
+    invoke('admin_active_device_sign_out', { employeeId, deviceId }),
+  /** "Check again" while blocked (ADR-0028); rejects `offline` if unanswered. */
+  checkActiveDevice: (): Promise<StateView> => invoke<StateView>('check_active_device'),
   /** The answer to "Welcome back?" while Away (ADR-0027). */
   answerAwayCheck: (back: boolean): Promise<StateView> =>
     invoke<StateView>('answer_away_check', { back }),

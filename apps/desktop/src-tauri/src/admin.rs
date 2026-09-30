@@ -264,6 +264,38 @@ pub fn devices(http: &Client, base: &str, token: &str) -> Result<Value, DayError
     )
 }
 
+/// Administrators (ADR-0028 §4): the computer `employee_id` is clocked
+/// in on, or `null` (204) when none.
+pub fn active_device(
+    http: &Client,
+    base: &str,
+    token: &str,
+    employee_id: &str,
+) -> Result<Value, DayError> {
+    if !is_uuid(employee_id) {
+        return Err(DayError::Refused("invalid_argument".into()));
+    }
+    let path = format!("/v1/people/{employee_id}/active-device");
+    send(http, base, token, reqwest::Method::GET, &path, None)
+}
+
+/// Administrators: close that session at its last activity and sign
+/// the computer out. Audited server-side.
+pub fn sign_out_device(
+    http: &Client,
+    base: &str,
+    token: &str,
+    employee_id: &str,
+    device_id: &str,
+) -> Result<Value, DayError> {
+    if !is_uuid(employee_id) || !is_uuid(device_id) {
+        return Err(DayError::Refused("invalid_argument".into()));
+    }
+    let body = serde_json::json!({ "device_id": device_id });
+    let path = format!("/v1/people/{employee_id}/active-device/sign-out");
+    send(http, base, token, reqwest::Method::POST, &path, Some(&body))
+}
+
 /// One signed-in call. 401/429/5xx and network trouble are
 /// `Unavailable`; other 4xx carry the server's `code`.
 fn send(
@@ -441,6 +473,66 @@ mod tests {
         m.assert();
         assert_eq!(
             people_set_roles(&client(), &server.base_url(), "tok", "../x", &[], None),
+            Err(DayError::Refused("invalid_argument".into()))
+        );
+    }
+
+    #[test]
+    fn active_device_reads_the_machine_or_none_and_sign_out_names_it() {
+        let emp = "0f8fad5b-d9cb-469f-a165-70867728950e";
+        let dev = "33333333-3333-4333-8333-333333333333";
+        let server = MockServer::start();
+        let get = server.mock(|when, then| {
+            when.method(GET)
+                .path(format!("/v1/people/{emp}/active-device"))
+                .header("authorization", "Bearer tok");
+            then.status(200).json_body(json!({
+                "device_id": dev, "os": "windows",
+                "enrolled_at": "2026-09-01T04:00:00Z",
+                "opened_at": "2026-09-30T03:32:00Z",
+                "last_event_at": "2026-09-30T08:10:00Z"
+            }));
+        });
+        let got = active_device(&client(), &server.base_url(), "tok", emp).unwrap();
+        assert_eq!(got["os"], "windows");
+        get.assert();
+
+        let post = server.mock(|when, then| {
+            when.method(POST)
+                .path(format!("/v1/people/{emp}/active-device/sign-out"))
+                .json_body(json!({ "device_id": dev }));
+            then.status(200)
+                .json_body(json!({ "closed_at": "2026-09-30T08:10:00Z" }));
+        });
+        let done = sign_out_device(&client(), &server.base_url(), "tok", emp, dev).unwrap();
+        assert_eq!(done["closed_at"], "2026-09-30T08:10:00Z");
+        post.assert();
+
+        let none = MockServer::start();
+        none.mock(|when, then| {
+            when.method(GET);
+            then.status(204);
+        });
+        assert_eq!(
+            active_device(&client(), &none.base_url(), "tok", emp),
+            Ok(Value::Null)
+        );
+
+        let refused = MockServer::start();
+        refused.mock(|when, then| {
+            when.method(POST);
+            then.status(403).json_body(json!({ "code": "forbidden" }));
+        });
+        assert_eq!(
+            sign_out_device(&client(), &refused.base_url(), "tok", emp, dev),
+            Err(DayError::Refused("forbidden".into()))
+        );
+        assert_eq!(
+            sign_out_device(&client(), &refused.base_url(), "tok", emp, "../x"),
+            Err(DayError::Refused("invalid_argument".into()))
+        );
+        assert_eq!(
+            active_device(&client(), &refused.base_url(), "tok", "x"),
             Err(DayError::Refused("invalid_argument".into()))
         );
     }

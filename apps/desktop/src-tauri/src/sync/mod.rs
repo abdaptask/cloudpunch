@@ -21,8 +21,15 @@
 //!     without operator action; keep for audit).
 //!   - `AuthDenied` → schedule retry `auth_retry` seconds out (may
 //!     resolve after admin action).
-//!   - `MultiDeviceConflict` → schedule retry `multi_device_retry`
-//!     seconds out; the UI prompt in 2b.7 handles `take_over`.
+//!   - `MultiDeviceConflict` → poison **every** unsent row of that
+//!     session and tell the app ([`SyncNotice`], ADR-0028 §3). The
+//!     server never opened the session, and it can't open it later
+//!     without overlapping the other computer's time, so the rows are
+//!     never re-sent; they stay in the outbox, poisoned, like any other
+//!     refused row. The employee's app never sends `take_over`.
+//!   - `DeviceSignedOut`     → keep the rows (retry later, not
+//!     poisoned), stop this tick, and tell the app, which signs out and
+//!     keeps them for the next sign-in here (ADR-0028 §4).
 //!   - `Transient`           → schedule retry `backoff.delay(retry_count)`.
 //!
 //! Threading:
@@ -63,9 +70,6 @@ pub struct SyncConfig {
     /// we don't hammer the backend while an admin is fixing an
     /// employee record.
     pub auth_retry: Duration,
-    /// Retry delay after `MultiDeviceConflict`. Long enough to give
-    /// the user time to interact with the take-over prompt.
-    pub multi_device_retry: Duration,
     /// Exponential-backoff schedule for `Transient` failures.
     pub backoff: BackoffPolicy,
 }
@@ -76,11 +80,28 @@ impl Default for SyncConfig {
             batch_size: 100,
             poll_interval: Duration::from_secs(5),
             auth_retry: Duration::from_secs(60),
-            multi_device_retry: Duration::from_secs(300),
             backoff: BackoffPolicy::default(),
         }
     }
 }
+
+/// Something the app must act on, from a batch's answer (ADR-0028).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SyncNotice {
+    /// This session was refused: the person is clocked in on another
+    /// computer. Its rows are poisoned already.
+    MultiDeviceConflict {
+        session_id: String,
+        /// When the other session opened (RFC 3339), if the server said.
+        opened_at: Option<String>,
+    },
+    /// An admin signed this computer out.
+    DeviceSignedOut,
+}
+
+/// Receives [`SyncNotice`]s on the sync thread. It must not block on
+/// the sync loop itself (e.g. stop it): hand the work to another thread.
+pub type Notify = Box<dyn Fn(SyncNotice) + Send>;
 
 pub struct SyncLoop {
     stop: Arc<AtomicBool>,
@@ -100,6 +121,17 @@ impl SyncLoop {
         config: SyncConfig,
         is_online: Arc<AtomicBool>,
     ) -> Self {
+        Self::start_with_notices(outbox, client, config, is_online, Box::new(|_| {}))
+    }
+
+    /// [`SyncLoop::start`], telling `notify` what the app must act on.
+    pub fn start_with_notices(
+        outbox: Outbox,
+        client: Box<dyn BackendClient>,
+        config: SyncConfig,
+        is_online: Arc<AtomicBool>,
+        notify: Notify,
+    ) -> Self {
         let stop = Arc::new(AtomicBool::new(false));
         let stop_clone = stop.clone();
 
@@ -111,7 +143,9 @@ impl SyncLoop {
                 let config = config;
                 while !stop_clone.load(Ordering::Acquire) {
                     if is_online.load(Ordering::Acquire) {
-                        run_tick(&outbox, &*client, &config);
+                        for notice in run_tick(&outbox, &*client, &config) {
+                            notify(notice);
+                        }
                     }
                     // Sleep in slices so shutdown (sign-out) is prompt.
                     let wake = std::time::Instant::now() + config.poll_interval;
@@ -143,14 +177,20 @@ impl SyncLoop {
 }
 
 /// Single drain-group-send-apply pass. Exposed so tests can drive
-/// deterministic ticks without threading.
-pub fn run_tick(outbox: &Outbox, client: &dyn BackendClient, config: &SyncConfig) {
+/// deterministic ticks without threading. Returns what the app must
+/// act on.
+pub fn run_tick(
+    outbox: &Outbox,
+    client: &dyn BackendClient,
+    config: &SyncConfig,
+) -> Vec<SyncNotice> {
+    let mut notices = Vec::new();
     let entries = match outbox.drain(config.batch_size) {
         Ok(e) => e,
-        Err(_) => return, // Fatal outbox errors surface via other paths.
+        Err(_) => return notices, // Fatal outbox errors surface via other paths.
     };
     if entries.is_empty() {
-        return;
+        return notices;
     }
 
     for group in group_by_session(entries) {
@@ -165,8 +205,16 @@ pub fn run_tick(outbox: &Outbox, client: &dyn BackendClient, config: &SyncConfig
             events: group,
         };
         let response = client.send_batch(&envelope);
-        apply_response(outbox, &envelope, response, config);
+        if let Some(notice) = apply_response(outbox, &envelope, response, config) {
+            let signed_out = notice == SyncNotice::DeviceSignedOut;
+            notices.push(notice);
+            // Every other batch would get the same answer.
+            if signed_out {
+                break;
+            }
+        }
     }
+    notices
 }
 
 /// Group by session and signed identity (session_id, correlation_id,
@@ -205,7 +253,7 @@ fn apply_response(
     envelope: &SessionEnvelope,
     response: SendBatchResponse,
     config: &SyncConfig,
-) {
+) -> Option<SyncNotice> {
     match response {
         SendBatchResponse::Accepted { results } => {
             for r in results {
@@ -247,14 +295,36 @@ fn apply_response(
         SendBatchResponse::MultiDeviceConflict {
             existing_session_id,
             existing_device_id,
+            opened_at,
         } => {
-            let retry_at = SystemTime::now() + config.multi_device_retry;
             let msg = format!(
                 "multi_device_conflict: existing_session={existing_session_id}, existing_device={existing_device_id}"
             );
-            for e in &envelope.events {
-                let _ = outbox.mark_failed(&e.event_ulid, &msg, retry_at);
+            // The whole session, not just this batch: nothing after its
+            // clock-in can be accepted (ADR-0028 §3).
+            match outbox.poison_session(&envelope.session_id, &msg) {
+                Ok(n) => eprintln!(
+                    "[cloudpunch] clocked in on another computer: {n} event(s) of this session kept, not sent"
+                ),
+                Err(err) => {
+                    eprintln!("[cloudpunch] could not set the refused session aside: {err}");
+                    for e in &envelope.events {
+                        let _ = outbox.mark_poisoned(&e.event_ulid, &msg);
+                    }
+                }
             }
+            return Some(SyncNotice::MultiDeviceConflict {
+                session_id: envelope.session_id.clone(),
+                opened_at,
+            });
+        }
+        SendBatchResponse::DeviceSignedOut => {
+            // Kept for the next sign-in here; the app signs out now.
+            let retry_at = SystemTime::now() + config.auth_retry;
+            for e in &envelope.events {
+                let _ = outbox.mark_failed(&e.event_ulid, "device_signed_out", retry_at);
+            }
+            return Some(SyncNotice::DeviceSignedOut);
         }
         SendBatchResponse::Transient(err) => {
             let retry_count = envelope
@@ -268,6 +338,7 @@ fn apply_response(
             }
         }
     }
+    None
 }
 
 #[cfg(test)]
@@ -306,7 +377,6 @@ mod tests {
             batch_size: 100,
             poll_interval: Duration::from_millis(20),
             auth_retry: Duration::from_secs(60),
-            multi_device_retry: Duration::from_secs(300),
             backoff: BackoffPolicy::default(),
         }
     }
@@ -566,24 +636,122 @@ mod tests {
         assert!(entry.next_retry_at >= SystemTime::now() + Duration::from_secs(50));
     }
 
+    /// ADR-0028 §3: a refused session is set aside whole (kept,
+    /// poisoned, never re-sent), other sessions go on, and the app hears
+    /// about it once per refused batch.
     #[test]
-    fn multi_device_conflict_schedules_5_minute_retry() {
+    fn multi_device_conflict_sets_the_whole_session_aside_and_tells_the_app() {
         let outbox = Outbox::open_in_memory(&make_key()).unwrap();
         outbox
             .enqueue(&mk_event("01J8Q00000000000000000000A", 1, "s1"))
             .unwrap();
+        outbox
+            .enqueue(&mk_event("01J8Q00000000000000000000B", 2, "s1"))
+            .unwrap();
+        // A later row of the same session, not due yet.
+        outbox
+            .enqueue(&mk_event("01J8Q00000000000000000000C", 3, "s1"))
+            .unwrap();
+        outbox
+            .mark_failed(
+                "01J8Q00000000000000000000C",
+                "later",
+                SystemTime::now() + Duration::from_secs(3600),
+            )
+            .unwrap();
+        // Another session, accepted as usual.
+        outbox
+            .enqueue(&mk_event("01J8Q00000000000000000000D", 1, "s0"))
+            .unwrap();
 
-        let client = MockClient::new(|_| SendBatchResponse::MultiDeviceConflict {
-            existing_session_id: "existing-sess".into(),
-            existing_device_id: "existing-dev".into(),
+        let client = MockClient::new(|env| {
+            if env.session_id == "s1" {
+                SendBatchResponse::MultiDeviceConflict {
+                    existing_session_id: "existing-sess".into(),
+                    existing_device_id: "existing-dev".into(),
+                    opened_at: Some("2026-09-30T03:32:00Z".into()),
+                }
+            } else {
+                all_accepted(env)
+            }
         });
-        run_tick(&outbox, &client, &cfg());
-        let entry = outbox
-            .get("01J8Q00000000000000000000A")
-            .unwrap()
-            .expect("row present");
-        assert!(!entry.poisoned);
-        assert!(entry.next_retry_at >= SystemTime::now() + Duration::from_secs(250));
+        let notices = run_tick(&outbox, &client, &cfg());
+        assert_eq!(
+            notices,
+            [SyncNotice::MultiDeviceConflict {
+                session_id: "s1".into(),
+                opened_at: Some("2026-09-30T03:32:00Z".into()),
+            }]
+        );
+        for ulid in [
+            "01J8Q00000000000000000000A",
+            "01J8Q00000000000000000000B",
+            "01J8Q00000000000000000000C",
+        ] {
+            let e = outbox.get(ulid).unwrap().expect("kept, not lost");
+            assert!(e.poisoned, "{ulid} set aside");
+            assert!(e
+                .poison_reason
+                .as_deref()
+                .unwrap()
+                .starts_with("multi_device_conflict"));
+        }
+        assert!(outbox.get("01J8Q00000000000000000000D").unwrap().is_none());
+        // Nothing left to send: the outbox isn't blocked, and a second
+        // tick sends nothing.
+        assert_eq!(outbox.unsent_count().unwrap(), 0);
+        let calls_before = client.calls().lock().unwrap().len();
+        assert!(run_tick(&outbox, &client, &cfg()).is_empty());
+        assert_eq!(client.calls().lock().unwrap().len(), calls_before);
+    }
+
+    /// ADR-0028 §4: signed out by an admin keeps the rows (not
+    /// poisoned) for the next sign-in, and stops the tick.
+    #[test]
+    fn device_signed_out_keeps_the_rows_and_stops_the_tick() {
+        let outbox = Outbox::open_in_memory(&make_key()).unwrap();
+        outbox
+            .enqueue(&mk_event("01J8Q00000000000000000000A", 1, "s1"))
+            .unwrap();
+        outbox
+            .enqueue(&mk_event("01J8Q00000000000000000000B", 1, "s2"))
+            .unwrap();
+        let client = MockClient::new(|_| SendBatchResponse::DeviceSignedOut);
+        let notices = run_tick(&outbox, &client, &cfg());
+        assert_eq!(notices, [SyncNotice::DeviceSignedOut]);
+        assert_eq!(client.calls().lock().unwrap().len(), 1, "one batch only");
+        assert_eq!(outbox.unsent_count().unwrap(), 2, "both kept");
+        let first = &client.calls().lock().unwrap()[0].event_ulids[0].clone();
+        let e = outbox.get(first).unwrap().unwrap();
+        assert!(!e.poisoned);
+        assert_eq!(e.last_error.as_deref(), Some("device_signed_out"));
+        assert!(e.next_retry_at > SystemTime::now());
+    }
+
+    #[test]
+    fn the_running_loop_passes_notices_to_the_app() {
+        let outbox = Outbox::open_in_memory(&make_key()).unwrap();
+        outbox
+            .enqueue(&mk_event("01J8Q00000000000000000000A", 1, "s1"))
+            .unwrap();
+        let client = MockClient::new(|_| SendBatchResponse::DeviceSignedOut);
+        let heard = Arc::new(Mutex::new(Vec::new()));
+        let sink = heard.clone();
+        let loop_ = SyncLoop::start_with_notices(
+            outbox,
+            Box::new(client),
+            cfg(),
+            Arc::new(AtomicBool::new(true)),
+            Box::new(move |n| sink.lock().unwrap().push(n)),
+        );
+        for _ in 0..100 {
+            if !heard.lock().unwrap().is_empty() {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        drop(loop_.shutdown());
+        assert_eq!(heard.lock().unwrap()[0], SyncNotice::DeviceSignedOut);
     }
 
     #[test]

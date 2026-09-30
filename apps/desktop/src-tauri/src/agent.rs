@@ -25,6 +25,7 @@ use std::time::{Duration, SystemTime};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 
+use crate::active_device::BlockedView;
 use crate::call_type::{self, Rules};
 use crate::machine::driver::Driver;
 use crate::machine::{
@@ -99,6 +100,8 @@ pub struct StateView {
     pub presence_check: Option<&'static str>,
     /// "Welcome back?" while Away (ADR-0027).
     pub away_check: Option<AwayCheckView>,
+    /// Clocked in on another computer: no clock-in here (ADR-0028).
+    pub blocked_elsewhere: Option<BlockedView>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -187,6 +190,11 @@ impl StateView {
         self
     }
 
+    pub fn with_blocked(mut self, blocked: Option<&BlockedView>) -> Self {
+        self.blocked_elsewhere = blocked.cloned();
+        self
+    }
+
     pub fn with_timeline(mut self, timeline: &Timeline) -> Self {
         self.session_started_at = timeline.session_started_at().map(epoch_ms);
         self.timeline = timeline.views();
@@ -240,6 +248,7 @@ pub fn view_of(
         update_ready: None,
         presence_check: None,
         away_check: None,
+        blocked_elsewhere: None,
     }
 }
 
@@ -265,6 +274,7 @@ pub fn rejection_code(r: &Rejected) -> &'static str {
         Rejected::NoteRequired => "note_required",
         Rejected::NoteTooLong => "note_too_long",
         Rejected::StartOutOfRange => "start_out_of_range",
+        Rejected::ClockedInElsewhere => "clocked_in_elsewhere",
     }
 }
 
@@ -437,6 +447,8 @@ struct Inner {
     update: crate::app_update::UpdateState,
     /// When this run started: an update may also install just after.
     started_at: SystemTime,
+    /// Clocked in on another computer (ADR-0028): no clock-in here.
+    blocked: Option<BlockedView>,
 }
 
 /// Core settings from a policy, adopted only while clocked out.
@@ -464,6 +476,7 @@ impl Inner {
         .with_idle_return(self.driver.core().idle_return())
         .with_auto_clock_out_reason(self.auto_clock_out_reason)
         .with_clock_in_offer(self.clock_in_offer(SystemTime::now()), self.clock_in_prompt)
+        .with_blocked(self.blocked.as_ref())
     }
 
     /// The sign-in time a clock-in may start from, while clocked out.
@@ -593,6 +606,7 @@ impl<U: Ui> Agent<U> {
                 breaks: Default::default(),
                 offer_training: true,
                 planned_break: None,
+                blocked: None,
             }),
             ui: OnceLock::new(),
             tray_notice: AtomicBool::new(false),
@@ -695,6 +709,73 @@ impl<U: Ui> Agent<U> {
         reason != AwayReason::Training || self.lock().offer_training
     }
 
+    /// Block or allow clocking in here (ADR-0028). Newly blocked, the
+    /// clock-in popup closes and, with `show`, the window comes forward
+    /// to say why.
+    pub fn set_blocked(&self, blocked: Option<BlockedView>, show: bool) {
+        let (view, snapshot, changed) = {
+            let mut inner = self.lock();
+            let changed = inner.blocked != blocked;
+            if blocked.is_some() {
+                inner.clock_in_prompt = false;
+            }
+            inner.blocked = blocked;
+            let snapshot = tray_snapshot(inner.driver.state(), inner.driver.core().call_type());
+            (inner.view(), snapshot, changed)
+        };
+        if !changed {
+            return;
+        }
+        if let Some(ui) = self.ui.get() {
+            if show && view.blocked_elsewhere.is_some() {
+                ui.show_main();
+            }
+            ui.state_changed(&view, snapshot);
+        }
+    }
+
+    /// Whether clocking in is blocked here (ADR-0028).
+    pub fn is_blocked(&self) -> bool {
+        self.lock().blocked.is_some()
+    }
+
+    /// Back to clocked out **without** recording a clock-out (ADR-0028):
+    /// the server refused this session or already closed it. With
+    /// `only`, only if that is the session being recorded. Returns
+    /// whether a session was left.
+    pub fn abandon_session(&self, only: Option<&str>) -> bool {
+        let now = SystemTime::now();
+        let (view, plan, snapshot) = {
+            let mut inner = self.lock();
+            if inner.driver.state() == CoreState::ClockedOut {
+                return false;
+            }
+            if let Some(id) = only {
+                if inner.driver.sink().session_id() != Some(id) {
+                    return false;
+                }
+            }
+            let effects = inner.driver.abandon_session();
+            inner.timeline.record(CoreState::ClockedOut, None, now);
+            self.recorder.save_day(&inner.timeline.to_json());
+            inner.long_shift = false;
+            inner.planned_break = None;
+            self.adopt_pending(&mut inner);
+            let snapshot = tray_snapshot(inner.driver.state(), inner.driver.core().call_type());
+            let plan = UiPlan {
+                broadcast: true,
+                hide_prompt: effects.contains(&Effect::HidePrompt),
+                show_main: true,
+                tray: true,
+                tooltip: inner.tooltip(snapshot, now),
+                ..UiPlan::default()
+            };
+            (inner.view(), plan, snapshot)
+        };
+        self.apply(&view, &plan, snapshot);
+        true
+    }
+
     /// The person signed in to, unlocked or woke the computer at `at`.
     pub fn note_signed_in(&self, at: SystemTime) {
         let mut inner = self.lock();
@@ -752,6 +833,11 @@ impl<U: Ui> Agent<U> {
 
         let (view, plan, snapshot) = {
             let mut inner = self.lock();
+            // Clocked in on another computer (ADR-0028): the tray and
+            // the popup land here too, not only the window's button.
+            if is_clock_in && inner.blocked.is_some() {
+                return Err(Rejected::ClockedInElsewhere);
+            }
             let before = inner.driver.state();
             let call_before = inner.driver.core().call_type();
             let outcome = inner.driver.handle(input, now)?;
@@ -848,9 +934,11 @@ impl<U: Ui> Agent<U> {
                 let cfg = inner.reminder_cfg.clone();
                 if let Some(last_input_at) = last_input_at {
                     // The daily clock-in popup (ADR-0018 §4).
+                    // Nothing to offer while blocked (ADR-0028).
+                    let ready = self.recorder.is_armed() && inner.blocked.is_none();
                     let prompt = crate::clock_in_prompt::PromptInputs {
                         now,
-                        ready: self.recorder.is_armed(),
+                        ready,
                         clocked_out: after == CoreState::ClockedOut,
                         worked_today: inner.timeline.current_day_start(now).is_some(),
                         last_input_at,
@@ -863,7 +951,7 @@ impl<U: Ui> Agent<U> {
                     }
                     let nudge = NudgeInputs {
                         now,
-                        ready: self.recorder.is_armed(),
+                        ready,
                         clocked_out: after == CoreState::ClockedOut,
                         // The current working day, not the date (ADR-0016 §1).
                         worked_today: inner.timeline.current_day_start(now).is_some(),
@@ -1743,6 +1831,103 @@ mod tests {
         agent.apply_policy(&policy(1200, 10), Some("v3".into()));
         agent.handle(Input::ClockOut).unwrap();
         assert_eq!(idle_threshold(&agent), Duration::from_secs(1200));
+    }
+
+    fn blocked() -> BlockedView {
+        BlockedView {
+            os: Some("windows"),
+            opened_at: Some(1_790_000_000_000),
+        }
+    }
+
+    /// ADR-0028: blocked, no clock-in from anywhere (window, popup,
+    /// tray all end in `handle`); unblocked, clocking in works again.
+    #[test]
+    fn blocked_refuses_clock_in_until_unblocked() {
+        let (agent, ui) = agent_with_ui();
+        agent.set_blocked(Some(blocked()), true);
+        assert!(agent.is_blocked());
+        let view = agent.view();
+        assert_eq!(view.blocked_elsewhere, Some(blocked()));
+        let json = serde_json::to_value(&view).unwrap();
+        assert_eq!(json["blockedElsewhere"]["os"], "windows");
+        assert_eq!(json["blockedElsewhere"]["openedAt"], 1_790_000_000_000u64);
+        assert!(ui.calls.lock().unwrap().contains(&"show_main".to_string()));
+
+        assert_eq!(
+            agent.handle(Input::ClockIn),
+            Err(Rejected::ClockedInElsewhere)
+        );
+        assert_eq!(
+            agent.handle(Input::ClockInFrom(SystemTime::now())),
+            Err(Rejected::ClockedInElsewhere)
+        );
+        assert_eq!(agent.state(), CoreState::ClockedOut);
+        assert_eq!(
+            rejection_code(&Rejected::ClockedInElsewhere),
+            "clocked_in_elsewhere"
+        );
+
+        agent.set_blocked(None, false);
+        assert!(!agent.is_blocked());
+        assert!(agent.view().blocked_elsewhere.is_none());
+        agent.handle(Input::ClockIn).unwrap();
+        assert_eq!(agent.state(), CoreState::Active);
+    }
+
+    #[test]
+    fn blocking_again_with_the_same_details_changes_nothing() {
+        let (agent, ui) = agent_with_ui();
+        agent.set_blocked(Some(blocked()), false);
+        let n = ui.calls.lock().unwrap().len();
+        agent.set_blocked(Some(blocked()), true);
+        assert_eq!(ui.calls.lock().unwrap().len(), n);
+    }
+
+    /// ADR-0028: a refused or remotely closed session ends here without
+    /// a clock-out event; only the named session is left.
+    #[test]
+    fn abandoning_the_session_clocks_out_without_an_event() {
+        use crate::recorder::Target;
+        use ed25519_dalek::SigningKey;
+
+        let id = crate::enroll::Identity {
+            oid: "0f8e1c2a-3b4d-4e5f-8a9b-0c1d2e3f4a5b".into(),
+            device_id: "33333333-3333-4333-8333-333333333333".into(),
+            employee_id: "44444444-4444-4444-8444-444444444444".into(),
+        };
+        let recorder = Recorder::new();
+        recorder.arm(Target::in_memory(id, SigningKey::from_bytes(&[7u8; 32])));
+        let agent = Agent::<Arc<FakeUi>>::with_recorder(CoreConfig::default(), &recorder);
+        let ui = Arc::new(FakeUi::default());
+        agent.attach(ui.clone());
+
+        assert!(!agent.abandon_session(None), "nothing to leave");
+        agent.handle(Input::ClockIn).unwrap();
+        agent
+            .handle(Input::StartBreak {
+                kind: BreakKind::Bio,
+                planned_minutes: None,
+            })
+            .unwrap();
+        assert_eq!(recorder.unsent().unwrap(), 2);
+        assert!(!agent.abandon_session(Some("another-session")));
+        assert_ne!(agent.state(), CoreState::ClockedOut);
+
+        assert!(agent.abandon_session(None));
+        assert_eq!(agent.state(), CoreState::ClockedOut);
+        assert_eq!(recorder.unsent().unwrap(), 2, "no clock-out recorded");
+        let view = agent.view();
+        assert_eq!(view.session_started_at, None);
+        assert!(view.timeline.iter().all(|s| s.ended_at.is_some()));
+        assert!(ui
+            .calls
+            .lock()
+            .unwrap()
+            .contains(&"state:clocked_out:NotClockedIn".to_string()));
+        // Clocking in again starts a fresh session.
+        agent.handle(Input::ClockIn).unwrap();
+        assert_eq!(recorder.unsent().unwrap(), 3);
     }
 
     #[test]

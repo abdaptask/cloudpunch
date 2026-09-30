@@ -12,6 +12,12 @@ const ERROR_TEXT: Record<string, string> = {
   keystore: "Couldn't save your sign-in securely on this computer. Please try again.",
 };
 
+/** Why the app signed out on its own (`AuthStatus.notice`). */
+const NOTICE_TEXT: Record<string, string> = {
+  // ADR-0028 §4.
+  signed_out_by_admin: 'An admin signed you out of this computer.',
+};
+
 /** Brand colours (docs/brand/README.md). */
 const NAVY = '#012456';
 const BLUE = '#018AFE';
@@ -24,11 +30,14 @@ const POINTS = ['Single sign-on', 'Encrypted on this device', 'Works offline'];
 export function SignIn({
   busy,
   error,
+  notice = null,
   onSignIn,
   onCancel,
 }: {
   busy: boolean;
   error: string | null;
+  /** Why the app signed out on its own, e.g. `signed_out_by_admin`. */
+  notice?: string | null;
   onSignIn: () => void;
   onCancel: () => void;
 }): JSX.Element {
@@ -93,6 +102,16 @@ export function SignIn({
         </div>
 
         <div style={{ height: 1, background: t.border }} />
+
+        {notice && (
+          <p
+            role="status"
+            aria-label="sign-in-notice"
+            style={{ margin: 0, fontSize: 14, lineHeight: 1.5, fontWeight: 600, color: t.text }}
+          >
+            {NOTICE_TEXT[notice] ?? notice}
+          </p>
+        )}
 
         <p style={{ margin: 0, fontSize: 14, lineHeight: 1.55, color: t.text }}>
           Sign in with your ApTask work account to start tracking your time.

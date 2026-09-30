@@ -10,6 +10,7 @@
 //!   - 200 → parse `results[]`, one `PerEventResult` per entry.
 //!   - 400 → `ValidationFailed`.
 //!   - 403 → `AuthDenied`.
+//!   - 409 with `code = "device_signed_out"` → `DeviceSignedOut` (ADR-0028).
 //!   - 409 with `code = "device_*"`  → `DeviceInvalid`.
 //!   - 409 with `code = "session_*"` → `SessionInvalid`.
 //!   - 409 with `code = "multi_device_conflict"` → `MultiDeviceConflict`.
@@ -193,7 +194,13 @@ fn map_conflict_body(body: &[u8]) -> SendBatchResponse {
                 .and_then(|s| s.as_str())
                 .unwrap_or("")
                 .to_string(),
+            opened_at: v
+                .get("opened_at")
+                .and_then(|s| s.as_str())
+                .map(str::to_string),
         },
+        // Before the `device_` prefix: not a broken enrolment (ADR-0028).
+        "device_signed_out" => SendBatchResponse::DeviceSignedOut,
         c if c.starts_with("device_") => SendBatchResponse::DeviceInvalid {
             reason: c.to_string(),
         },
@@ -434,12 +441,29 @@ mod tests {
             SendBatchResponse::MultiDeviceConflict {
                 existing_session_id,
                 existing_device_id,
+                opened_at,
             } => {
                 assert_eq!(existing_session_id, "other-sess");
                 assert_eq!(existing_device_id, "other-dev");
+                assert_eq!(opened_at.as_deref(), Some("2026-09-23T00:00:00Z"));
             }
             other => panic!("expected MultiDeviceConflict, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn maps_409_device_signed_out_apart_from_other_device_codes() {
+        let server = MockServer::start();
+        let _mock = server.mock(|when, then| {
+            when.method(POST).path("/v1/events");
+            then.status(409)
+                .header("content-type", "application/problem+json")
+                .body(r#"{"code":"device_signed_out","message":"..."}"#);
+        });
+
+        let client = ReqwestBackendClient::new(server.base_url(), "t");
+        let env = mk_envelope(vec![mk_entry("01J8Q00000000000000000000A", 1)]);
+        assert_eq!(client.send_batch(&env), SendBatchResponse::DeviceSignedOut);
     }
 
     #[test]

@@ -377,6 +377,11 @@ pub struct OutboxSink {
 }
 
 impl OutboxSink {
+    /// The session events are being recorded into, if any.
+    pub fn session_id(&self) -> Option<&str> {
+        self.session.as_ref().map(|s| s.ctx.session_id.as_str())
+    }
+
     /// For tests: stamp every event in a fixed zone.
     #[cfg(test)]
     fn with_zone(mut self, zone: Zone) -> Self {
@@ -386,6 +391,22 @@ impl OutboxSink {
 }
 
 impl EventSink for OutboxSink {
+    /// Forget the session and its crash-recovery record, so the next
+    /// arming doesn't sign `SESSION_RECOVERED` into a session the server
+    /// refused or already closed (ADR-0028). Its events stay in the
+    /// outbox.
+    fn abandon_session(&mut self) {
+        if self.session.take().is_none() {
+            return;
+        }
+        let shared = self.recorder.lock();
+        if let Mode::Armed(t) = &shared.mode {
+            if let Err(e) = t.outbox.clear_open_session(&t.identity.oid) {
+                eprintln!("[cloudpunch] open-session record not cleared: {e}");
+            }
+        }
+    }
+
     fn record(&mut self, event: &CoreEvent, at: SystemTime) -> Result<(), SinkError> {
         #[cfg(debug_assertions)]
         eprintln!("[cloudpunch] event: {}", describe(event, at));
@@ -811,6 +832,24 @@ mod tests {
             Mode::Armed(t) => t.outbox.load_open_session(OID).unwrap(),
             _ => None,
         }
+    }
+
+    /// ADR-0028: an abandoned session keeps its events in the outbox but
+    /// is forgotten, with its crash-recovery record.
+    #[test]
+    fn abandoning_the_session_forgets_it_and_its_recovery_record() {
+        let (r, mut sink) = armed();
+        sink.abandon_session(); // Nothing open: nothing to do.
+        sink.record(&CoreEvent::UserClockIn, t(0)).unwrap();
+        let id = sink.session_id().expect("open").to_string();
+        assert!(open_row(&r).is_some());
+        sink.abandon_session();
+        assert_eq!(sink.session_id(), None);
+        assert!(open_row(&r).is_none());
+        assert_eq!(r.unsent().unwrap(), 1, "the refused clock-in stays");
+        // The next clock-in starts a new session at one.
+        sink.record(&CoreEvent::UserClockIn, t(60)).unwrap();
+        assert_ne!(sink.session_id(), Some(id.as_str()));
     }
 
     #[test]

@@ -8,11 +8,13 @@
 //! The exception is `sign_in`, which is async and runs the browser
 //! round trip on a blocking worker, off the UI thread.
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 
 use tauri::{AppHandle, Emitter, LogicalSize, Manager, State, WebviewWindow};
 
+use crate::active_device::{self, Action, BlockedView, CheckError};
 use crate::admin;
 use crate::agent::{
     parse_away_tag, parse_break_kind, parse_planned_minutes, rejection_code, Agent, StateView,
@@ -28,6 +30,7 @@ use crate::recorder::{Recorder, Target};
 use crate::strip::{self, Pin};
 use crate::sync::live::LiveSync;
 use crate::sync::reqwest_client::TokenSource;
+use crate::sync::{Notify, SyncNotice};
 
 /// The app's sign-in manager (ADR-0002 §5).
 pub type Auth = AuthManager<OsStore>;
@@ -41,6 +44,10 @@ pub const ENROLLMENT_EVENT: &str = "cp://enrollment";
 
 /// How long the browser round trip may take.
 const SIGN_IN_TIMEOUT: Duration = Duration::from_secs(300);
+
+/// `AuthStatus.notice` after an admin signed this computer out
+/// (ADR-0028 §4).
+pub const SIGNED_OUT_BY_ADMIN: &str = "signed_out_by_admin";
 
 type CommandResult = Result<StateView, String>;
 
@@ -249,6 +256,9 @@ fn start_live_sync(
             .access_token(SystemTime::now())
             .map_err(|e| e.code().to_string())
     });
+    let notice_app = app.clone();
+    let notice_oid = oid.to_string();
+    let notify: Notify = Box::new(move |n| on_sync_notice(&notice_app, &notice_oid, n));
     let live = app.state::<LiveSync>();
     match live.start(
         oid,
@@ -257,9 +267,179 @@ fn start_live_sync(
         base_url,
         token,
         recorder.online_flag(),
+        notify,
     ) {
         Ok(()) => eprintln!("[cloudpunch] sync loop running"),
         Err(e) => eprintln!("[cloudpunch] sync not started: {e}"),
+    }
+}
+
+/// A batch's answer the app must act on (ADR-0028). Runs on the sync
+/// thread, so anything that stops the sync loop (sign-out) or waits on
+/// the network moves to a thread of its own.
+fn on_sync_notice(app: &AppHandle, oid: &str, notice: SyncNotice) {
+    match notice {
+        SyncNotice::DeviceSignedOut => {
+            eprintln!("[cloudpunch] an admin signed this computer out");
+            spawn_admin_sign_out(app, oid);
+        }
+        SyncNotice::MultiDeviceConflict {
+            session_id,
+            opened_at,
+        } => {
+            let (app, oid) = (app.clone(), oid.to_string());
+            let spawned = std::thread::Builder::new()
+                .name("cp-conflict".into())
+                .spawn(move || refused_elsewhere(&app, &oid, &session_id, opened_at.as_deref()));
+            if let Err(e) = spawned {
+                eprintln!("[cloudpunch] conflict thread failed to start: {e}");
+            }
+        }
+    }
+}
+
+/// The server refused this computer's session: the person is clocked in
+/// on another one (ADR-0028 §3). Back to clocked out without a clock-out
+/// event (the rows are already set aside), show the blocked screen, and
+/// ask the server for the details (the other computer's OS), which may
+/// also find it has clocked out since.
+fn refused_elsewhere(app: &AppHandle, oid: &str, session_id: &str, opened_at: Option<&str>) {
+    let auth = app.state::<Arc<Auth>>().inner().clone();
+    if auth.oid().as_deref() != Some(oid) {
+        return;
+    }
+    let agent = app.state::<Arc<Agent>>().inner().clone();
+    if agent.abandon_session(Some(session_id)) {
+        eprintln!("[cloudpunch] clock-in refused: clocked in on another computer");
+    }
+    if !agent.is_blocked() {
+        agent.set_blocked(Some(BlockedView::from_conflict(opened_at)), true);
+    }
+    let device_id = app.state::<Recorder>().device_id();
+    if let (Some(base_url), Some(device_id)) = (backend_http::base_url(), device_id) {
+        let _ = active_device_check(app, &auth, &base_url, oid, &device_id, true);
+    }
+}
+
+/// Ask the server whether this person is clocked in elsewhere, or this
+/// computer was signed out by an admin, and act on it (ADR-0028). Any
+/// failure changes nothing (fail open); the caller decides what to say.
+fn active_device_check(
+    app: &AppHandle,
+    auth: &Arc<Auth>,
+    base_url: &str,
+    oid: &str,
+    device_id: &str,
+    show: bool,
+) -> Result<Action, CheckError> {
+    let token = auth.access_token(SystemTime::now()).map_err(|e| match e {
+        AuthError::NotSignedIn => CheckError::Refused("not_signed_in".into()),
+        e => CheckError::Unavailable(format!("token {}", e.code())),
+    })?;
+    if auth.oid().as_deref() != Some(oid) {
+        return Ok(Action::Keep);
+    }
+    let http = backend_http::client_builder()
+        .timeout(Duration::from_secs(15))
+        .build()
+        .map_err(|e| CheckError::Unavailable(e.to_string()))?;
+    let answer = active_device::check(&http, base_url, &token, device_id);
+    if let Err(e) = &answer {
+        eprintln!("[cloudpunch] active-device check not answered ({e:?}); not blocking");
+    }
+    let agent = app.state::<Arc<Agent>>().inner().clone();
+    let action = active_device::decide(&answer, device_id, agent.clocked_out());
+    match &action {
+        Action::Keep => {}
+        Action::Block(b) => {
+            eprintln!("[cloudpunch] clocked in on another computer: clock-in blocked");
+            agent.set_blocked(Some(b.clone()), show);
+        }
+        Action::Unblock => agent.set_blocked(None, false),
+        Action::SignOut => {
+            eprintln!("[cloudpunch] an admin signed this computer out");
+            spawn_admin_sign_out(app, oid);
+        }
+    }
+    answer.map(|_| action)
+}
+
+/// One admin sign-out at a time (the sync loop and the poll may both
+/// hear about it).
+static ADMIN_SIGN_OUT: AtomicBool = AtomicBool::new(false);
+
+/// Sign out locally because an admin signed this computer out
+/// (ADR-0028 §4), off the calling thread: it stops the sync loop, which
+/// may be the caller.
+fn spawn_admin_sign_out(app: &AppHandle, oid: &str) {
+    if ADMIN_SIGN_OUT.swap(true, Ordering::AcqRel) {
+        return;
+    }
+    let (app, oid) = (app.clone(), oid.to_string());
+    let spawned = std::thread::Builder::new()
+        .name("cp-signed-out".into())
+        .spawn(move || {
+            signed_out_by_admin(&app, &oid);
+            ADMIN_SIGN_OUT.store(false, Ordering::Release);
+        });
+    if let Err(e) = spawned {
+        ADMIN_SIGN_OUT.store(false, Ordering::Release);
+        eprintln!("[cloudpunch] sign-out thread failed to start: {e}");
+    }
+}
+
+/// Works while clocked in: the server already closed the session, so no
+/// clock-out is recorded (it would be refused). Unsent events are kept
+/// for the next sign-in here, as at any sign-out.
+fn signed_out_by_admin(app: &AppHandle, oid: &str) {
+    let auth = app.state::<Arc<Auth>>().inner().clone();
+    if auth.oid().as_deref() != Some(oid) {
+        return;
+    }
+    let agent = app.state::<Arc<Agent>>().inner().clone();
+    let enrollment = app.state::<Arc<Enrollment>>().inner().clone();
+    let recorder = app.state::<Recorder>().inner().clone();
+    agent.abandon_session(None);
+    match sign_out_blocking(app, &agent, &auth, &enrollment, &recorder, false) {
+        Ok(mut status) => {
+            status.notice = Some(SIGNED_OUT_BY_ADMIN);
+            let _ = app.emit(AUTH_EVENT, &status);
+            if let Some(w) = app.get_webview_window("main") {
+                let _ = w.show();
+                let _ = w.set_focus();
+            }
+        }
+        Err(e) => eprintln!("[cloudpunch] sign-out after an admin's request failed: {e}"),
+    }
+}
+
+/// "Check again" on the blocked screen (ADR-0028 §2). Unlike the
+/// automatic checks, an unanswered one keeps the block and says so.
+#[tauri::command]
+pub async fn check_active_device(
+    app: AppHandle,
+    auth: State<'_, Arc<Auth>>,
+    enrollment: State<'_, Arc<Enrollment>>,
+    recorder: State<'_, Recorder>,
+) -> CommandResult {
+    let base_url = backend_http::base_url().ok_or_else(|| "not_configured".to_string())?;
+    let oid = auth.oid().ok_or_else(|| "not_signed_in".to_string())?;
+    let device_id = enrollment
+        .identity()
+        .map(|i| i.device_id)
+        .or_else(|| recorder.device_id())
+        .ok_or_else(|| "not_enrolled".to_string())?;
+    let auth = auth.inner().clone();
+    let worker = app.clone();
+    let checked = tauri::async_runtime::spawn_blocking(move || {
+        active_device_check(&worker, &auth, &base_url, &oid, &device_id, false)
+    })
+    .await
+    .map_err(|_| "internal".to_string())?;
+    match checked {
+        Ok(_) => Ok(app.state::<Arc<Agent>>().view()),
+        Err(CheckError::Unavailable(_)) => Err("offline".to_string()),
+        Err(CheckError::Refused(code)) => Err(code),
     }
 }
 
@@ -284,6 +464,8 @@ fn start_policy_sync(
         *running = Some(oid.to_string());
     }
     let agent = app.state::<Arc<Agent>>().inner().clone();
+    let enrollment = app.state::<Arc<Enrollment>>().inner().clone();
+    let check_app = app.clone();
     let (auth, recorder) = (auth.clone(), recorder.clone());
     let (base_url, oid) = (base_url.to_string(), oid.to_string());
     let spawned = std::thread::Builder::new()
@@ -338,6 +520,20 @@ fn start_policy_sync(
                         wait = Duration::from_secs(60);
                     }
                 }
+                // Same cadence (ADR-0028 §4): signed out by an admin, or
+                // clocked in elsewhere meanwhile? Only once enrolled in
+                // this sign-in, so a flag the enrolment clears can't sign
+                // out someone who just signed in.
+                if let Some(identity) = enrollment.identity() {
+                    let _ = active_device_check(
+                        &check_app,
+                        &auth,
+                        &base_url,
+                        &oid,
+                        &identity.device_id,
+                        true,
+                    );
+                }
                 // Sleep in slices so a sign-out ends the loop promptly.
                 let until = std::time::Instant::now() + wait;
                 while std::time::Instant::now() < until
@@ -362,11 +558,17 @@ fn start_policy_sync(
 /// sign-in or a sign-out makes this attempt stop (generation check).
 /// Arms the recorder from the cached identity first, then with the
 /// fresh one once enrolled.
+///
+/// ADR-0028: once enrolled, asks whether the person is clocked in on
+/// another computer. `silent` (the start-up sign-in from the stored
+/// session) first asks whether an admin signed this computer out while
+/// it was off, before enrolling again.
 pub fn start_enrollment(
     app: &AppHandle,
     auth: Arc<Auth>,
     enrollment: Arc<Enrollment>,
     recorder: Recorder,
+    silent: bool,
 ) {
     if let Some(oid) = auth.oid() {
         arm_from_cache(app, &oid, &recorder);
@@ -409,6 +611,15 @@ pub fn start_enrollment(
                 emit();
                 return;
             };
+            // Switched off when an admin signed it out: it signs out
+            // now, when it's next switched on (ADR-0028 §4).
+            if let (true, Some(oid), Some(device_id)) = (silent, auth.oid(), recorder.device_id()) {
+                let checked =
+                    active_device_check(&sync_app, &auth, &base_url, &oid, &device_id, true);
+                if checked == Ok(Action::SignOut) {
+                    return;
+                }
+            }
             let enroller = Enroller::new(OsStore, &base_url, hostname);
             for attempt in 0u32.. {
                 let Some(oid) = auth.oid() else { return };
@@ -424,11 +635,24 @@ pub fn start_enrollment(
                 match outcome {
                     Ok(identity) => {
                         eprintln!("[cloudpunch] device enrolled");
+                        let identity_device_id = identity.device_id.clone();
                         let Some(dir) = &dir else { return };
                         match Target::open(dir, identity, &Secrets::new(OsStore)) {
                             Ok(target) => {
                                 recorder.arm(target);
                                 sync_app.state::<Arc<Agent>>().restore_today();
+                                // Clocked in on another computer (ADR-0028 §2)?
+                                let checked = active_device_check(
+                                    &sync_app,
+                                    &auth,
+                                    &base_url,
+                                    &oid,
+                                    &identity_device_id,
+                                    true,
+                                );
+                                if checked == Ok(Action::SignOut) {
+                                    return;
+                                }
                                 start_live_sync(&sync_app, &auth, &base_url, &oid, &recorder);
                                 start_policy_sync(&sync_app, &auth, &base_url, &oid, &recorder);
                             }
@@ -480,6 +704,7 @@ pub async fn sign_in(
         auth,
         enrollment.inner().clone(),
         recorder.inner().clone(),
+        false,
     );
     if let Some(w) = app.get_webview_window("main") {
         let _ = w.show();
@@ -523,7 +748,7 @@ pub async fn sign_out(
     let recorder = recorder.inner().clone();
     let worker_app = app.clone();
     let status = tauri::async_runtime::spawn_blocking(move || {
-        sign_out_blocking(&worker_app, &agent, &auth, &enrollment, &recorder)
+        sign_out_blocking(&worker_app, &agent, &auth, &enrollment, &recorder, true)
     })
     .await
     .map_err(|_| "internal".to_string())??;
@@ -531,18 +756,21 @@ pub async fn sign_out(
     Ok(status)
 }
 
+/// `flush`: first give the sync loop a moment to send what's left
+/// (not after an admin's sign-out: the server refuses it all now).
 fn sign_out_blocking(
     app: &AppHandle,
     agent: &Arc<Agent>,
     auth: &Arc<Auth>,
     enrollment: &Arc<Enrollment>,
     recorder: &Recorder,
+    flush: bool,
 ) -> Result<AuthStatus, String> {
     // Give the sync loop a moment to send what's left (it keeps running
     // while online).
     let deadline = std::time::Instant::now() + SIGN_OUT_FLUSH;
     let mut unsent = recorder.unsent().unwrap_or(0);
-    while unsent > 0 && std::time::Instant::now() < deadline {
+    while flush && unsent > 0 && std::time::Instant::now() < deadline {
         std::thread::sleep(Duration::from_millis(250));
         unsent = recorder.unsent().unwrap_or(unsent);
     }
@@ -561,6 +789,8 @@ fn sign_out_blocking(
     // with an empty day on screen.
     agent.apply_policy(&PolicyDoc::default(), None);
     agent.clear_timeline();
+    // The next sign-in asks the server again (ADR-0028).
+    agent.set_blocked(None, false);
 
     if unsent > 0 {
         auth.sign_out_keeping_device()
@@ -855,6 +1085,35 @@ pub async fn admin_welcome_send(
 ) -> Result<serde_json::Value, String> {
     let (_, fetched) = fetch_as_user(&auth, move |http, base, token| {
         admin::welcome_send(http, base, token, &oid, note.as_deref())
+    })
+    .await?;
+    answer(fetched)
+}
+
+/// People → Active machine (ADR-0028 §4, Administrators): the computer
+/// this person is clocked in on, or `null`.
+#[tauri::command]
+pub async fn admin_active_device(
+    auth: State<'_, Arc<Auth>>,
+    employee_id: String,
+) -> Result<serde_json::Value, String> {
+    let (_, fetched) = fetch_as_user(&auth, move |http, base, token| {
+        admin::active_device(http, base, token, &employee_id)
+    })
+    .await?;
+    answer(fetched)
+}
+
+/// "Sign out of this machine": closes the session at its last activity
+/// and signs that computer out. Audited server-side.
+#[tauri::command]
+pub async fn admin_active_device_sign_out(
+    auth: State<'_, Arc<Auth>>,
+    employee_id: String,
+    device_id: String,
+) -> Result<serde_json::Value, String> {
+    let (_, fetched) = fetch_as_user(&auth, move |http, base, token| {
+        admin::sign_out_device(http, base, token, &employee_id, &device_id)
     })
     .await?;
     answer(fetched)

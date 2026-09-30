@@ -58,6 +58,30 @@ impl<S: EventSink> Driver<S> {
         &mut self.core
     }
 
+    pub fn sink(&self) -> &S {
+        &self.sink
+    }
+
+    /// Leave the session without recording anything more for it
+    /// ([`Core::abandon_session`], ADR-0028). Events already emitted are
+    /// written first where the sink allows; any it still refuses belong
+    /// to the abandoned session and are dropped.
+    pub fn abandon_session(&mut self) -> Vec<Effect> {
+        let fx = self.core.abandon_session();
+        if fx.is_empty() {
+            return fx;
+        }
+        if let Err(e) = self.flush() {
+            eprintln!(
+                "[cloudpunch] {} event(s) of an abandoned session not recorded: {e}",
+                self.backlog.len()
+            );
+            self.backlog.clear();
+        }
+        self.sink.abandon_session();
+        fx
+    }
+
     pub fn backlog_len(&self) -> usize {
         self.backlog.len()
     }

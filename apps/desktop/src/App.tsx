@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { api, type StateView } from './api.js';
+import { BlockedElsewherePanel } from './BlockedElsewhere.js';
 import { BreakPicker, callName } from './BreakPicker.js';
 import { ClockInPrompt } from './ClockInPrompt.js';
 import { ClockOutDialog } from './ClockOutDialog.js';
@@ -191,6 +192,11 @@ const ERROR_TEXT: Record<string, string> = {
   not_enrolled: 'Connecting to CloudPunch… try again in a moment.',
   // ADR-0018 §4: the sign-in is over 12 hours old or before the last session.
   start_out_of_range: "That sign-in time can't be used any more. Clock in now instead.",
+  // ADR-0028: the blocked screen says where; this covers a stray click.
+  clocked_in_elsewhere:
+    "You're clocked in on your other computer. Clock out there first, or ask an admin to sign you out of it.",
+  // "Check again" got no answer: still blocked.
+  offline: "Couldn't check right now. Try again in a moment.",
   ...ENROLL_TEXT,
 };
 
@@ -250,6 +256,9 @@ export function App(): JSX.Element {
   const canManagePeople = canAssignAll || capabilities.includes('hr.employee.write');
   // Versions (ADR-0025 §3): Administrators and Auditors.
   const canReadDevices = capabilities.includes('admin.device.read');
+  // ADR-0028 §4: Administrators only (not HR, not Auditor); the server
+  // checks the role again.
+  const canSignOutMachines = capabilities.includes('admin.device.revoke');
   const canEditSettings = canEditRules || canManagePeople;
   const canSeeTeam = capabilities.includes('team.timeline.read');
   const adminTabs = (
@@ -310,7 +319,16 @@ export function App(): JSX.Element {
     if (breakOptions) applyBreakLabels(breakOptions);
   }, [breakOptions]);
   const clockedIn = view !== null && view.status !== 'clocked_out';
+  // Clocked in on another computer (ADR-0028): no clock-in here.
+  const blocked = signedIn && view?.status === 'clocked_out' ? view.blockedElsewhere : null;
   const showStrip = signedIn && pinned && view !== null;
+  // The strip has no room to say why: back to the full window once,
+  // when the block starts (pinning again later is the person's choice).
+  const isBlocked = blocked != null;
+  useEffect(() => {
+    if (isBlocked && pinned) unpin();
+    // Only the block starting matters, not later pins.
+  }, [isBlocked]);
   const todayTotals = totals(todaySegs, now, todaySince);
 
   // End-of-day summary (ADR-0013 §8): on the employee's own clock-out
@@ -461,7 +479,7 @@ export function App(): JSX.Element {
               onCancel={() => setClockOutAsked(false)}
             />
           )}
-          {signedIn && view?.clockInPrompt && view.status === 'clocked_out' && (
+          {signedIn && view?.clockInPrompt && view.status === 'clocked_out' && !blocked && (
             <ClockInPrompt
               signedInAt={view.signedInAt}
               onClockInFrom={() => run(api.clockInFromSignIn)}
@@ -540,7 +558,13 @@ export function App(): JSX.Element {
           {!auth && <p style={{ margin: 0, fontSize: 13, color: t.muted }}>Loading…</p>}
           {auth && !signedIn && tripCard}
           {auth && !signedIn && (
-            <SignIn busy={busy} error={authError} onSignIn={signIn} onCancel={cancelSignIn} />
+            <SignIn
+              busy={busy}
+              error={authError}
+              notice={auth.notice ?? null}
+              onSignIn={signIn}
+              onCancel={cancelSignIn}
+            />
           )}
           {signedIn && authError === 'clock_out_first' && (
             <p role="alert" style={{ margin: 0, fontSize: 13, color: t.danger }}>
@@ -594,6 +618,7 @@ export function App(): JSX.Element {
                 <>
                   <PeopleScreen
                     canAssignAll={canAssignAll}
+                    canSignOutMachines={canSignOutMachines}
                     onClose={() => setSettingsOpen(false)}
                   />
                   <ReportingLines />
@@ -720,7 +745,7 @@ export function App(): JSX.Element {
                       )}
                     </DayDial>
                   )}
-                  {!pastDate && !pickerOpen && view?.status === 'clocked_out' && (
+                  {!pastDate && !pickerOpen && view?.status === 'clocked_out' && !blocked && (
                     <div style={{ fontSize: 12, color: t.muted, marginTop: 6, lineHeight: 1.4 }}>
                       {clockedOutHint(view, now)}
                     </div>
@@ -762,6 +787,12 @@ export function App(): JSX.Element {
                           setPickerOpen(false);
                           setViewDate(null);
                         }}
+                      />
+                    ) : blocked ? (
+                      <BlockedElsewherePanel
+                        blocked={blocked}
+                        onCheckAgain={() => run(api.checkActiveDevice)}
+                        onSignOut={signOutWithSummary}
                       />
                     ) : (
                       <Actions
