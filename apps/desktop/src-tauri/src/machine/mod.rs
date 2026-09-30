@@ -187,6 +187,17 @@ pub const AWAY_CHECK_AGAIN: Duration = Duration::from_secs(30 * 60);
 pub const AWAY_CHECK_GAP: Duration = Duration::from_secs(30);
 /// Unanswered this long while use continues: back at the computer.
 pub const AWAY_CHECK_WAIT: Duration = Duration::from_secs(120);
+/// How much later than a mark the last input must be to count as new
+/// use. The OS last-input time is re-derived from the wall clock each
+/// tick (Windows' tick count moves in ~16 ms steps, macOS reports
+/// float seconds), so the same input can read a few ms later next
+/// time. Without this, idle "ended" a moment after it started.
+pub const INPUT_JITTER: Duration = Duration::from_secs(1);
+
+/// Whether `last_input_at` is new use after `mark` (not just jitter).
+fn input_after(last_input_at: SystemTime, mark: SystemTime) -> bool {
+    last_input_at > mark + INPUT_JITTER
+}
 
 /// How an Away ended on its own (ADR-0027), `USER_MARK_BACK.ended_by`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1056,8 +1067,8 @@ impl Core {
     /// back?"; unanswered while use continues, Away ends from when the
     /// use began.
     fn away_tick(&mut self, last_input_at: SystemTime, now: SystemTime, fx: &mut Vec<Effect>) {
-        let in_use =
-            last_input_at > self.away_since && elapsed(last_input_at, now) < AWAY_CHECK_GAP;
+        let in_use = input_after(last_input_at, self.away_since)
+            && elapsed(last_input_at, now) < AWAY_CHECK_GAP;
         if !in_use {
             self.back_run = None;
             if self.away_check.take().is_some() {
@@ -1145,7 +1156,7 @@ impl Core {
     ) {
         // After a presence check only the person ends it (ConfirmPresence):
         // the pattern's own input would.
-        if last_input_at > since && self.presence.is_none() {
+        if input_after(last_input_at, since) && self.presence.is_none() {
             self.end_idle(since, last_input_at.min(now), fx);
             return;
         }

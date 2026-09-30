@@ -1055,6 +1055,26 @@ fn input_after_idle_ends_it_and_asks_what_happened() {
     assert_eq!(emitted(&tick(&mut core, 1_000, 1_300)), ["INPUT_IDLE_5M"]);
 }
 
+/// The OS last-input time wobbles by a few ms from tick to tick (seen
+/// on the pilot: IDLE_ENDED 1 ms after idle_since). That is not use.
+#[test]
+fn last_input_jitter_does_not_end_idle() {
+    let mut core = idle();
+    for ms in [1, 13, 16, 999] {
+        let fx = core
+            .handle(
+                Input::Tick {
+                    last_input_at: t(0) + Duration::from_millis(ms),
+                },
+                t(400),
+            )
+            .unwrap();
+        assert!(emitted(&fx).is_empty(), "{ms} ms of jitter ended idle");
+        assert_eq!(core.state(), CoreState::Idle { since: t(0) });
+    }
+    assert_eq!(emitted(&tick(&mut core, 2, 402)), ["IDLE_ENDED"]);
+}
+
 #[test]
 fn explaining_records_an_annotation_and_changes_nothing_else() {
     let mut core = idle();

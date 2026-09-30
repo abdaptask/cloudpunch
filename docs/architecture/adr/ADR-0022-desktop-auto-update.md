@@ -104,6 +104,25 @@ The owner asked to see the version and to update on demand:
     (`not_clocked_out`).
 - The automatic install (§2) is unchanged.
 
+### Amendment: the clock-in popup no longer holds an update (2026-09-30)
+
+In the pilot, a tester who starts after 8 am ET never got an automatic
+update: the app opened the clock-in popup on its first tick, the update
+finished downloading a minute later, and the "popup open" rule held it.
+Clicking **Clock in** then made the install unsafe for the rest of the
+day, so she installed by hand.
+
+- **Change:** an open clock-in popup no longer blocks the install. The
+  other rules stand: clocked out, nothing tracked today, just after a
+  sign-in, unlock, wake or start. The restart takes seconds, and the
+  popup opens again on the new version (it is shown once per run, not
+  stored).
+- **Update log:** the app writes `update.log` in its log folder
+  (`%LOCALAPPDATA%\com.aptask.cloudpunch\logs` on Windows,
+  `~/Library/Logs/com.aptask.cloudpunch` on macOS): each check, download,
+  install attempt and the reason an update waits, once per reason. Only
+  versions and reasons; no personal data.
+
 ## Consequences
 
 - **Positive:**
