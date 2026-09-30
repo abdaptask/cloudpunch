@@ -26,6 +26,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Migration 0005** adds `device.signout_requested_at` and
   `signout_requested_by`.
 
+### ADR-0028 and ADR-0029 accepted
+
+- **ADR-0028, one machine at a time:** clocked in on one machine blocks
+  signing in (and clocking in) on another; only an Administrator can
+  sign the person out of the other machine. Replaces the
+  `prompt_take_over` default with `deny`.
+- **ADR-0029, connection location:** IP, city, state, country and
+  provider for each network a device connects from, via Cloudflare's
+  location headers and the free DB-IP ASN database. Admins and the
+  person's managers see it; kept 30 days; off until employees are told.
+
 ### Desktop 0.1.8: false idle ends, and updates for late starters
 
 - **Idle ended a moment after it started (all testers):** the OS
