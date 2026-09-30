@@ -16,7 +16,8 @@ export function useAuth(): {
   error: string | null;
   signIn: () => void;
   cancelSignIn: () => void;
-  signOut: () => void;
+  /** `clockOut`: clock out first ("Clock out and sign out"). */
+  signOut: (clockOut?: boolean) => void;
 } {
   const [auth, setAuth] = useState<AuthStatus | null>(null);
   const [busy, setBusy] = useState(false);
@@ -68,6 +69,6 @@ export function useAuth(): {
     error,
     signIn: useCallback(() => act(api.signIn), [act]),
     cancelSignIn,
-    signOut: useCallback(() => act(api.signOut), [act]),
+    signOut: useCallback((clockOut = false) => act(() => api.signOut(clockOut)), [act]),
   };
 }

@@ -216,6 +216,8 @@ export function App(): JSX.Element {
   const [clockOutAsked, setClockOutAsked] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const askClockOut = (): void => setClockOutAsked(true);
+  // "Clock out and sign out" from the header (owner request 2026-09-30).
+  const [signOutAsked, setSignOutAsked] = useState(false);
   // "Take a break": type, "Back in?", and a word about a call in
   // progress (ADR-0023; owner request).
   const [breakPicker, setBreakPicker] = useState(false);
@@ -347,17 +349,19 @@ export function App(): JSX.Element {
     }
     if (prev !== null && prev !== 'clocked_out' && view?.autoClockedOutAt === null) {
       const summary = summarise();
-      if (summary && summary.worked > 0) setTrip({ summary, signedOut: false });
+      // "Clock out and sign out" already set the signed-out summary.
+      if (summary && summary.worked > 0)
+        setTrip((p) => (p?.signedOut ? p : { summary, signedOut: false }));
     }
     // Only the status change matters; the summary is taken at that moment.
   }, [status]);
   useEffect(() => {
     if (signedIn) setTrip((p) => (p?.signedOut ? null : p));
   }, [signedIn]);
-  const signOutWithSummary = (): void => {
+  const signOutWithSummary = (clockOut = false): void => {
     const summary = summarise();
     setTrip(summary && summary.worked > 0 ? { summary, signedOut: true } : null);
-    signOut();
+    signOut(clockOut);
   };
   const tripCard = trip && (
     <TripCard trip={trip.summary} signedOut={trip.signedOut} onDone={() => setTrip(null)} />
@@ -417,8 +421,24 @@ export function App(): JSX.Element {
                 {view?.status === 'clocked_out' && (
                   <>
                     {' · '}
-                    <button type="button" onClick={signOutWithSummary} style={linkButton(t)}>
+                    <button
+                      type="button"
+                      onClick={() => signOutWithSummary()}
+                      style={linkButton(t)}
+                    >
                       Sign out
+                    </button>
+                  </>
+                )}
+                {view && view.status !== 'clocked_out' && (
+                  <>
+                    {' · '}
+                    <button
+                      type="button"
+                      onClick={() => setSignOutAsked(true)}
+                      style={linkButton(t)}
+                    >
+                      Clock out and sign out
                     </button>
                   </>
                 )}
@@ -462,6 +482,19 @@ export function App(): JSX.Element {
                 void (clockedIn ? api.clockOutAndQuit() : api.quitApp());
               }}
               onCancel={() => setCloseAsked(false)}
+            />
+          )}
+          {signOutAsked && view && view.status !== 'clocked_out' && (
+            <ClockOutDialog
+              signOut
+              offerBreaks={false}
+              call={view.status === 'on_call' ? callName(view.callType) : null}
+              onClockOut={() => {
+                setSignOutAsked(false);
+                signOutWithSummary(true);
+              }}
+              onBreak={() => setSignOutAsked(false)}
+              onCancel={() => setSignOutAsked(false)}
             />
           )}
           {clockOutAsked && view && (
@@ -792,7 +825,7 @@ export function App(): JSX.Element {
                       <BlockedElsewherePanel
                         blocked={blocked}
                         onCheckAgain={() => run(api.checkActiveDevice)}
-                        onSignOut={signOutWithSummary}
+                        onSignOut={() => signOutWithSummary()}
                       />
                     ) : (
                       <Actions

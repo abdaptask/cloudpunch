@@ -62,6 +62,58 @@ pub fn fetch_range(
     )
 }
 
+/// Today's timeline in journal form (`Timeline::to_json`), from the
+/// server's day views: after signing in again, today's history comes
+/// back from the server (owner request 2026-09-30; ADR-0016
+/// amendment). `days` are `GET /v1/me/days/{date}` bodies, typically
+/// yesterday's and today's: a night shift may be dated yesterday. The
+/// caller keeps only the current working day (`Timeline::prune`).
+/// Sessions are numbered in time order; unknown kinds and unreadable
+/// times are skipped. `None` when there's nothing.
+pub fn journal_from_days(days: &[Value]) -> Option<String> {
+    let ms = |v: &Value| -> Option<u64> {
+        let t = chrono::DateTime::parse_from_rfc3339(v.as_str()?).ok()?;
+        u64::try_from(t.timestamp_millis()).ok()
+    };
+    let mut sessions: Vec<(u64, Vec<Value>)> = Vec::new();
+    for day in days {
+        for s in day["sessions"].as_array().into_iter().flatten() {
+            let Some(clock_in) = ms(&s["clock_in"]) else {
+                continue;
+            };
+            let segments: Vec<Value> = s["segments"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|g| {
+                    let kind = g["kind"].as_str()?;
+                    crate::timeline::SegmentKind::from_wire(kind)?;
+                    Some(serde_json::json!({
+                        "kind": kind,
+                        "startedAt": ms(&g["started_at"])?,
+                        "endedAt": ms(&g["ended_at"])?,
+                    }))
+                })
+                .collect();
+            if !segments.is_empty() && !sessions.iter().any(|(at, _)| *at == clock_in) {
+                sessions.push((clock_in, segments));
+            }
+        }
+    }
+    sessions.sort_by_key(|(at, _)| *at);
+    let journal: Vec<Value> = sessions
+        .into_iter()
+        .enumerate()
+        .flat_map(|(i, (_, segs))| {
+            segs.into_iter().map(move |mut g| {
+                g["session"] = Value::from(i + 1);
+                g
+            })
+        })
+        .collect();
+    (!journal.is_empty()).then(|| Value::Array(journal).to_string())
+}
+
 /// Range key for [`DayCache`], apart from single dates.
 pub fn range_key(from: &str, to: &str) -> String {
     format!("{from}..{to}")
@@ -144,6 +196,66 @@ mod tests {
             .timeout(Duration::from_secs(5))
             .build()
             .unwrap()
+    }
+
+    fn server_day(sessions: Value) -> Value {
+        json!({ "date": "2026-09-30", "sessions": sessions, "totals": {} })
+    }
+
+    #[test]
+    fn journal_from_days_orders_sessions_across_days_and_skips_junk() {
+        let yesterday = server_day(json!([{
+            "clock_in": "2026-09-29T23:00:00.000+05:30",
+            "segments": [
+                { "kind": "working", "started_at": "2026-09-29T23:00:00.000+05:30", "ended_at": "2026-09-30T01:00:00.000+05:30" },
+                { "kind": "not_a_kind", "started_at": "2026-09-30T01:00:00.000+05:30", "ended_at": "2026-09-30T01:05:00.000+05:30" }
+            ]
+        }]));
+        let today = server_day(json!([
+            {
+                "clock_in": "2026-09-30T18:00:00.000+05:30",
+                "segments": [
+                    { "kind": "working", "started_at": "2026-09-30T18:00:00.000+05:30", "ended_at": "2026-09-30T19:00:00.000+05:30" },
+                    { "kind": "meal_break", "started_at": "2026-09-30T19:00:00.000+05:30", "ended_at": "2026-09-30T19:30:00.000+05:30" }
+                ]
+            },
+            { "clock_in": "garbage", "segments": [] }
+        ]));
+        // Today first, to check the ordering: yesterday's session is 1.
+        let json = journal_from_days(&[today, yesterday]).unwrap();
+        let v: Vec<Value> = serde_json::from_str(&json).unwrap();
+        let summary: Vec<(String, u64)> = v
+            .iter()
+            .map(|g| {
+                (
+                    g["kind"].as_str().unwrap().to_string(),
+                    g["session"].as_u64().unwrap(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            summary,
+            [
+                ("working".to_string(), 1),
+                ("working".to_string(), 2),
+                ("meal_break".to_string(), 2)
+            ]
+        );
+        // 2026-09-30T18:00+05:30 is 12:30Z.
+        let expected = chrono::DateTime::parse_from_rfc3339("2026-09-30T12:30:00Z")
+            .unwrap()
+            .timestamp_millis() as u64;
+        assert_eq!(v[1]["startedAt"].as_u64(), Some(expected));
+
+        let mut tl = crate::timeline::Timeline::new();
+        assert!(tl.restore(&json, std::time::SystemTime::UNIX_EPOCH));
+        assert_eq!(tl.segments().len(), 3);
+    }
+
+    #[test]
+    fn journal_from_days_is_none_without_segments() {
+        assert_eq!(journal_from_days(&[]), None);
+        assert_eq!(journal_from_days(&[server_day(json!([]))]), None);
     }
 
     #[test]
