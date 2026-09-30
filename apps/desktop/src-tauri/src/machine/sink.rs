@@ -23,6 +23,10 @@ pub struct SinkError(pub String);
 /// Receives every event the core emits, in emission order.
 pub trait EventSink: Send {
     fn record(&mut self, event: &CoreEvent, at: SystemTime) -> Result<(), SinkError>;
+
+    /// The session in progress ended without a closing event (ADR-0028):
+    /// forget it. Default: nothing to forget.
+    fn abandon_session(&mut self) {}
 }
 
 /// Logs each event to stderr in debug builds; does nothing in release.

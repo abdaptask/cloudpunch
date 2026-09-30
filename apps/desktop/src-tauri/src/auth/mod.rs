@@ -113,6 +113,10 @@ pub struct AuthStatus {
     /// on this computer until the same user signs in again.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub unsent_kept: Option<u64>,
+    /// Why the app signed out on its own: `signed_out_by_admin`
+    /// (ADR-0028 §4). Shown on the sign-in screen.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub notice: Option<&'static str>,
 }
 
 impl AuthStatus {
@@ -122,6 +126,7 @@ impl AuthStatus {
             name: None,
             username: None,
             unsent_kept: None,
+            notice: None,
         }
     }
 }
@@ -170,6 +175,7 @@ impl<S: SecretStore> AuthManager<S> {
                 name: s.name.clone(),
                 username: s.username.clone(),
                 unsent_kept: None,
+                notice: None,
             },
             None => AuthStatus::signed_out(),
         }

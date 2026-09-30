@@ -11,7 +11,8 @@
 //!   - `AuthDenied`          → long-retry (admin fix may resolve)
 //!   - `DeviceInvalid`       → poison (needs re-enrollment)
 //!   - `SessionInvalid`      → poison (won't recover)
-//!   - `MultiDeviceConflict` → long-retry, UI prompt in 2b.7 decides
+//!   - `MultiDeviceConflict` → poison the session, tell the app (ADR-0028)
+//!   - `DeviceSignedOut`     → keep for the next sign-in, tell the app
 //!   - `Transient`           → backoff retry
 
 use std::sync::{Arc, Mutex};
@@ -63,12 +64,18 @@ pub enum SendBatchResponse {
     /// wrong employee / wrong device). Won't recover; poison.
     SessionInvalid { reason: String },
     /// 409 — the employee already has an open session on another
-    /// device. Requires user decision (take_over vs discard);
-    /// scheduled with a long retry until the UI prompt (2b.7) resolves.
+    /// device, so this session was never opened. ADR-0028: the employee
+    /// can't take over; the session's rows are poisoned and the app
+    /// shows the blocked screen.
     MultiDeviceConflict {
         existing_session_id: String,
         existing_device_id: String,
+        /// When the other session opened (RFC 3339), if sent.
+        opened_at: Option<String>,
     },
+    /// 409 `device_signed_out` — an admin signed this computer out
+    /// (ADR-0028 §4). The rows wait for the next sign-in here.
+    DeviceSignedOut,
     /// Network error, HTTP 5xx, timeout, anything else. Retry with
     /// exponential backoff.
     Transient(String),

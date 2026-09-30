@@ -44,6 +44,7 @@ function pending(over: Partial<StateView> = {}): StateView {
     updateReady: null,
     presenceCheck: null,
     awayCheck: null,
+    blockedElsewhere: null,
     ...over,
   };
 }

@@ -575,6 +575,9 @@ pub enum Rejected {
     NoteTooLong,
     /// A clock-in start in the future or more than 12 hours back.
     StartOutOfRange,
+    /// A clock-in while this person is clocked in on another computer
+    /// (ADR-0028). Refused by the agent, never by the core itself.
+    ClockedInElsewhere,
 }
 
 pub struct Core {
@@ -665,6 +668,28 @@ impl Core {
         }
         self.cfg = cfg;
         Ok(())
+    }
+
+    /// Back to `CLOCKED_OUT` **without** an event (ADR-0028): the server
+    /// refused this session (`multi_device_conflict`) or already closed
+    /// it (an admin signed this computer out), so a clock-out would only
+    /// be refused too. A no-op while clocked out.
+    pub fn abandon_session(&mut self) -> Vec<Effect> {
+        let mut fx = Vec::new();
+        if self.state == CoreState::ClockedOut {
+            return fx;
+        }
+        if matches!(self.state, CoreState::IdlePending { .. }) {
+            fx.push(Effect::HidePrompt);
+        }
+        if self.away_check.take().is_some() {
+            fx.push(Effect::AwayCheckClosed);
+        }
+        self.idle_return = None;
+        self.presence = None;
+        self.back_run = None;
+        self.set_state(CoreState::ClockedOut, &mut fx);
+        fx
     }
 
     pub fn handle(&mut self, input: Input, now: SystemTime) -> Result<Vec<Effect>, Rejected> {

@@ -390,6 +390,20 @@ impl Outbox {
         Ok(())
     }
 
+    /// Poison every unsent row of `session_id` with `reason`, including
+    /// rows not due yet. Returns how many. For a session the server
+    /// refused as a whole (ADR-0028 `multi_device_conflict`): its later
+    /// rows can never be accepted without the clock-in that opened it.
+    pub fn poison_session(&self, session_id: &str, reason: &str) -> Result<u64, OutboxError> {
+        let n = self.conn.execute(
+            "UPDATE outbox
+             SET poisoned = 1, poison_reason = ?2
+             WHERE session_id = ?1 AND poisoned = 0",
+            params![session_id, reason],
+        )?;
+        Ok(n as u64)
+    }
+
     /// Total rows in the outbox (pending + poisoned).
     pub fn pending_count(&self) -> Result<u64, OutboxError> {
         let n: i64 = self

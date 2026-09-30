@@ -28,6 +28,7 @@
 //!   - Phase 2b.9: signed Windows installer + notarised macOS DMG +
 //!     Tauri updater signature verification.
 
+pub mod active_device;
 pub mod admin;
 pub mod agent;
 pub mod app_update;
@@ -322,6 +323,9 @@ pub fn run() {
             commands::admin_people_set_roles,
             commands::admin_welcome_preview,
             commands::admin_welcome_send,
+            commands::admin_active_device,
+            commands::admin_active_device_sign_out,
+            commands::check_active_device,
             commands::dismiss_clock_in_prompt,
             commands::dismiss_idle_return,
             commands::get_day,
@@ -349,6 +353,7 @@ pub fn run() {
                             restore_auth.clone(),
                             restore_enrollment,
                             restore_recorder,
+                            true,
                         ),
                         Ok(false) => eprintln!(
                             "[cloudpunch] silent sign-in: no saved session (none stored, or it was rejected)"

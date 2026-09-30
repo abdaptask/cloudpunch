@@ -264,11 +264,18 @@ pub fn install<R: Runtime>(app: &AppHandle<R>, state: TrayStateSnapshot) -> taur
                 }
             }
             id => match (input_for(id), app.try_state::<Arc<Agent>>()) {
-                (Some(input), Some(agent)) => {
-                    if let Err(r) = agent.handle(input) {
-                        eprintln!("[cloudpunch] tray: {id} rejected: {r:?}");
+                (Some(input), Some(agent)) => match agent.handle(input) {
+                    Ok(_) => {}
+                    // Clocked in on another computer (ADR-0028): the
+                    // window says why.
+                    Err(crate::machine::Rejected::ClockedInElsewhere) => {
+                        if let Some(w) = app.get_webview_window("main") {
+                            let _ = w.show();
+                            let _ = w.set_focus();
+                        }
                     }
-                }
+                    Err(r) => eprintln!("[cloudpunch] tray: {id} rejected: {r:?}"),
+                },
                 _ => {
                     #[cfg(debug_assertions)]
                     eprintln!("[cloudpunch] tray: unhandled menu id {id}");

@@ -10,7 +10,7 @@ use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 
 use super::reqwest_client::{ReqwestBackendClient, TokenSource};
-use super::{SyncConfig, SyncLoop};
+use super::{Notify, SyncConfig, SyncLoop};
 use crate::outbox::{Outbox, OutboxError};
 
 #[derive(Default)]
@@ -25,7 +25,9 @@ struct Running {
 
 impl LiveSync {
     /// Start syncing `oid`'s outbox, unless it is already syncing.
-    /// A loop for a different user is stopped first.
+    /// A loop for a different user is stopped first. `notify` hears
+    /// what the app must act on (ADR-0028).
+    #[allow(clippy::too_many_arguments)]
     pub fn start(
         &self,
         oid: &str,
@@ -34,6 +36,7 @@ impl LiveSync {
         base_url: &str,
         token: TokenSource,
         is_online: Arc<AtomicBool>,
+        notify: Notify,
     ) -> Result<(), OutboxError> {
         let mut running = self.lock();
         if running.as_ref().is_some_and(|r| r.oid == oid) {
@@ -44,7 +47,13 @@ impl LiveSync {
         }
         let outbox = Outbox::open(outbox_path, outbox_key)?;
         let client = ReqwestBackendClient::with_token_source(base_url, token);
-        let sync = SyncLoop::start(outbox, Box::new(client), SyncConfig::default(), is_online);
+        let sync = SyncLoop::start_with_notices(
+            outbox,
+            Box::new(client),
+            SyncConfig::default(),
+            is_online,
+            notify,
+        );
         *running = Some(Running {
             oid: oid.to_string(),
             sync,
@@ -150,6 +159,7 @@ mod tests {
             &server.base_url(),
             token,
             Arc::new(AtomicBool::new(true)),
+            Box::new(|_| {}),
         )
         .unwrap();
         assert!(live.is_running());
@@ -184,6 +194,7 @@ mod tests {
             &server.base_url(),
             Box::new(|| Err("not_signed_in".into())),
             Arc::new(AtomicBool::new(true)),
+            Box::new(|_| {}),
         )
         .unwrap();
         assert!(wait_until(|| {
@@ -211,6 +222,7 @@ mod tests {
                 "http://127.0.0.1:9",
                 Box::new(|| Ok("t".into())),
                 offline.clone(),
+                Box::new(|_| {}),
             )
             .unwrap();
         }

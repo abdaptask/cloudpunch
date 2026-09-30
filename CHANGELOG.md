@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Desktop 0.1.9, ADR-0028: one machine at a time
+
+- **Blocked while clocked in elsewhere:** after sign-in and enrolment,
+  and on every policy poll, the app asks `GET /v1/me/active-device`. If
+  the person is clocked in on another computer, Clock in is replaced by
+  "You're clocked in on your other Windows computer / Mac since …" with
+  **Check again** and **Sign out**; the tray, the 8 am popup and the
+  reminder are held too. Network trouble never blocks (fail open).
+- **Signed out by an admin:** an answer of `this_device.signed_out`, or a
+  batch refused with `409 device_signed_out`, signs the app out, even
+  clocked in, without recording a clock-out (the server already closed
+  the session). Unsent events are kept for the next sign-in. The sign-in
+  screen says "An admin signed you out of this computer." At start-up
+  the app asks before enrolling again, since enrolling clears the mark.
+- **No more silent retry of `multi_device_conflict`:** the refused
+  session's events are set aside in the outbox (poisoned, never re-sent,
+  so they can't add overlapping time later or hold up the outbox), the
+  app returns to clocked out without a clock-out event, and shows the
+  blocked message.
+- **Settings → People → Active machine (Administrators):** OS, clocked
+  in since, last activity, and **Sign out of this machine** with a
+  confirmation.
+
 ### ADR-0028 backend: one machine at a time
 
 - **`GET /v1/me/active-device?device_id=`:** whether the caller is

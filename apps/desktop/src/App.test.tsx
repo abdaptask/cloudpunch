@@ -3,7 +3,9 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AuthStatus, EnrollmentStatus, StateView } from './api.js';
 import { App } from './App.js';
+import { blockedText } from './BlockedElsewhere.js';
 import { localDateOf, shiftDate, type DayResult } from './dayHistory.js';
+import { formatClock } from './timelineModel.js';
 import type { DaysResult } from './dayPickerModel.js';
 import { light } from './ui/theme.js';
 
@@ -50,6 +52,9 @@ const mocks = vi.hoisted(() => ({
   adminEmployees: vi.fn(),
   adminSetManager: vi.fn(),
   adminDevices: vi.fn(),
+  adminActiveDevice: vi.fn(),
+  adminActiveDeviceSignOut: vi.fn(),
+  checkActiveDevice: vi.fn<() => Promise<StateView>>(),
   adminPolicyPut: vi.fn(),
   dismissClockInPrompt: vi.fn<() => Promise<StateView>>(),
   explainIdle: vi.fn<(explanation: string, note: string | null) => Promise<StateView>>(),
@@ -97,6 +102,7 @@ function view(over: Partial<StateView> = {}): StateView {
     updateReady: null,
     presenceCheck: null,
     awayCheck: null,
+    blockedElsewhere: null,
     ...over,
   };
 }
@@ -2073,5 +2079,170 @@ describe('Away check-in (ADR-0027)', () => {
     expect(dialog).toHaveTextContent('Still in your meeting?');
     await user.click(within(dialog).getByRole('button', { name: 'Still in the meeting' }));
     expect(mocks.answerAwayCheck).toHaveBeenCalledWith(false);
+  });
+});
+
+describe('one machine at a time (ADR-0028)', () => {
+  const since = new Date(2026, 8, 30, 9, 2).getTime();
+
+  it('clocked in elsewhere: says where and since when, with Check again and Sign out only', async () => {
+    mocks.getState.mockResolvedValue(
+      view({ blockedElsewhere: { os: 'windows', openedAt: since } }),
+    );
+    mocks.checkActiveDevice.mockResolvedValue(view());
+    const user = userEvent.setup();
+    render(<App />);
+    const panel = await screen.findByRole('alert', { name: 'blocked-elsewhere' });
+    expect(panel).toHaveTextContent(
+      `You're clocked in on your other Windows computer since ${formatClock(since)}. Clock out there first, or ask an admin to sign you out of it.`,
+    );
+    expect(screen.queryByRole('button', { name: 'Clock in' })).not.toBeInTheDocument();
+    // Check again: free now, so Clock in is back.
+    await user.click(within(panel).getByRole('button', { name: 'Check again' }));
+    expect(mocks.checkActiveDevice).toHaveBeenCalledOnce();
+    expect(await screen.findByRole('button', { name: 'Clock in' })).toBeInTheDocument();
+    expect(screen.queryByRole('alert', { name: 'blocked-elsewhere' })).not.toBeInTheDocument();
+  });
+
+  it('Check again without an answer stays blocked and says so', async () => {
+    mocks.getState.mockResolvedValue(view({ blockedElsewhere: { os: 'macos', openedAt: null } }));
+    mocks.checkActiveDevice.mockRejectedValue('offline');
+    const user = userEvent.setup();
+    render(<App />);
+    const panel = await screen.findByRole('alert', { name: 'blocked-elsewhere' });
+    expect(panel).toHaveTextContent("You're clocked in on your other Mac. Clock out there first");
+    await user.click(within(panel).getByRole('button', { name: 'Check again' }));
+    expect(
+      await screen.findByText("Couldn't check right now. Try again in a moment."),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('alert', { name: 'blocked-elsewhere' })).toBeInTheDocument();
+  });
+
+  it('Sign out on the blocked screen signs out', async () => {
+    mocks.getState.mockResolvedValue(view({ blockedElsewhere: { os: null, openedAt: null } }));
+    mocks.signOut.mockResolvedValue(SIGNED_OUT);
+    const user = userEvent.setup();
+    render(<App />);
+    const panel = await screen.findByRole('alert', { name: 'blocked-elsewhere' });
+    await user.click(within(panel).getByRole('button', { name: 'Sign out' }));
+    expect(mocks.signOut).toHaveBeenCalledOnce();
+  });
+
+  it('a block arriving on cp://state replaces Clock in', async () => {
+    render(<App />);
+    await screen.findByRole('button', { name: 'Clock in' });
+    act(() => pushState(view({ blockedElsewhere: { os: 'windows', openedAt: since } })));
+    expect(await screen.findByRole('alert', { name: 'blocked-elsewhere' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Clock in' })).not.toBeInTheDocument();
+  });
+
+  it('never names the other computer, only its kind', () => {
+    expect(blockedText({ os: 'windows', openedAt: null })).toContain(
+      'your other Windows computer.',
+    );
+    expect(blockedText({ os: 'macos', openedAt: null })).toContain('your other Mac.');
+    expect(blockedText({ os: null, openedAt: null })).toContain('your other computer.');
+  });
+
+  it('signed out by an admin: the sign-in screen says so', async () => {
+    mocks.authStatus.mockResolvedValue(SIGNED_OUT);
+    render(<App />);
+    await screen.findByRole('region', { name: 'sign-in' });
+    expect(screen.queryByLabelText('sign-in-notice')).not.toBeInTheDocument();
+    act(() => pushAuth({ ...SIGNED_OUT, notice: 'signed_out_by_admin', unsentKept: 2 }));
+    expect(await screen.findByLabelText('sign-in-notice')).toHaveTextContent(
+      'An admin signed you out of this computer.',
+    );
+    expect(screen.getByText(/2 events will be sent the next time you sign in/)).toBeInTheDocument();
+  });
+});
+
+describe('People: Active machine (ADR-0028 §4)', () => {
+  const FARHEEN = '8afe98ae-5b43-4c12-86c5-b4473225f7f0';
+  const EMP = '11111111-1111-4111-8111-111111111111';
+  const DEV = '33333333-3333-4333-8333-333333333333';
+  const opened = new Date(Date.now() - 2 * 3_600_000).toISOString();
+  const last = new Date(Date.now() - 10 * 60_000).toISOString();
+
+  function withFarheen(): void {
+    mocks.adminPeople.mockResolvedValue({
+      people: [
+        { oid: FARHEEN, name: 'Farheen Khanam', roles: ['Employee'], has_employee_record: true },
+      ],
+    });
+    mocks.adminEmployees.mockResolvedValue({
+      employees: [
+        {
+          id: EMP,
+          name: 'Farheen Khanam',
+          email: 'farheen@aptask.com',
+          reporting_manager_id: null,
+          oid: FARHEEN,
+        },
+      ],
+    });
+  }
+
+  it('an Administrator sees the machine and signs it out after confirming', async () => {
+    mocks.myCapabilities.mockResolvedValue([
+      'admin.role.assign',
+      'admin.device.revoke',
+      'hr.employee.read',
+      'hr.employee.write',
+    ]);
+    withFarheen();
+    mocks.adminActiveDevice
+      .mockResolvedValueOnce({
+        device_id: DEV,
+        os: 'windows',
+        enrolled_at: '2026-09-01T04:00:00Z',
+        opened_at: opened,
+        last_event_at: last,
+      })
+      .mockResolvedValueOnce(null);
+    mocks.adminActiveDeviceSignOut.mockResolvedValue({ closed_at: last });
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole('button', { name: 'Settings' }));
+    const people = screen.getByRole('region', { name: 'people' });
+    await user.click(await within(people).findByRole('button', { name: /Farheen Khanam/ }));
+    const section = within(people).getByRole('group', { name: 'active-machine' });
+    const details = await within(section).findByLabelText('active-machine-details');
+    expect(details).toHaveTextContent(
+      `Windows computer · clocked in since ${formatClock(Date.parse(opened))} · last activity ${formatClock(Date.parse(last))}`,
+    );
+    expect(mocks.adminActiveDevice).toHaveBeenCalledWith(EMP);
+
+    await user.click(within(section).getByRole('button', { name: 'Sign out of this machine' }));
+    const confirm = within(section).getByRole('dialog', { name: 'confirm-machine-sign-out' });
+    expect(confirm).toHaveTextContent(
+      'This clocks Farheen Khanam out at their last activity and signs that computer out. Continue?',
+    );
+    // Cancel changes nothing.
+    await user.click(within(confirm).getByRole('button', { name: 'Cancel' }));
+    expect(mocks.adminActiveDeviceSignOut).not.toHaveBeenCalled();
+
+    await user.click(within(section).getByRole('button', { name: 'Sign out of this machine' }));
+    await user.click(within(section).getByRole('button', { name: 'Continue' }));
+    expect(mocks.adminActiveDeviceSignOut).toHaveBeenCalledWith(EMP, DEV);
+    expect(await within(section).findByRole('status')).toHaveTextContent(
+      `Farheen Khanam was clocked out at ${formatClock(Date.parse(last))}.`,
+    );
+    // Refreshed: nothing open any more.
+    expect(await within(section).findByText('Not clocked in on any computer.')).toBeInTheDocument();
+    expect(mocks.adminActiveDevice).toHaveBeenCalledTimes(2);
+  });
+
+  it('is hidden from HR (not an Administrator)', async () => {
+    mocks.myCapabilities.mockResolvedValue(['hr.employee.read', 'hr.employee.write']);
+    withFarheen();
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole('button', { name: 'Settings' }));
+    const people = screen.getByRole('region', { name: 'people' });
+    await user.click(await within(people).findByRole('button', { name: /Farheen Khanam/ }));
+    expect(within(people).getByRole('group', { name: 'edit-roles' })).toBeInTheDocument();
+    expect(within(people).queryByRole('group', { name: 'active-machine' })).not.toBeInTheDocument();
+    expect(mocks.adminActiveDevice).not.toHaveBeenCalled();
   });
 });
