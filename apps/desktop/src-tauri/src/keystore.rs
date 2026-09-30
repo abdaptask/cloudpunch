@@ -243,8 +243,15 @@ struct RawOs;
 
 impl RawOs {
     fn entry(slot: &Slot) -> Result<keyring::Entry, KeystoreError> {
-        keyring::Entry::new_with_target(&slot.target, slot.service, &slot.user)
-            .map_err(|e| KeystoreError::Store(e.to_string()))
+        // Windows names a credential by its target. On macOS `keyring`
+        // reads a target as which keychain to use (User, System, …) and
+        // rejects ours, so there the entry is service + account only,
+        // in the login keychain (ADR-0007 §5 names).
+        #[cfg(target_os = "macos")]
+        let entry = keyring::Entry::new(slot.service, &slot.user);
+        #[cfg(not(target_os = "macos"))]
+        let entry = keyring::Entry::new_with_target(&slot.target, slot.service, &slot.user);
+        entry.map_err(|e| KeystoreError::Store(e.to_string()))
     }
 }
 
@@ -561,6 +568,27 @@ mod tests {
             .delete(&Chunked::<MemoryStore>::part(&slot, 1))
             .unwrap();
         assert!(matches!(store.get(&slot), Err(KeystoreError::Store(_))));
+    }
+
+    /// Every slot (and a chunk part) must make a valid OS entry. On
+    /// macOS a Windows-style target was rejected, so sign-in failed
+    /// with "Couldn't save your sign-in securely". Making an entry
+    /// doesn't touch the store, so this runs in CI on both platforms.
+    #[test]
+    fn every_slot_makes_a_valid_os_entry() {
+        let tenant = "a6300e5c-dae4-413c-a6d2-646fbc2aa587";
+        let client = "13646e0e-abc6-4779-b8fb-fc10bdfdf4b9";
+        let device = Slot::device_key(OID).unwrap();
+        for slot in [
+            Chunked::<RawOs>::part(&device, 0),
+            device,
+            Slot::outbox_key(OID).unwrap(),
+            Slot::device_id(OID).unwrap(),
+            Slot::refresh_token(tenant, client, OID).unwrap(),
+            Slot::current_user(),
+        ] {
+            assert!(RawOs::entry(&slot).is_ok(), "{}", slot.target);
+        }
     }
 
     /// A refresh-token-sized value through the real Credential Manager.

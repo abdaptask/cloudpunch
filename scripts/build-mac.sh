@@ -33,6 +33,10 @@ TEAM_ID="$(printf '%s' "$IDENTITY" | sed -n 's/.*(\([A-Z0-9]\{10\}\))$/\1/p')"
 
 KEY="$HOME/.cloudpunch/updater.key"
 [ -f "$KEY" ] || fail "no updater key at $KEY. Copy updater.key from the password manager there (docs/ops/pilot-vm.md step 5)."
+# The key is one line of base64. A space or line break from copying
+# only shows up at the very end of the build, so catch it now.
+[ "$(wc -l < "$KEY" | tr -d ' ')" -le 1 ] && LC_ALL=C grep -Eq '^[A-Za-z0-9+/]+=*$' "$KEY" ||
+  fail "$KEY isn't one unbroken line of base64 (a space or line break got in when copying). Copy the key again, then run: pbpaste | tr -d ' \\r\\n' > $KEY"
 
 command -v pnpm >/dev/null 2>&1 || fail "pnpm not found. Run: corepack enable"
 command -v rustup >/dev/null 2>&1 || fail "Rust not found. Install it from https://rustup.rs"
