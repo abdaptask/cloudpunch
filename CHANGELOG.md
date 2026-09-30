@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### `scripts/build-mac.sh`: one command for the Mac build (ADR-0026)
+
+- Finds the Developer ID certificate and Team ID in the keychain, checks
+  the updater key, Rust targets and packages, asks for the two passwords
+  without showing them, then runs the signed, notarized universal build.
+- Refuses to run anywhere but macOS (e.g. over SSH on the VM).
+
 ### Desktop 0.1.7: the first version on both Windows and macOS
 
 - **Why a bump:** Windows 0.1.6 was built before the macOS work (ADR-0026
