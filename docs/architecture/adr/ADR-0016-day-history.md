@@ -90,6 +90,25 @@ Today's view keeps using the local journal. It is instant and works
 offline. Merging in sessions from other computers for today is a
 follow-up.
 
+### Amendment: today comes back from the server after signing in (2026-09-30)
+
+Sign-out deletes the journal, so signing out and back in during a shift
+showed an empty day (owner report, 2026-09-30).
+
+- **After each sign-in**, once the device is enrolled, if nothing is on
+  screen and the person is clocked out, the app fetches yesterday's and
+  today's day views (`GET /v1/me/days/{date}`; a night shift may be dated
+  yesterday) and keeps only the **current working day** (§1): the day
+  ends after a gap of 6 hours or more, not at midnight, so a
+  17:45–02:45 IST shift stays one day.
+- The result is journaled locally, so a restart keeps it. Sessions from
+  other computers that day come back too, which also covers signing in on
+  a second computer.
+- Offline or refused: the day starts empty, as before. A live day on
+  screen is never replaced.
+- With a day on screen, the 8 am clock-in popup and the update rules
+  (ADR-0022) know work already happened today.
+
 ## Consequences
 
 - One rule, independent of server, viewer and machine zones; a shift

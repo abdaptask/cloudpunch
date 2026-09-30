@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Desktop 0.1.10: "Clock out and sign out", and today after signing in again
+
+- **Clock out and sign out** (owner request): while clocked in, the
+  header offers it instead of Sign out. It asks first, records a normal
+  clock-out, waits for it to reach the server, then signs out.
+- **Today comes back after signing in again** (ADR-0016 amendment): the
+  app loads today's history from the server when nothing is on screen,
+  keeping only the current working day (a night shift stays one day).
+
 ### One command per release on each machine
 
 - **`scripts/build-windows.ps1 -Publish`** (new; PowerShell 5.1 and 7)

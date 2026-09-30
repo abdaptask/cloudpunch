@@ -233,6 +233,39 @@ fn arm_from_cache(app: &AppHandle, oid: &str, recorder: &Recorder) {
     }
 }
 
+/// Today's history from the server when there's none on screen (after
+/// a sign-out, or on another computer). Fetches yesterday's and today's
+/// day views (a night shift may be dated yesterday); the agent keeps
+/// only the current working day. Offline or refused: the day starts
+/// empty, as before.
+fn restore_today_from_server(app: &AppHandle, auth: &Arc<Auth>, base_url: &str) {
+    let agent = app.state::<Arc<Agent>>();
+    if !agent.timeline_empty() {
+        return;
+    }
+    let Ok(token) = auth.access_token(SystemTime::now()) else {
+        return;
+    };
+    let Ok(http) = backend_http::client_builder()
+        .timeout(Duration::from_secs(15))
+        .build()
+    else {
+        return;
+    };
+    let today = chrono::Local::now().date_naive();
+    let mut fetched = Vec::new();
+    for date in [today - chrono::Duration::days(1), today] {
+        let date = date.format("%Y-%m-%d").to_string();
+        match days::fetch(&http, base_url, &token, &date) {
+            Ok(day) => fetched.push(day),
+            Err(e) => eprintln!("[cloudpunch] today's history not fetched ({date}): {e:?}"),
+        }
+    }
+    if let Some(json) = days::journal_from_days(&fetched) {
+        agent.restore_today_from_server(&json);
+    }
+}
+
 /// Start (or keep) the sync loop for `oid`'s outbox, sending with the
 /// signed-in user's access token, refreshed as needed (F3c).
 fn start_live_sync(
@@ -641,6 +674,9 @@ pub fn start_enrollment(
                             Ok(target) => {
                                 recorder.arm(target);
                                 sync_app.state::<Arc<Agent>>().restore_today();
+                                // Signed in again today: the journal went
+                                // at sign-out, the server still has the day.
+                                restore_today_from_server(&sync_app, &auth, &base_url);
                                 // Clocked in on another computer (ADR-0028 §2)?
                                 let checked = active_device_check(
                                     &sync_app,
@@ -723,7 +759,10 @@ pub fn cancel_sign_in(auth: State<'_, Arc<Auth>>) {
 /// sends every 5 s).
 const SIGN_OUT_FLUSH: Duration = Duration::from_secs(6);
 
-/// Sign out: only while clocked out, so no session is left open. Never
+/// Sign out: only while clocked out, so no session is left open, unless
+/// `clock_out` asks to clock out first ("Clock out and sign out", owner
+/// request 2026-09-30): a normal USER_CLOCK_OUT, then the usual wait for
+/// the sync loop to send it. Never
 /// blocked by unsent time: if the outbox still holds events after a
 /// short wait for the sync loop, they are **kept** with this user's
 /// keys and sent the next time the same user signs in here (the
@@ -736,9 +775,13 @@ pub async fn sign_out(
     auth: State<'_, Arc<Auth>>,
     enrollment: State<'_, Arc<Enrollment>>,
     recorder: State<'_, Recorder>,
+    clock_out: Option<bool>,
 ) -> Result<AuthStatus, String> {
     if agent.state() != CoreState::ClockedOut {
-        return Err("clock_out_first".to_string());
+        if clock_out != Some(true) {
+            return Err("clock_out_first".to_string());
+        }
+        run(&agent, Input::ClockOut)?;
     }
     let (agent, auth, enrollment) = (
         agent.inner().clone(),

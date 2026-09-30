@@ -25,7 +25,7 @@ const mocks = vi.hoisted(() => ({
   authStatus: vi.fn<() => Promise<AuthStatus>>(),
   signIn: vi.fn<() => Promise<AuthStatus>>(),
   cancelSignIn: vi.fn<() => Promise<void>>(),
-  signOut: vi.fn<() => Promise<AuthStatus>>(),
+  signOut: vi.fn<(clockOut?: boolean) => Promise<AuthStatus>>(),
   onAuth: vi.fn<(cb: (s: AuthStatus) => void) => Promise<() => void>>(),
   hideToTray: vi.fn<() => Promise<void>>(),
   quitApp: vi.fn<() => Promise<void>>(),
@@ -382,6 +382,32 @@ describe('sign-in (2b.4 F2)', () => {
     render(<App />);
     await screen.findByRole('button', { name: 'Clock out' });
     expect(screen.queryByRole('button', { name: 'Sign out' })).not.toBeInTheDocument();
+  });
+
+  it('clocked in, "Clock out and sign out" asks first, then does both', async () => {
+    mocks.getState.mockResolvedValue(view({ status: 'active' }));
+    mocks.signOut.mockResolvedValue(SIGNED_OUT);
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole('button', { name: 'Clock out and sign out' }));
+    const dialog = screen.getByRole('dialog', { name: 'clock-out-dialog' });
+    expect(dialog).toHaveTextContent('Clock out and sign out?');
+    expect(screen.queryByRole('button', { name: 'Take a break instead' })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Yes, clock out and sign out' }));
+    expect(mocks.signOut).toHaveBeenCalledWith(true);
+    expect(
+      await screen.findByRole('button', { name: 'Sign in with Microsoft' }),
+    ).toBeInTheDocument();
+  });
+
+  it('"Clock out and sign out" can be cancelled', async () => {
+    mocks.getState.mockResolvedValue(view({ status: 'on_break', breakKind: 'meal' }));
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole('button', { name: 'Clock out and sign out' }));
+    await user.click(screen.getByRole('button', { name: 'Cancel, keep working' }));
+    expect(screen.queryByRole('dialog', { name: 'clock-out-dialog' })).not.toBeInTheDocument();
+    expect(mocks.signOut).not.toHaveBeenCalled();
   });
 });
 

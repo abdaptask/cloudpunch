@@ -1055,6 +1055,36 @@ impl<U: Ui> Agent<U> {
         }
     }
 
+    /// Whether no day is on screen (nothing to lose by restoring one).
+    pub fn timeline_empty(&self) -> bool {
+        self.lock().timeline.segments().is_empty()
+    }
+
+    /// Put back today's timeline from the server's day views (after
+    /// signing in again, the journal is gone): only while clocked out
+    /// with nothing on screen yet, and only the current working day. The
+    /// result is journaled, so a restart keeps it. Returns whether
+    /// anything was restored.
+    pub fn restore_today_from_server(&self, json: &str) -> bool {
+        let (view, snapshot) = {
+            let mut inner = self.lock();
+            if inner.driver.state() != CoreState::ClockedOut
+                || !inner.timeline.restore(json, SystemTime::now())
+            {
+                return false;
+            }
+            inner.timeline.prune(SystemTime::now());
+            self.recorder.save_day(&inner.timeline.to_json());
+            let snapshot = tray_snapshot(inner.driver.state(), inner.driver.core().call_type());
+            (inner.view(), snapshot)
+        };
+        eprintln!("[cloudpunch] today's timeline restored from the server");
+        if let Some(ui) = self.ui.get() {
+            ui.state_changed(&view, snapshot);
+        }
+        true
+    }
+
     /// Forget the day on screen (sign-out: the next user starts clean).
     pub fn clear_timeline(&self) {
         let (view, snapshot) = {

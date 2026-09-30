@@ -344,7 +344,8 @@ export const api = {
   signIn: (): Promise<AuthStatus> => invoke<AuthStatus>('sign_in'),
   /** Stop a sign-in waiting on the browser. */
   cancelSignIn: (): Promise<void> => invoke<void>('cancel_sign_in'),
-  signOut: (): Promise<AuthStatus> => invoke<AuthStatus>('sign_out'),
+  /** `clockOut`: clock out first ("Clock out and sign out"). */
+  signOut: (clockOut = false): Promise<AuthStatus> => invoke<AuthStatus>('sign_out', { clockOut }),
   onAuth: (cb: (status: AuthStatus) => void): Promise<UnlistenFn> =>
     listen<AuthStatus>(AUTH_EVENT, (e) => cb(e.payload)),
   enrollmentStatus: (): Promise<EnrollmentStatus> => invoke<EnrollmentStatus>('enrollment_status'),
