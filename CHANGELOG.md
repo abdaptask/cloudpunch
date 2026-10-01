@@ -23,6 +23,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - New setting **`connections.record`** (global only, default off).
   Nothing is recorded until it's turned on.
 
+### Privacy notice: where you connect from (ADR-0029)
+
+- New section **"Where you connect from"**: IP address, approximate
+  city/state/country and internet provider, worked out on the server
+  (never GPS or Wi-Fi names); who sees it (the employee, their manager,
+  administrators; every view logged); kept 30 days. Applies only once
+  ApTask turns it on.
+- "Your physical location or GPS coordinates" in the not-recorded list
+  is reworded to "GPS coordinates or exact location".
+- ADR-0029 amendment: `maxmind` package for the DB-IP file, IPv6
+  compared by `/64`, and a correction (testers arrive from several
+  addresses, not one).
+
 ### Desktop 0.1.11: account menu in the header
 
 - The header's name and sign-out links wrapped the pin icon onto a
