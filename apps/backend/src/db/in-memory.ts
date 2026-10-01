@@ -93,6 +93,20 @@ export class InMemoryDb implements DbRepositories {
         const row = this.connectionRows.find((c) => c.id === id);
         if (row && at > row.lastSeenAt) row.lastSeenAt = at;
       },
+      listForEmployee: async (employeeId, since) =>
+        this.connectionRows
+          .filter((c) => c.employeeId === employeeId && c.lastSeenAt >= since)
+          .sort((a, b) => b.lastSeenAt.getTime() - a.lastSeenAt.getTime())
+          .map((c) => ({ ...c })),
+      latestForEmployees: async (employeeIds, since) => {
+        const out = new Map<string, DeviceConnection>();
+        for (const c of this.connectionRows) {
+          if (!employeeIds.includes(c.employeeId) || c.lastSeenAt < since) continue;
+          const prior = out.get(c.employeeId);
+          if (!prior || c.lastSeenAt > prior.lastSeenAt) out.set(c.employeeId, { ...c });
+        }
+        return out;
+      },
     };
     this.policies = {
       find: async (scope, scopeId) => this.policyByScope.get(policyKey(scope, scopeId)) ?? null,

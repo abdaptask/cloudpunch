@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Backend: who can see where people connect from (ADR-0029 §5)
+
+- `GET /v1/me/connections`: your own, last 30 days (not audited).
+- `GET /v1/team/:employeeId/connections`: a person's history, audited
+  as `connections_viewed`.
+- `GET /v1/team/connections`: each person's latest, for the Team list.
+  Audited at most once an hour per viewer and person, because the list
+  refreshes every 30 seconds.
+- New capabilities: `admin.connection.read` (Administrator, everyone),
+  `team.connection.read` (Manager, direct reports only),
+  `self.connection.read` (every employee). **HR and Auditors get none**,
+  even with HR's org-wide team view. Outside your scope is 404.
+- Every response carries `recording` (whether `connections.record` is
+  on) and the CC BY credit "IP data by DB-IP".
+
 ### Backend: provider names and the 30-day purge (ADR-0029)
 
 - New connection rows get the **internet provider** and network number

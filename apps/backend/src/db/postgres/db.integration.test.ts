@@ -689,6 +689,39 @@ describe('PostgresDb — device connections', () => {
     expect(await db.connections.latestForDevice(randomUUID())).toBeNull();
   });
 
+  it("lists an employee's connections since a date, and each one's latest", async () => {
+    const one = await seedDevice();
+    const two = await seedDevice();
+    const row = (who: { employeeId: string; deviceId: string }, ip: string, at: string) => ({
+      ...who,
+      ip,
+      city: null,
+      region: null,
+      country: 'IN',
+      asn: 134674,
+      provider: 'Tata Play Broadband Private Limited',
+      firstSeenAt: new Date(at),
+      lastSeenAt: new Date(at),
+    });
+    await db.connections.insert(row(one, '1.1.1.1', '2026-08-01T00:00:00Z'));
+    await db.connections.insert(row(one, '2.2.2.2', '2026-09-20T00:00:00Z'));
+    await db.connections.insert(row(one, '3.3.3.3', '2026-09-30T00:00:00Z'));
+    await db.connections.insert(row(two, '4.4.4.4', '2026-09-25T00:00:00Z'));
+    const since = new Date('2026-09-01T00:00:00Z');
+
+    const list = await db.connections.listForEmployee(one.employeeId, since);
+    expect(list.map((c) => c.ip)).toEqual(['3.3.3.3', '2.2.2.2']);
+
+    const latest = await db.connections.latestForEmployees(
+      [one.employeeId, two.employeeId, randomUUID()],
+      since,
+    );
+    expect(latest.get(one.employeeId)?.ip).toBe('3.3.3.3');
+    expect(latest.get(two.employeeId)?.provider).toBe('Tata Play Broadband Private Limited');
+    expect(latest.size).toBe(2);
+    expect((await db.connections.latestForEmployees([], since)).size).toBe(0);
+  });
+
   it('rejects a malformed country code', async () => {
     const { employeeId, deviceId } = await seedDevice();
     const at = new Date();

@@ -100,6 +100,16 @@ describe('ROLE_CAPABILITIES', () => {
     }
   });
 
+  it('connections (ADR-0029): Administrator everyone, Manager reports, no HR or Auditor', () => {
+    expect(hasCapability([AppRole.Administrator], Capability.AdminConnectionRead)).toBe(true);
+    expect(hasCapability([AppRole.Manager], Capability.TeamConnectionRead)).toBe(true);
+    expect(hasCapability([AppRole.Employee], Capability.SelfConnectionRead)).toBe(true);
+    for (const role of [AppRole.HR, AppRole.Auditor, AppRole.Payroll, AppRole.Employee]) {
+      expect(hasCapability([role], Capability.AdminConnectionRead)).toBe(false);
+      expect(hasCapability([role], Capability.TeamConnectionRead)).toBe(false);
+    }
+  });
+
   it('Employee cannot approve team timesheets', () => {
     expect(hasCapability([AppRole.Employee], Capability.TeamTimesheetApprove)).toBe(false);
   });
