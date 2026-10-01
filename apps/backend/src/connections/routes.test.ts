@@ -214,7 +214,12 @@ describe('GET /v1/team/connections', () => {
     expect(res.statusCode).toBe(200);
     const body = res.json() as { people: (ConnectionView & { employee_id: string })[] };
     expect(body.people).toEqual([
-      expect.objectContaining({ employee_id: report, city: 'Mumbai', ip: '202.71.156.179' }),
+      expect.objectContaining({
+        employee_id: report,
+        name: 'Farheen Test',
+        city: 'Mumbai',
+        ip: '202.71.156.179',
+      }),
     ]);
   });
 

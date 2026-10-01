@@ -154,10 +154,15 @@ const connectionRoutesImpl: FastifyPluginAsync<ConnectionRoutesOptions> = async 
     }
     const rows = [...latest.values()];
     const views = await view(rows);
+    const names = new Map(people.map((p) => [p.id, nameOf(p)]));
     return reply.code(200).send({
       recording: await recording(),
       attribution: ATTRIBUTION,
-      people: rows.map((r, i) => ({ employee_id: r.employeeId, ...views[i] })),
+      people: rows.map((r, i) => ({
+        employee_id: r.employeeId,
+        name: names.get(r.employeeId) ?? '',
+        ...views[i],
+      })),
     });
   });
 
