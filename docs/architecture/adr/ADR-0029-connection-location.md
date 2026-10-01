@@ -125,3 +125,24 @@ delete.
   invasive, needs OS permission, and breaks the privacy notice's GPS
   promise.
 - **Only at sign-in:** the owner wants it whenever they're connected.
+
+## Amendment (2026-10-01): implementation choices
+
+The owner approved these while planning the build:
+
+- **Reading the DB-IP file:** the `maxmind` npm package reads DB-IP's
+  `.mmdb` file directly (DB-IP publishes the ASN Lite database in that
+  format).
+- **IPv6:** two IPv6 addresses in the same `/64` count as the same
+  connection, so a laptop that changes its IPv6 address every few
+  minutes (privacy addresses) doesn't add a row each time. IPv4
+  addresses are compared exactly.
+- **Correction to Context:** the API's logs on 2026-10-01 show testers
+  arriving from six different addresses, IPv4 and IPv6, not just
+  202.71.156.179. The tunnel goes straight to the API on
+  `localhost:8080` (not through Caddy), so Cloudflare's headers reach
+  it. Whether the location headers are present is still unverified;
+  the recorder logs that once, without their values.
+- **Viewing needs a desktop release.** Recording needs no desktop
+  change, but the Team, Settings and own-history screens are in the
+  desktop app (the web dashboard has no code yet).
