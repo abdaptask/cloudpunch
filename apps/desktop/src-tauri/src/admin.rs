@@ -220,6 +220,47 @@ pub fn team_exceptions(
     send(http, base, token, reqwest::Method::GET, &path, None)
 }
 
+// Connection location (ADR-0029 §5). The server decides who sees whom:
+// an Administrator everyone, a Manager direct reports, never HR.
+
+/// Your own connection history, last 30 days.
+pub fn my_connections(http: &Client, base: &str, token: &str) -> Result<Value, DayError> {
+    send(
+        http,
+        base,
+        token,
+        reqwest::Method::GET,
+        "/v1/me/connections",
+        None,
+    )
+}
+
+/// Each person's latest connection (the Team list). Audited server-side.
+pub fn team_connections(http: &Client, base: &str, token: &str) -> Result<Value, DayError> {
+    send(
+        http,
+        base,
+        token,
+        reqwest::Method::GET,
+        "/v1/team/connections",
+        None,
+    )
+}
+
+/// One person's connection history. Audited server-side.
+pub fn person_connections(
+    http: &Client,
+    base: &str,
+    token: &str,
+    employee_id: &str,
+) -> Result<Value, DayError> {
+    if !is_uuid(employee_id) {
+        return Err(DayError::Refused("invalid_argument".into()));
+    }
+    let path = format!("/v1/team/{employee_id}/connections");
+    send(http, base, token, reqwest::Method::GET, &path, None)
+}
+
 /// Everyone, with their reporting manager (People).
 pub fn employees(http: &Client, base: &str, token: &str) -> Result<Value, DayError> {
     send(
@@ -344,6 +385,13 @@ mod tests {
             .timeout(Duration::from_secs(5))
             .build()
             .unwrap()
+    }
+
+    #[test]
+    fn person_connections_refuses_a_bad_id_before_sending() {
+        let http = client();
+        let r = person_connections(&http, "http://127.0.0.1:9", "t", "x/../y");
+        assert!(matches!(r, Err(DayError::Refused(c)) if c == "invalid_argument"));
     }
 
     #[test]

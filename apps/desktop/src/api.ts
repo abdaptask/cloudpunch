@@ -67,6 +67,37 @@ export interface TeamPerson {
   worked_ms: number;
 }
 
+/** One network a computer connected from (ADR-0029). */
+export interface Connection {
+  ip: string;
+  city: string | null;
+  region: string | null;
+  country: string | null;
+  provider: string | null;
+  asn: number | null;
+  device_os: string | null;
+  first_seen_at: string;
+  last_seen_at: string;
+}
+
+/** `GET /v1/me/connections` and `/v1/team/:id/connections`. */
+export interface ConnectionHistory {
+  name?: string;
+  /** Whether `connections.record` is on. */
+  recording: boolean;
+  keep_days: number;
+  /** "IP data by DB-IP" (CC BY 4.0). */
+  attribution: string;
+  connections: Connection[];
+}
+
+/** `GET /v1/team/connections`: each person's latest. */
+export interface TeamConnections {
+  recording: boolean;
+  attribution: string;
+  people: (Connection & { employee_id: string; name: string })[];
+}
+
 export interface TeamDaySegment {
   kind: string;
   started_at: string;
@@ -306,6 +337,11 @@ export const api = {
   ): Promise<{ id: string; reporting_manager_id: string | null }> =>
     invoke('admin_set_manager', { employeeId, managerId, reason: reason || null }),
   adminDevices: (): Promise<{ devices: DeviceRow[] }> => invoke('admin_devices'),
+  /** Where people connect from (ADR-0029); the server checks who sees whom. */
+  myConnections: (): Promise<ConnectionHistory> => invoke('my_connections'),
+  teamConnections: (): Promise<TeamConnections> => invoke('team_connections'),
+  personConnections: (employeeId: string): Promise<ConnectionHistory> =>
+    invoke('person_connections', { employeeId }),
   /** Administrators (ADR-0028 §4): null when not clocked in anywhere. */
   adminActiveDevice: (employeeId: string): Promise<ActiveMachine | null> =>
     invoke('admin_active_device', { employeeId }),

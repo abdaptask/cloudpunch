@@ -1,5 +1,7 @@
 import { useEffect, useState, type CSSProperties } from 'react';
 import { api, type TeamDay, type TeamException, type TeamPerson } from './api.js';
+import { PersonConnections } from './ConnectionsView.js';
+import { placeOf } from './connectionsModel.js';
 import { dayLabel, localDateOf, LOOKBACK_DAYS, shiftDate } from './dayHistory.js';
 import { dayRows, exceptionText, hm, overdue, statusText } from './teamModel.js';
 import { formatClock, type SegmentKind } from './timelineModel.js';
@@ -23,7 +25,14 @@ const errorText = (code: string): string => ERROR_TEXT[code] ?? `Something went 
  * person's day, and exceptions. The server decides who is on the
  * caller's team and audits each day opened.
  */
-export function TeamScreen({ onClose }: { onClose: () => void }): JSX.Element {
+export function TeamScreen({
+  onClose,
+  canSeeConnections = false,
+}: {
+  onClose: () => void;
+  /** Managers and Administrators (ADR-0029 §5); not HR. The server checks again. */
+  canSeeConnections?: boolean;
+}): JSX.Element {
   const t = useTheme();
   const [tab, setTab] = useState<'today' | 'exceptions'>('today');
   const [person, setPerson] = useState<{ id: string; name: string } | null>(null);
@@ -38,7 +47,7 @@ export function TeamScreen({ onClose }: { onClose: () => void }): JSX.Element {
         </button>
       </div>
       {person ? (
-        <PersonDay id={person.id} />
+        <Person id={person.id} canSeeConnections={canSeeConnections} />
       ) : (
         <>
           <div role="tablist" aria-label="team-tabs" style={{ display: 'flex', gap: 6 }}>
@@ -63,7 +72,10 @@ export function TeamScreen({ onClose }: { onClose: () => void }): JSX.Element {
             ))}
           </div>
           {tab === 'today' ? (
-            <TeamToday onOpen={(p) => setPerson({ id: p.employee_id, name: p.name })} />
+            <TeamToday
+              canSeeConnections={canSeeConnections}
+              onOpen={(p) => setPerson({ id: p.employee_id, name: p.name })}
+            />
           ) : (
             <Exceptions onOpen={(e) => setPerson({ id: e.employee_id, name: e.name })} />
           )}
@@ -73,14 +85,30 @@ export function TeamScreen({ onClose }: { onClose: () => void }): JSX.Element {
   );
 }
 
-function TeamToday({ onOpen }: { onOpen: (p: TeamPerson) => void }): JSX.Element {
+function TeamToday({
+  onOpen,
+  canSeeConnections,
+}: {
+  onOpen: (p: TeamPerson) => void;
+  canSeeConnections: boolean;
+}): JSX.Element {
   const t = useTheme();
   const [people, setPeople] = useState<TeamPerson[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [now, setNow] = useState(Date.now());
+  // Each person's latest place (ADR-0029); left out if it can't load.
+  const [places, setPlaces] = useState<Map<string, string>>(new Map());
   useEffect(() => {
     let current = true;
     const load = (): void => {
+      if (canSeeConnections) {
+        api.teamConnections().then(
+          (r) => {
+            if (current) setPlaces(new Map(r.people.map((p) => [p.employee_id, placeOf(p)])));
+          },
+          () => undefined,
+        );
+      }
       api.teamNow().then(
         (r) => {
           if (!current) return;
@@ -99,7 +127,7 @@ function TeamToday({ onOpen }: { onOpen: (p: TeamPerson) => void }): JSX.Element
       current = false;
       window.clearInterval(timer);
     };
-  }, []);
+  }, [canSeeConnections]);
   if (error && !people) return <Note t={t} alert text={errorText(error)} />;
   if (!people) return <Note t={t} text="Loading…" />;
   if (people.length === 0) {
@@ -150,6 +178,7 @@ function TeamToday({ onOpen }: { onOpen: (p: TeamPerson) => void }): JSX.Element
                 <span style={{ display: 'block', fontSize: 12, color: late ? t.danger : t.muted }}>
                   {statusText(p)}
                   {late && ' · late'}
+                  {places.has(p.employee_id) && ` · ${places.get(p.employee_id)}`}
                 </span>
               </span>
               <span style={{ fontSize: 12, color: t.muted, fontVariantNumeric: 'tabular-nums' }}>
@@ -160,6 +189,43 @@ function TeamToday({ onOpen }: { onOpen: (p: TeamPerson) => void }): JSX.Element
         );
       })}
     </ul>
+  );
+}
+
+/** A person: their day, and for Managers and Administrators, their connections. */
+function Person({
+  id,
+  canSeeConnections,
+}: {
+  id: string;
+  canSeeConnections: boolean;
+}): JSX.Element {
+  const t = useTheme();
+  const [tab, setTab] = useState<'day' | 'connections'>('day');
+  if (!canSeeConnections) return <PersonDay id={id} />;
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <div role="tablist" aria-label="person-tabs" style={{ display: 'flex', gap: 6 }}>
+        {(
+          [
+            ['day', 'Day'],
+            ['connections', 'Connections'],
+          ] as const
+        ).map(([key, label]) => (
+          <Button
+            key={key}
+            role="tab"
+            aria-selected={tab === key}
+            variant="chip"
+            onClick={() => setTab(key)}
+            style={tab === key ? { borderColor: t.accent, color: t.accent, fontWeight: 650 } : {}}
+          >
+            {label}
+          </Button>
+        ))}
+      </div>
+      {tab === 'day' ? <PersonDay id={id} /> : <PersonConnections id={id} />}
+    </div>
   );
 }
 

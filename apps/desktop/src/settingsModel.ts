@@ -29,6 +29,8 @@ export interface SettingsForm {
   offerTraining: boolean;
   /** away.check_after_minutes (ADR-0027). */
   awayCheckMinutes: number;
+  /** connections.record (ADR-0029); company-wide only. */
+  recordConnections: boolean;
 }
 
 export type BreakId = 'bio' | 'meal' | 'rest' | 'personal' | 'other';
@@ -119,6 +121,7 @@ export function formFrom(policy: Doc): SettingsForm {
         ? (obj(policy['away'])['offer_training'] as boolean)
         : true,
     awayCheckMinutes: num(obj(policy['away'])['check_after_minutes'], 60),
+    recordConnections: obj(policy['connections'])['record'] === true,
   };
 }
 
@@ -163,10 +166,15 @@ export function formIssues(f: SettingsForm): Partial<Record<keyof SettingsForm, 
 /**
  * The scope's new override: its current document with the form's
  * settings written in. Other settings in the override are kept.
+ * `connections.record` is written only company-wide (`global`): the
+ * server reads it from there alone (ADR-0029 §7).
  */
-export function overrideWith(current: Doc | null, f: SettingsForm): Doc {
+export function overrideWith(current: Doc | null, f: SettingsForm, global = false): Doc {
   const base = current ?? {};
   return {
+    ...(global
+      ? { connections: { ...obj(base['connections']), record: f.recordConnections } }
+      : {}),
     ...base,
     idle: {
       ...obj(base['idle']),

@@ -26,12 +26,15 @@ export function AccountMenu({
   clockedIn,
   onSignOut,
   onClockOutAndSignOut,
+  onConnections,
 }: {
   name: string | null;
   username: string | null;
   clockedIn: boolean;
   onSignOut: () => void;
   onClockOutAndSignOut: () => void;
+  /** "Where you connect from" (ADR-0029 §5); absent hides it. */
+  onConnections?: (() => void) | undefined;
 }): JSX.Element {
   const t = useTheme();
   const [open, setOpen] = useState(false);
@@ -121,6 +124,19 @@ export function AccountMenu({
             )}
           </div>
           <div style={{ height: 1, background: t.border, margin: '0 6px 4px' }} />
+          {onConnections && (
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setOpen(false);
+                onConnections();
+              }}
+              style={item(false)}
+            >
+              Where you connect from
+            </button>
+          )}
           <button
             type="button"
             role="menuitem"

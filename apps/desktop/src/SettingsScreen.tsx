@@ -110,7 +110,7 @@ export function SettingsScreen({
   const save = (): void => {
     if (!form || !loaded || scope === null || Object.keys(issues).length > 0) return;
     setSaving(true);
-    const document = overrideWith(loaded.override, form);
+    const document = overrideWith(loaded.override, form, scope === 'global');
     const put =
       scope === 'global'
         ? api.adminPolicyPut('global', null, document, reason)
@@ -292,6 +292,22 @@ export function SettingsScreen({
               onChange={(v) => set('awayCheckMinutes', v)}
             />
           </Group>
+          {scope === 'global' && (
+            <Group title="Connection location" t={t}>
+              <Toggle
+                label="Record where people connect from"
+                name="record-connections"
+                on={form.recordConnections}
+                onChange={(on) => set('recordConnections', on)}
+              />
+              <p style={{ margin: 0, fontSize: 12, lineHeight: 1.4, color: t.muted }}>
+                The server keeps each computer&apos;s IP address, approximate city and internet
+                provider for 30 days. Nothing comes from the computer itself and there&apos;s no
+                GPS. Managers see their own team; Administrators see everyone. Tell employees before
+                turning this on (privacy notice).
+              </p>
+            </Group>
+          )}
           <Field label="Why (kept in the audit log, optional)">
             <input
               aria-label="reason"
