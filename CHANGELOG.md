@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### ADR-0030 proposed: time corrections
+
+- A correction is one interval with a new meaning (`working`,
+  `away_working`, a break type, `not_worked`) and a reason, covering
+  missing, mislabelled and extra time. Stored in two new append-only
+  tables, never in `time_event`; laid over the derived day.
+- Employee asks, their manager or HR approves; nobody approves their
+  own. "Accept explanation" on idle exceptions (ADR-0018). Five open
+  questions for the owner, including whether a manager's correction can
+  apply at once.
+
 ### Desktop 0.1.12: where people connect from (ADR-0029)
 
 - **Team** (Managers, and Administrators who have it): each person's
