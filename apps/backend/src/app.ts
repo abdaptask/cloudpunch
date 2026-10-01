@@ -3,6 +3,7 @@ import type { Logger } from 'pino';
 import { authPlugin } from './auth/plugin.js';
 import { createEntraJwks } from './auth/jwks.js';
 import type { Env } from './config/env.js';
+import { ConnectionRecorder } from './connections/recorder.js';
 import type { DbRepositories } from './db/index.js';
 import { dayRoutes } from './days/routes.js';
 import { devicesRoutes } from './devices/routes.js';
@@ -93,9 +94,11 @@ export async function buildApp(opts: BuildAppOptions) {
   });
 
   if (opts.db) {
+    // ADR-0029: off until the global `connections.record` setting is on.
+    const connections = new ConnectionRecorder({ db: opts.db, log: app.log });
     await app.register(meRoutes, { db: opts.db });
-    await app.register(devicesRoutes, { db: opts.db });
-    await app.register(eventsRoutes, { db: opts.db });
+    await app.register(devicesRoutes, { db: opts.db, connections });
+    await app.register(eventsRoutes, { db: opts.db, connections });
     await app.register(dayRoutes, { db: opts.db });
     await app.register(policyRoutes, { db: opts.db });
     await app.register(policyAdminRoutes, { db: opts.db });

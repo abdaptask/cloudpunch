@@ -4,7 +4,9 @@ import type {
   PeopleRepo,
   AppUser,
   AppUserRepo,
+  ConnectionRepo,
   DbRepositories,
+  DeviceConnection,
   Device,
   DeviceEnrollInput,
   DeviceOs,
@@ -47,8 +49,10 @@ export class PostgresDb implements DbRepositories {
   readonly policies: PolicyRepo;
   readonly departments: DepartmentRepo;
   readonly people: PeopleRepo;
+  readonly connections: ConnectionRepo;
 
   constructor(private readonly sql: postgres.Sql) {
+    this.connections = this.buildConnectionRepo();
     this.employees = this.buildEmployeeRepo();
     this.users = this.buildAppUserRepo();
     this.devices = this.buildDeviceRepo();
@@ -108,6 +112,40 @@ export class PostgresDb implements DbRepositories {
         this.sql<{ id: string; code: string; name: string }[]>`
           SELECT id, code, name FROM department ORDER BY name
         `,
+    };
+  }
+
+  // -------------------------------------------------------------------
+  // device connections (ADR-0029)
+  // -------------------------------------------------------------------
+
+  private buildConnectionRepo(): ConnectionRepo {
+    // `host(ip)` gives the bare address; inet would print a /32 or /128.
+    const cols = this.sql`id, employee_id, device_id, host(ip) AS ip, city, region, country,
+                          asn, provider, first_seen_at, last_seen_at`;
+    return {
+      latestForDevice: async (deviceId) => {
+        const [row] = await this.sql<DeviceConnection[]>`
+          SELECT ${cols} FROM device_connection
+          WHERE device_id = ${deviceId}
+          ORDER BY last_seen_at DESC LIMIT 1`;
+        return row ?? null;
+      },
+      insert: async (c) => {
+        const [row] = await this.sql<DeviceConnection[]>`
+          INSERT INTO device_connection (employee_id, device_id, ip, city, region, country,
+                                         asn, provider, first_seen_at, last_seen_at)
+          VALUES (${c.employeeId}, ${c.deviceId}, ${c.ip}, ${c.city}, ${c.region}, ${c.country},
+                  ${c.asn}, ${c.provider}, ${c.firstSeenAt}, ${c.lastSeenAt})
+          RETURNING ${cols}`;
+        if (!row) throw new Error('device_connection insert returned no row');
+        return row;
+      },
+      touch: async (id, at) => {
+        await this.sql`
+          UPDATE device_connection SET last_seen_at = greatest(last_seen_at, ${at})
+          WHERE id = ${id}`;
+      },
     };
   }
 

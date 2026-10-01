@@ -388,6 +388,31 @@ export interface PeopleRepo {
   lastWelcomeAt(oid: string): Promise<Date | null>;
 }
 
+/** ADR-0029 §1: where a device connected from, one row per network. */
+export interface DeviceConnection {
+  id: string;
+  employeeId: string;
+  deviceId: string;
+  ip: string;
+  city: string | null;
+  region: string | null;
+  country: string | null;
+  asn: number | null;
+  provider: string | null;
+  firstSeenAt: Date;
+  lastSeenAt: Date;
+}
+
+export type DeviceConnectionInput = Omit<DeviceConnection, 'id'>;
+
+export interface ConnectionRepo {
+  /** The device's most recently seen connection, or null. */
+  latestForDevice(deviceId: string): Promise<DeviceConnection | null>;
+  insert(input: DeviceConnectionInput): Promise<DeviceConnection>;
+  /** Move `last_seen_at` forward to `at` (never backward). */
+  touch(id: string, at: Date): Promise<void>;
+}
+
 export interface DbRepositories {
   people: PeopleRepo;
   employees: EmployeeRepo;
@@ -397,4 +422,5 @@ export interface DbRepositories {
   timeEvents: TimeEventRepo;
   policies: PolicyRepo;
   departments: DepartmentRepo;
+  connections: ConnectionRepo;
 }

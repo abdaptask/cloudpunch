@@ -638,3 +638,73 @@ describe('PostgresDb — events', () => {
     expect(await db.timeEvents.findMaxSequenceForSession(sessionId)).toBe(3);
   });
 });
+
+// ---------------------------------------------------------------------
+// device connections (ADR-0029)
+// ---------------------------------------------------------------------
+
+describe('PostgresDb — device connections', () => {
+  async function seedDevice() {
+    const employeeId = await seedEmployee();
+    const { userId } = await seedUser({ employeeId });
+    const device = await db.devices.enroll({
+      id: randomUUID(),
+      userId,
+      os: 'windows',
+      hostnameHash: 'sha256-' + '0'.repeat(64),
+      publicKeyEd25519: new Uint8Array(32).fill(7),
+      appVersion: '0.1.11',
+    });
+    return { employeeId, deviceId: device.id };
+  }
+
+  it('inserts, finds the latest and only moves last_seen_at forward', async () => {
+    const { employeeId, deviceId } = await seedDevice();
+    const t0 = new Date('2026-10-01T09:00:00Z');
+    const t1 = new Date('2026-10-01T10:00:00Z');
+    const base = {
+      employeeId,
+      deviceId,
+      city: 'Pune',
+      region: 'Maharashtra',
+      country: 'IN',
+      asn: null,
+      provider: null,
+    };
+    await db.connections.insert({ ...base, ip: '58.84.61.202', firstSeenAt: t0, lastSeenAt: t0 });
+    const v6 = await db.connections.insert({
+      ...base,
+      ip: '2402:e280:3e8f:1d7:4db:8a24:7d9e:5c4',
+      firstSeenAt: t1,
+      lastSeenAt: t1,
+    });
+    expect(v6.ip).toBe('2402:e280:3e8f:1d7:4db:8a24:7d9e:5c4');
+
+    expect(await db.connections.latestForDevice(deviceId)).toEqual(v6);
+    await db.connections.touch(v6.id, t0); // earlier: ignored
+    expect((await db.connections.latestForDevice(deviceId))?.lastSeenAt).toEqual(t1);
+    const t2 = new Date('2026-10-01T10:15:00Z');
+    await db.connections.touch(v6.id, t2);
+    expect((await db.connections.latestForDevice(deviceId))?.lastSeenAt).toEqual(t2);
+    expect(await db.connections.latestForDevice(randomUUID())).toBeNull();
+  });
+
+  it('rejects a malformed country code', async () => {
+    const { employeeId, deviceId } = await seedDevice();
+    const at = new Date();
+    await expect(
+      db.connections.insert({
+        employeeId,
+        deviceId,
+        ip: '1.2.3.4',
+        city: null,
+        region: null,
+        country: 'india',
+        asn: null,
+        provider: null,
+        firstSeenAt: at,
+        lastSeenAt: at,
+      }),
+    ).rejects.toThrow();
+  });
+});

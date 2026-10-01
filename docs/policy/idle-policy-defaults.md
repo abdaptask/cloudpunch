@@ -347,6 +347,17 @@ session with a ReviewCase.
 **Default:** `30`
 **Effect:** How often the agent samples both clocks.
 
+## 13a. Connection location
+
+**Setting:** `connections.record`
+**Default:** `false`
+**Effect:** When on, the server keeps each device's IP address,
+approximate city/state/country and internet provider, one row per
+network, for 30 days (ADR-0029). Nothing changes on the laptop. Only
+the **global** value counts: a department or employee value is
+ignored. Turn it on only after the privacy notice update has gone out
+(ADR-0029 §7); the server notices the change within a minute.
+
 ## 14. Setting change audit
 
 Every change to any policy setting writes an `audit_log` row with:

@@ -5,8 +5,10 @@ import type {
   WelcomeAudit,
   AppUser,
   AppUserRepo,
+  ConnectionRepo,
   DbRepositories,
   Device,
+  DeviceConnection,
   DeviceEnrollInput,
   DeviceRepo,
   DeviceSignOutInput,
@@ -48,6 +50,9 @@ export class InMemoryDb implements DbRepositories {
   readonly policies: PolicyRepo;
   readonly departments: DepartmentRepo;
   readonly people: PeopleRepo;
+  readonly connections: ConnectionRepo;
+  /** device_connection rows (ADR-0029), for tests. */
+  readonly connectionRows: DeviceConnection[] = [];
   /** audit_log rows written by role changes, for tests. */
   readonly roleAudit: RoleChangeAudit[] = [];
   /** audit_log rows written by welcome emails, for tests. */
@@ -73,6 +78,22 @@ export class InMemoryDb implements DbRepositories {
   private readonly seqByEventKey = new Map<string, string>(); // `${sessionId}:${seq}` -> eventUlid
 
   constructor() {
+    this.connections = {
+      latestForDevice: async (deviceId) => {
+        const mine = this.connectionRows.filter((c) => c.deviceId === deviceId);
+        mine.sort((a, b) => b.lastSeenAt.getTime() - a.lastSeenAt.getTime());
+        return mine[0] ? { ...mine[0] } : null;
+      },
+      insert: async (input) => {
+        const row = { id: randomUUID(), ...input };
+        this.connectionRows.push(row);
+        return { ...row };
+      },
+      touch: async (id, at) => {
+        const row = this.connectionRows.find((c) => c.id === id);
+        if (row && at > row.lastSeenAt) row.lastSeenAt = at;
+      },
+    };
     this.policies = {
       find: async (scope, scopeId) => this.policyByScope.get(policyKey(scope, scopeId)) ?? null,
       put: async (change, document) => {
