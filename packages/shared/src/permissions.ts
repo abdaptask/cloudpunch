@@ -18,6 +18,8 @@ export const Capability = {
   SelfTimesheetCertify: 'self.timesheet.certify',
   SelfCorrectionRequest: 'self.correction.request',
   SelfPrivacyExport: 'self.privacy.export',
+  /** Your own connection history (ADR-0029 §5). */
+  SelfConnectionRead: 'self.connection.read',
 
   // Team — managers on assigned team only, enforced server-side
   TeamTimelineRead: 'team.timeline.read',
@@ -25,6 +27,8 @@ export const Capability = {
   TeamTimesheetApprove: 'team.timesheet.approve',
   TeamCorrectionReview: 'team.correction.review',
   TeamReviewCaseRead: 'team.review_case.read',
+  /** Where direct reports connect from (ADR-0029 §5). Managers only, not HR. */
+  TeamConnectionRead: 'team.connection.read',
 
   // HR — cross-team read + limited writes
   HrEmployeeRead: 'hr.employee.read',
@@ -43,6 +47,8 @@ export const Capability = {
   AdminIntegrationConfigure: 'admin.integration.configure',
   AdminReconciliationAct: 'admin.reconciliation.act',
   AdminPolicyWrite: 'admin.policy.write',
+  /** Where anyone connects from (ADR-0029 §5). */
+  AdminConnectionRead: 'admin.connection.read',
 
   // Payroll — read-only access to approved records + export
   PayrollApprovedRead: 'payroll.approved.read',
@@ -77,6 +83,7 @@ const _ROLE_CAPABILITIES: { readonly [K in AppRole]: readonly Capability[] } = {
     Capability.SelfTimesheetCertify,
     Capability.SelfCorrectionRequest,
     Capability.SelfPrivacyExport,
+    Capability.SelfConnectionRead,
   ],
   [AppRole.Manager]: [
     Capability.TeamTimelineRead,
@@ -84,6 +91,7 @@ const _ROLE_CAPABILITIES: { readonly [K in AppRole]: readonly Capability[] } = {
     Capability.TeamTimesheetApprove,
     Capability.TeamCorrectionReview,
     Capability.TeamReviewCaseRead,
+    Capability.TeamConnectionRead,
   ],
   [AppRole.HR]: [
     Capability.HrEmployeeRead,
@@ -104,6 +112,7 @@ const _ROLE_CAPABILITIES: { readonly [K in AppRole]: readonly Capability[] } = {
     Capability.AdminIntegrationConfigure,
     Capability.AdminReconciliationAct,
     Capability.AdminPolicyWrite,
+    Capability.AdminConnectionRead,
     // Admin can also manage employees (HR-adjacent config)
     Capability.HrEmployeeRead,
     Capability.HrEmployeeWrite,

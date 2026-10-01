@@ -57,7 +57,7 @@ export interface SetManagerInput {
 export interface ViewAudit {
   actorUserId: string;
   employeeId: string;
-  action: 'day_viewed' | 'exceptions_viewed';
+  action: 'day_viewed' | 'exceptions_viewed' | 'connections_viewed';
   /** The date(s) viewed, e.g. `{ from, to }`. */
   detail: Record<string, string>;
   correlationId: string;
@@ -411,6 +411,13 @@ export interface ConnectionRepo {
   insert(input: DeviceConnectionInput): Promise<DeviceConnection>;
   /** Move `last_seen_at` forward to `at` (never backward). */
   touch(id: string, at: Date): Promise<void>;
+  /** The employee's connections seen since `since`, most recent first. */
+  listForEmployee(employeeId: string, since: Date): Promise<DeviceConnection[]>;
+  /** Each employee's most recent connection seen since `since`; absent if none. */
+  latestForEmployees(
+    employeeIds: readonly string[],
+    since: Date,
+  ): Promise<Map<string, DeviceConnection>>;
 }
 
 export interface DbRepositories {

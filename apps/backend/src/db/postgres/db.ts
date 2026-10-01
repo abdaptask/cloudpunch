@@ -146,6 +146,19 @@ export class PostgresDb implements DbRepositories {
           UPDATE device_connection SET last_seen_at = greatest(last_seen_at, ${at})
           WHERE id = ${id}`;
       },
+      listForEmployee: async (employeeId, since) =>
+        this.sql<DeviceConnection[]>`
+          SELECT ${cols} FROM device_connection
+          WHERE employee_id = ${employeeId} AND last_seen_at >= ${since}
+          ORDER BY last_seen_at DESC LIMIT 1000`,
+      latestForEmployees: async (employeeIds, since) => {
+        if (employeeIds.length === 0) return new Map();
+        const rows = await this.sql<DeviceConnection[]>`
+          SELECT DISTINCT ON (employee_id) ${cols} FROM device_connection
+          WHERE employee_id IN ${this.sql(employeeIds)} AND last_seen_at >= ${since}
+          ORDER BY employee_id, last_seen_at DESC`;
+        return new Map(rows.map((r) => [r.employeeId, r]));
+      },
     };
   }
 

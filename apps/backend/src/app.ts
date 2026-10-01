@@ -4,6 +4,7 @@ import { authPlugin } from './auth/plugin.js';
 import { createEntraJwks } from './auth/jwks.js';
 import type { Env } from './config/env.js';
 import { ConnectionRecorder } from './connections/recorder.js';
+import { connectionRoutes } from './connections/routes.js';
 import { DbIpProviderLookup } from './connections/provider.js';
 import type { DbRepositories } from './db/index.js';
 import { dayRoutes } from './days/routes.js';
@@ -108,6 +109,7 @@ export async function buildApp(opts: BuildAppOptions) {
     await app.register(policyRoutes, { db: opts.db });
     await app.register(policyAdminRoutes, { db: opts.db });
     await app.register(teamRoutes, { db: opts.db });
+    await app.register(connectionRoutes, { db: opts.db });
     await app.register(peopleRoutes, {
       db: opts.db,
       graphFor: opts.graphFor ?? graphFromEnv(opts),
