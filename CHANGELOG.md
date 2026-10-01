@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### ADR-0030 accepted: time corrections
+
+- A correction is one interval with a new meaning (`working`,
+  `away_working`, a break type, `not_worked`) and a reason, covering
+  missing, mislabelled and extra time. Stored in two new append-only
+  tables, never in `time_event`; laid over the derived day.
+- Employee asks; their manager endorses (or corrects a report
+  directly); **an Administrator approves** every correction. No manager:
+  straight to an Administrator. HR has no part for now. Nobody decides
+  on their own. "Accept explanation" on idle exceptions (ADR-0018).
+
 ### Pilot VM: the office path can't fake a location (ADR-0029)
 
 - Caddy (the office HTTPS path) now drops any `Cf-*` header a client
