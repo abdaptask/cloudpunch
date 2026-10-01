@@ -1,0 +1,26 @@
+# Kept in the repo: infra/pilot/Caddyfile. Install with scripts/install-caddyfile.sh.
+# CloudPunch pilot (ADR-0019): HTTPS on 443 with Caddy's own private CA;
+# the pilot desktop build trusts only that CA root, for our API only.
+{
+	default_sni 172.16.46.54
+	auto_https disable_redirects
+	skip_install_trust
+	admin localhost:2019
+}
+
+https://172.16.46.54 {
+	tls internal
+	encode zstd gzip
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		Referrer-Policy no-referrer
+		-Server
+	}
+	# ADR-0029: only Cloudflare may say where a request came from. The
+	# office path through here drops any Cf-* header a client sends, so
+	# nobody can fake a location.
+	reverse_proxy 127.0.0.1:8080 {
+		header_up -Cf-*
+	}
+}

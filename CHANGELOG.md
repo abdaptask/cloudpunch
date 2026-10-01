@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Pilot VM: the office path can't fake a location (ADR-0029)
+
+- Caddy (the office HTTPS path) now drops any `Cf-*` header a client
+  sends, so only Cloudflare can say where a request came from. Tested
+  first with a throwaway Caddy, then installed; the previous file is
+  kept on the VM.
+- The Caddyfile is now in the repo (`infra/pilot/Caddyfile`), installed
+  with **`scripts/install-caddyfile.sh`** (back up, validate, reload,
+  restore if the reload fails).
+
 ### Desktop 0.1.12: where people connect from (ADR-0029)
 
 - **Team** (Managers, and Administrators who have it): each person's
