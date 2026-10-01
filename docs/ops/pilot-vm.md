@@ -11,7 +11,7 @@ public at **`https://cloudpunch.aptask.com`** through a Cloudflare Tunnel
 |---|---|---|
 | API | `cloudpunch-api.service`, user `cloudpunch`, `127.0.0.1:8080` | code in `/opt/cloudpunch/app` (`REVISION` file); previous deploy in `app.prev` |
 | Secrets | `/etc/cloudpunch/api.env` (`root:cloudpunch 0640`) | `CLOUDPUNCH_ENV=pilot`, Entra ids, `POSTGRES_APP_URL`. Never copy or print it |
-| HTTPS | Caddy, `/etc/caddy/Caddyfile`, port 443 | `tls internal`. CA root at `/var/lib/caddy/.local/share/caddy/pki/authorities/local/root.crt`; the same file is in `apps/desktop/pilot/pilot-ca.pem` |
+| HTTPS | Caddy, `/etc/caddy/Caddyfile`, port 443 | Source: `infra/pilot/Caddyfile`, installed by `scripts/install-caddyfile.sh` (backs up, validates, reloads). Drops client `Cf-*` headers (ADR-0029). `tls internal`. CA root at `/var/lib/caddy/.local/share/caddy/pki/authorities/local/root.crt`; the same file is in `apps/desktop/pilot/pilot-ca.pem` |
 | Database | Postgres 16, localhost only, DB `cloudpunch_dev` | roles `cloudpunch_migrator` (DDL) and `cloudpunch_app` (data) |
 | Backups | cron `/etc/cron.d/cloudpunch-backup`, 02:30 nightly | `/var/backups/cloudpunch/*.dump`, 14 days, **on the same disk** |
 | Public access | `cloudflared.service` (tunnel **cloudpunch**, id `e02aec2a-06b9-4b69-b795-c92e5c7b55a1`) | Cloudflare dashboard → Zero Trust → Networks → Tunnels → cloudpunch → Public Hostname: `cloudpunch.aptask.com` → **HTTP** `localhost:8080` (HTTPS here gives 502) |
