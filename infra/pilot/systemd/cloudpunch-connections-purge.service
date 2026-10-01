@@ -1,0 +1,11 @@
+[Unit]
+Description=CloudPunch: delete connection history over 30 days old (ADR-0029)
+After=postgresql.service
+
+[Service]
+Type=oneshot
+User=postgres
+ExecStart=/bin/bash /opt/cloudpunch/app/infra/pilot/connections-purge.sh
+ProtectSystem=strict
+PrivateTmp=true
+NoNewPrivileges=true

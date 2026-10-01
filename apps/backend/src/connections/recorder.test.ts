@@ -131,6 +131,25 @@ describe('ConnectionRecorder', () => {
     expect(db.connectionRows).toHaveLength(1);
   });
 
+  it('names the provider on a new row, and looks it up only once per network', async () => {
+    await turnOn();
+    let lookups = 0;
+    const providers = {
+      lookup: () => {
+        lookups++;
+        return Promise.resolve({ asn: 134674, provider: 'Tata Play Broadband Private Limited' });
+      },
+    };
+    const r = new ConnectionRecorder({ db, log, now, providers });
+    await r.record(viaCloudflare('58.84.61.202'), employeeId, deviceId);
+    later(TOUCH_EVERY_MS);
+    await r.record(viaCloudflare('58.84.61.202'), employeeId, deviceId);
+    expect(db.connectionRows).toEqual([
+      expect.objectContaining({ asn: 134674, provider: 'Tata Play Broadband Private Limited' }),
+    ]);
+    expect(lookups).toBe(1);
+  });
+
   it('never fails the request it is recording', async () => {
     await turnOn();
     db.connections.insert = () => Promise.reject(new Error('database is down'));

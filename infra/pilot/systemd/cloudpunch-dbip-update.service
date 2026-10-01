@@ -1,0 +1,12 @@
+[Unit]
+Description=CloudPunch: fetch the DB-IP ASN Lite database (ADR-0029)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash /opt/cloudpunch/app/infra/pilot/dbip-update.sh
+ProtectSystem=strict
+ReadWritePaths=/opt/cloudpunch/geo
+PrivateTmp=true
+NoNewPrivileges=true

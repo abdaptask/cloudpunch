@@ -27,6 +27,7 @@
     "fastify": "^4.28.1",
     "fastify-plugin": "^4.5.1",
     "jose": "^5.9.6",
+    "maxmind": "^5.0.7",
     "pino": "^9.4.0",
     "pino-pretty": "^11.2.2",
     "postgres": "^3.4.4",

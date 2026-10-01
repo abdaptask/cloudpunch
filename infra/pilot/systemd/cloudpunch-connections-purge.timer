@@ -1,0 +1,10 @@
+[Unit]
+Description=CloudPunch: nightly connection-history purge (ADR-0029)
+
+[Timer]
+# 03:00 IST.
+OnCalendar=*-*-* 21:30:00 UTC
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -7,6 +7,7 @@ import {
   networkKey,
   type RequestLike,
 } from './network.js';
+import type { ProviderLookup } from './provider.js';
 
 /** `last_seen_at` moves on at most this often for the same network (ADR-0029 §2). */
 export const TOUCH_EVERY_MS = 15 * 60 * 1000;
@@ -22,6 +23,8 @@ interface Current {
 export interface ConnectionRecorderOptions {
   db: DbRepositories;
   log: FastifyBaseLogger;
+  /** Internet provider by address (ADR-0029 §3); none means no provider names. */
+  providers?: ProviderLookup | undefined;
   now?: () => Date;
 }
 
@@ -84,12 +87,17 @@ export class ConnectionRecorder {
       return;
     }
 
+    // Only for a new row: a provider doesn't change within one network.
+    const { asn, provider } = (await this.opts.providers?.lookup(seen.ip)) ?? {
+      asn: null,
+      provider: null,
+    };
     const row = await this.opts.db.connections.insert({
       employeeId,
       deviceId,
       ...seen,
-      asn: null,
-      provider: null,
+      asn,
+      provider,
       firstSeenAt: at,
       lastSeenAt: at,
     });
