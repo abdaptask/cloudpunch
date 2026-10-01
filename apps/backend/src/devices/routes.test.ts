@@ -12,6 +12,7 @@ import {
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { authPlugin } from '../auth/plugin.js';
 import { InMemoryDb } from '../db/in-memory.js';
+import { ConnectionRecorder } from '../connections/recorder.js';
 import { devicesRoutes } from './routes.js';
 import type { AdminDeviceListResponse } from './schemas.js';
 
@@ -325,5 +326,75 @@ describe('GET /v1/admin/devices', () => {
       // The public key is never part of the listing.
       expect(JSON.stringify(body)).not.toContain('public_key');
     }
+  });
+});
+
+describe('POST /v1/devices/enroll records the connection (ADR-0029)', () => {
+  async function buildWithRecorder() {
+    const app = Fastify();
+    await app.register(authPlugin, {
+      jwks,
+      issuer: ISSUER,
+      audience: CLIENT_ID,
+      tenantId: TENANT_ID,
+      requiredScope: REQUIRED_SCOPE,
+    });
+    const connections = new ConnectionRecorder({ db, log: app.log });
+    await app.register(devicesRoutes, { db, connections });
+    return app;
+  }
+
+  async function enrollViaCloudflare(app: Awaited<ReturnType<typeof buildWithRecorder>>) {
+    const token = await signToken([AppRole.Employee]);
+    const body = validBody();
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v1/devices/enroll',
+      remoteAddress: '58.84.61.202',
+      headers: {
+        authorization: `Bearer ${token}`,
+        'cf-ray': '8c1a2b3c4d5e6f70-BOM',
+        'cf-ipcity': 'Pune',
+        'cf-region': 'Maharashtra',
+        'cf-ipcountry': 'IN',
+      },
+      payload: body,
+    });
+    expect(res.statusCode).toBe(200);
+    return body.device_id;
+  }
+
+  it('writes nothing while connections.record is off', async () => {
+    const app = await buildWithRecorder();
+    await enrollViaCloudflare(app);
+    expect(db.connectionRows).toHaveLength(0);
+    await app.close();
+  });
+
+  it("writes the caller's connection once it's on", async () => {
+    await db.policies.put(
+      {
+        scope: 'global',
+        scopeId: null,
+        reason: null,
+        actorUserId: userId,
+        correlationId: randomUUID(),
+        at: new Date(),
+      },
+      { connections: { record: true } },
+    );
+    const app = await buildWithRecorder();
+    const deviceId = await enrollViaCloudflare(app);
+    expect(db.connectionRows).toEqual([
+      expect.objectContaining({
+        employeeId,
+        deviceId,
+        ip: '58.84.61.202',
+        city: 'Pune',
+        region: 'Maharashtra',
+        country: 'IN',
+      }),
+    ]);
+    await app.close();
   });
 });

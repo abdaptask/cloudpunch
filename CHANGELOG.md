@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Backend: record where devices connect from (ADR-0029, off by default)
+
+- Migration **0006** adds `device_connection`: IP, approximate
+  city/state/country (Cloudflare's headers), and room for the provider
+  (next PR). The app role gets SELECT/INSERT/UPDATE only; the 30-day
+  purge will run as the migrator.
+- Recorded on event uploads and device enrolment (every launch and
+  sign-in). One row per network: IPv4 exact, IPv6 by `/64`.
+  Same network: `last_seen_at` moves on at most every 15 minutes.
+  Kept in memory per device, so most requests write nothing.
+- Location headers are believed only with `cf-ray` (through
+  Cloudflare), so not on the office path through Caddy. The server logs
+  once whether they arrive, not their values.
+- New setting **`connections.record`** (global only, default off).
+  Nothing is recorded until it's turned on.
+
 ### Desktop 0.1.11: account menu in the header
 
 - The header's name and sign-out links wrapped the pin icon onto a

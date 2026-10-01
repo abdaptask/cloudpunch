@@ -2,12 +2,15 @@ import { AppRole, Capability } from '@cloudpunch/shared';
 import type { FastifyPluginAsync } from 'fastify';
 import fp from 'fastify-plugin';
 import { requireCapability } from '../auth/require.js';
+import type { ConnectionRecorder } from '../connections/recorder.js';
 import type { DbRepositories } from '../db/index.js';
 import { ingestBatch, type IngestBatchOutcome } from './ingest.js';
 import { ingestBatchBodySchema } from './schemas.js';
 
 export interface EventsRoutesOptions {
   db: DbRepositories;
+  /** ADR-0029: where the device connects from. */
+  connections?: ConnectionRecorder | undefined;
 }
 
 const HTTP_STATUS_FOR: Record<Exclude<IngestBatchOutcome['status'], 'batch_accepted'>, number> = {
@@ -63,6 +66,8 @@ const eventsRoutesImpl: FastifyPluginAsync<EventsRoutesOptions> = async (app, op
       });
 
       if (outcome.status === 'batch_accepted') {
+        // Accepted means the device and employee were checked as the caller's.
+        await opts.connections?.record(req, parsed.data.employee_id, parsed.data.device_id);
         return reply.code(200).send({
           correlation_id: outcome.correlationId,
           server_ts: outcome.serverTs.toISOString(),

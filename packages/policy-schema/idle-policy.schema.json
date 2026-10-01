@@ -362,6 +362,18 @@
         }
       },
       "additionalProperties": false
+    },
+    "connections": {
+      "type": "object",
+      "description": "Where people connect from (ADR-0029). Read from the global settings only; a department or employee value is ignored.",
+      "properties": {
+        "record": {
+          "type": "boolean",
+          "default": false,
+          "description": "Record each device's IP, approximate city and provider. Off until the privacy notice update has gone out (ADR-0029 §7)."
+        }
+      },
+      "additionalProperties": false
     }
   },
   "additionalProperties": false

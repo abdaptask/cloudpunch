@@ -1,6 +1,7 @@
 import { Capability } from '@cloudpunch/shared';
 import type { FastifyPluginAsync } from 'fastify';
 import fp from 'fastify-plugin';
+import type { ConnectionRecorder } from '../connections/recorder.js';
 import type { DbRepositories, DeviceWithOwner } from '../db/index.js';
 import { requireCapability } from '../auth/require.js';
 import { enrollDeviceService } from './enroll.js';
@@ -12,6 +13,8 @@ import {
 
 export interface DeviceRoutesOptions {
   db: DbRepositories;
+  /** ADR-0029: where the device connects from. */
+  connections?: ConnectionRecorder | undefined;
 }
 
 const devicesRoutesImpl: FastifyPluginAsync<DeviceRoutesOptions> = async (app, opts) => {
@@ -72,6 +75,17 @@ const devicesRoutesImpl: FastifyPluginAsync<DeviceRoutesOptions> = async (app, o
           code: result.code,
           message: result.message,
         });
+      }
+
+      // The agent enrols on every launch and sign-in, so this sees a
+      // connection even before anyone clocks in (ADR-0029 §2).
+      // Like the recording itself, a failure here never fails the enrolment.
+      if (opts.connections && result.device.revokedAt === null) {
+        const employee = await opts.db.employees.findByEntraObjectId(auth.oid).catch((err) => {
+          req.log.warn({ err }, 'connections: employee lookup failed');
+          return null;
+        });
+        if (employee) await opts.connections.record(req, employee.id, result.device.id);
       }
 
       const body: EnrollDeviceResponse = {

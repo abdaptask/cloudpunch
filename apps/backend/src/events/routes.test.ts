@@ -13,6 +13,7 @@ import {
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { authPlugin } from '../auth/plugin.js';
 import { InMemoryDb } from '../db/in-memory.js';
+import { ConnectionRecorder } from '../connections/recorder.js';
 import { eventsRoutes } from './routes.js';
 import type { EventItem } from './schemas.js';
 
@@ -443,5 +444,67 @@ describe('POST /v1/events — one machine at a time (ADR-0028)', () => {
       closedReason: 'remote_takeover',
     });
     expect((await db.timeSessions.findById(sessionId))?.closedAt).toBeNull();
+  });
+});
+
+describe('POST /v1/events records the connection (ADR-0029)', () => {
+  async function post(app: Awaited<ReturnType<typeof buildApp>>, payload: object) {
+    return app.inject({
+      method: 'POST',
+      url: '/v1/events',
+      remoteAddress: '58.84.61.202',
+      headers: {
+        authorization: `Bearer ${await signToken()}`,
+        'cf-ray': '8c1a2b3c4d5e6f70-BOM',
+        'cf-ipcity': 'Pune',
+      },
+      payload,
+    });
+  }
+
+  async function buildWithRecorder() {
+    await db.policies.put(
+      {
+        scope: 'global',
+        scopeId: null,
+        reason: null,
+        actorUserId: randomUUID(),
+        correlationId: randomUUID(),
+        at: new Date(),
+      },
+      { connections: { record: true } },
+    );
+    const app = Fastify();
+    await app.register(authPlugin, {
+      jwks,
+      issuer: ISSUER,
+      audience: CLIENT_ID,
+      tenantId: TENANT_ID,
+      requiredScope: REQUIRED_SCOPE,
+    });
+    await app.register(eventsRoutes, {
+      db,
+      connections: new ConnectionRecorder({ db, log: app.log }),
+    });
+    return app;
+  }
+
+  it('records an accepted batch', async () => {
+    const app = await buildWithRecorder();
+    const evt = await signedEvent({ event_type: 'USER_CLOCK_IN', sequence_number: 1 });
+    expect((await post(app, batch([evt]))).statusCode).toBe(200);
+    expect(db.connectionRows).toEqual([
+      expect.objectContaining({ employeeId, deviceId, ip: '58.84.61.202', city: 'Pune' }),
+    ]);
+    await app.close();
+  });
+
+  it('records nothing for a rejected batch', async () => {
+    const app = await buildWithRecorder();
+    const evt = await signedEvent({ event_type: 'USER_CLOCK_IN', sequence_number: 1 });
+    const res = await post(app, { ...batch([evt]), employee_id: randomUUID() });
+    expect(res.statusCode).toBe(403);
+    expect(db.connectionRows).toHaveLength(0);
+    await app.close();
   });
 });
