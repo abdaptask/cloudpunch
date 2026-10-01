@@ -1,0 +1,11 @@
+[Unit]
+Description=CloudPunch: monthly DB-IP ASN Lite update (ADR-0029)
+
+[Timer]
+# DB-IP publishes early in the month; the 3rd leaves room.
+OnCalendar=*-*-03 02:30:00 UTC
+Persistent=true
+RandomizedDelaySec=1h
+
+[Install]
+WantedBy=timers.target

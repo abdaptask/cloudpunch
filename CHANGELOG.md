@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Backend: provider names and the 30-day purge (ADR-0029)
+
+- New connection rows get the **internet provider** and network number
+  from DB-IP's free "IP to ASN Lite" file, read on the VM with the
+  `maxmind` package (new dependency, MIT). No address leaves the server.
+  Missing file: no provider name, retried every 10 minutes. A new
+  monthly file is picked up without a restart. Path: `DBIP_ASN_MMDB`
+  (default `/opt/cloudpunch/geo/dbip-asn-lite.mmdb`).
+- **`scripts/install-connection-jobs.sh`** (run once after deploy)
+  installs two systemd timers from `infra/pilot/`: a monthly DB-IP
+  download (checked, then swapped in) and a nightly purge of rows over
+  30 days old, run as `cloudpunch_migrator` (the app role has no DELETE).
+
 ### Backend: record where devices connect from (ADR-0029, off by default)
 
 - Migration **0006** adds `device_connection`: IP, approximate

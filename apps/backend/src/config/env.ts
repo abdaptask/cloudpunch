@@ -53,6 +53,10 @@ const envSchema = z.object({
   // (ADR-0019 §9); unset means no button.
   DOWNLOADS_DIR: z.string().min(1).optional(),
 
+  // DB-IP "IP to ASN Lite" (ADR-0029 §3), kept fresh by the monthly job
+  // from scripts/install-connection-jobs.sh. Missing file: no provider.
+  DBIP_ASN_MMDB: z.string().min(1).default('/opt/cloudpunch/geo/dbip-asn-lite.mmdb'),
+
   // Exception to "no secrets in env" for the internal VM: the app-role
   // connection string, from the git-ignored apps/backend/.env.local (dev)
   // or a root-owned env file read by systemd (pilot, ADR-0019). Honoured
