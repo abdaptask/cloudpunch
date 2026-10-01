@@ -1071,6 +1071,33 @@ pub async fn admin_set_manager(
     answer(fetched)
 }
 
+/// Your own connection history (ADR-0029 §5).
+#[tauri::command]
+pub async fn my_connections(auth: State<'_, Arc<Auth>>) -> Result<serde_json::Value, String> {
+    let (_, fetched) = fetch_as_user(&auth, admin::my_connections).await?;
+    answer(fetched)
+}
+
+/// Each person's latest connection (audited server-side).
+#[tauri::command]
+pub async fn team_connections(auth: State<'_, Arc<Auth>>) -> Result<serde_json::Value, String> {
+    let (_, fetched) = fetch_as_user(&auth, admin::team_connections).await?;
+    answer(fetched)
+}
+
+/// One person's connection history (audited server-side).
+#[tauri::command]
+pub async fn person_connections(
+    auth: State<'_, Arc<Auth>>,
+    employee_id: String,
+) -> Result<serde_json::Value, String> {
+    let (_, fetched) = fetch_as_user(&auth, move |http, base, token| {
+        admin::person_connections(http, base, token, &employee_id)
+    })
+    .await?;
+    answer(fetched)
+}
+
 /// Versions: every device and the app version it runs.
 #[tauri::command]
 pub async fn admin_devices(auth: State<'_, Arc<Auth>>) -> Result<serde_json::Value, String> {

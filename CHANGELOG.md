@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Desktop 0.1.12: where people connect from (ADR-0029)
+
+- **Team** (Managers, and Administrators who have it): each person's
+  approximate city on the list, and **Day / Connections** tabs when you
+  open someone. HR doesn't get the Connections tab.
+- **Settings → Connections** (Administrators): everyone's latest
+  connection, for admins without a Team tab.
+- **Account menu → Where you connect from**: every employee sees their
+  own history.
+- **Settings → Rules** (company-wide only): **Record where people
+  connect from**, off until the privacy notice has gone out.
+- Each list says it's approximate (a VPN or office shows its own
+  location), kept 30 days, and credits "IP data by DB-IP".
+
 ### Backend: who can see where people connect from (ADR-0029 §5)
 
 - `GET /v1/me/connections`: your own, last 30 days (not audited).

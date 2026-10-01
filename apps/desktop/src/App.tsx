@@ -21,6 +21,7 @@ import {
 } from './dayHistory.js';
 import { CloseDialog, LongShiftBanner, rememberedKeepRunning } from './CloseDialog.js';
 import { TimelineView } from './TimelineView.js';
+import { EveryoneConnections, MyConnections } from './ConnectionsView.js';
 import { TeamScreen } from './TeamScreen.js';
 import { ReportingLines } from './ReportingLines.js';
 import { VersionsScreen } from './VersionsScreen.js';
@@ -234,11 +235,14 @@ export function App(): JSX.Element {
   const [settingsOpen, setSettingsOpen] = useState(false);
   // The Team tab for Managers and HR (ADR-0025).
   const [teamOpen, setTeamOpen] = useState(false);
+  // "Where you connect from" (ADR-0029 §5), from the account menu.
+  const [connectionsOpen, setConnectionsOpen] = useState(false);
   useEffect(() => {
     if (!signedIn) {
       setCapabilities([]);
       setSettingsOpen(false);
       setTeamOpen(false);
+      setConnectionsOpen(false);
       return;
     }
     let current = true;
@@ -262,18 +266,26 @@ export function App(): JSX.Element {
   // ADR-0028 §4: Administrators only (not HR, not Auditor); the server
   // checks the role again.
   const canSignOutMachines = capabilities.includes('admin.device.revoke');
-  const canEditSettings = canEditRules || canManagePeople;
+  // ADR-0029 §5: Administrators everyone, Managers their reports; not HR.
+  const canSeeAllConnections = capabilities.includes('admin.connection.read');
+  const canSeeConnections = canSeeAllConnections || capabilities.includes('team.connection.read');
+  const canSeeOwnConnections = capabilities.includes('self.connection.read');
+  const canEditSettings = canEditRules || canManagePeople || canSeeAllConnections;
   const canSeeTeam = capabilities.includes('team.timeline.read');
   const adminTabs = (
     [
       ['rules', 'Rules', canEditRules],
       ['people', 'People', canManagePeople],
       ['versions', 'Versions', canReadDevices],
+      ['connections', 'Connections', canSeeAllConnections],
     ] as const
   ).filter(([, , on]) => on);
-  const [adminTab, setAdminTab] = useState<'rules' | 'people' | 'versions'>('rules');
+  const [adminTab, setAdminTab] = useState<'rules' | 'people' | 'versions' | 'connections'>(
+    'rules',
+  );
   const tab = adminTabs.some(([k]) => k === adminTab) ? adminTab : (adminTabs[0]?.[0] ?? 'rules');
-  const teamShown = teamOpen && canSeeTeam;
+  const mineShown = connectionsOpen && canSeeOwnConnections;
+  const teamShown = teamOpen && canSeeTeam && !mineShown;
   const showDate = (d: string): void => setViewDate(d >= todayDate ? null : d);
   const todayDate = localDateOf(now);
   const pastDate = viewDate !== null && viewDate < todayDate ? viewDate : null;
@@ -422,6 +434,7 @@ export function App(): JSX.Element {
                 open={teamOpen}
                 onClick={() => {
                   setSettingsOpen(false);
+                  setConnectionsOpen(false);
                   setTeamOpen((o) => !o);
                 }}
               />
@@ -431,6 +444,7 @@ export function App(): JSX.Element {
                 open={settingsOpen}
                 onClick={() => {
                   setTeamOpen(false);
+                  setConnectionsOpen(false);
                   setSettingsOpen((o) => !o);
                 }}
               />
@@ -442,6 +456,15 @@ export function App(): JSX.Element {
               clockedIn={!!view && view.status !== 'clocked_out'}
               onSignOut={() => signOutWithSummary()}
               onClockOutAndSignOut={() => setSignOutAsked(true)}
+              onConnections={
+                canSeeOwnConnections
+                  ? () => {
+                      setTeamOpen(false);
+                      setSettingsOpen(false);
+                      setConnectionsOpen(true);
+                    }
+                  : undefined
+              }
             />
           </span>
         </header>
@@ -597,8 +620,11 @@ export function App(): JSX.Element {
               {enrollText(enrollment.code)}
             </p>
           )}
-          {signedIn && teamShown && <TeamScreen onClose={() => setTeamOpen(false)} />}
-          {signedIn && !teamShown && settingsOpen && canEditSettings && (
+          {signedIn && mineShown && <MyConnections onClose={() => setConnectionsOpen(false)} />}
+          {signedIn && teamShown && (
+            <TeamScreen canSeeConnections={canSeeConnections} onClose={() => setTeamOpen(false)} />
+          )}
+          {signedIn && !mineShown && !teamShown && settingsOpen && canEditSettings && (
             <>
               {adminTabs.length > 1 && (
                 <div role="tablist" aria-label="admin-tabs" style={{ display: 'flex', gap: 6 }}>
@@ -634,12 +660,14 @@ export function App(): JSX.Element {
                   />
                   <ReportingLines />
                 </>
-              ) : (
+              ) : tab === 'versions' ? (
                 <VersionsScreen onClose={() => setSettingsOpen(false)} />
+              ) : (
+                <EveryoneConnections />
               )}
             </>
           )}
-          {signedIn && !teamShown && !(settingsOpen && canEditSettings) && (
+          {signedIn && !mineShown && !teamShown && !(settingsOpen && canEditSettings) && (
             <>
               {/* Status and actions stay put; the details below scroll. */}
               <div

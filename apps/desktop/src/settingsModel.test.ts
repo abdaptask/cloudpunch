@@ -31,6 +31,7 @@ describe('settings form (ADR-0018 §5)', () => {
       breaks: BREAK_DEFAULTS,
       offerTraining: true,
       awayCheckMinutes: 60,
+      recordConnections: false,
     });
     // Missing values fall back to the schema defaults.
     expect(formFrom({})).toMatchObject({
@@ -89,6 +90,13 @@ describe('settings form (ADR-0018 §5)', () => {
         long_shift_hours: 10,
       },
     });
+  });
+
+  it('writes connections.record only company-wide (ADR-0029)', () => {
+    const f = { ...formFrom({ connections: { record: false } }), recordConnections: true };
+    expect(formFrom({ connections: { record: true } }).recordConnections).toBe(true);
+    expect(overrideWith(null, f, true)['connections']).toEqual({ record: true });
+    expect(overrideWith(null, f)).not.toHaveProperty('connections');
   });
 
   describe('breaks (ADR-0023 §5)', () => {
