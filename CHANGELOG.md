@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### ADR-0030 time corrections, part B: corrected days and totals
+
+- Approved corrections are laid over every day before anything is
+  totalled (`daysAround`), so the day view, the day picker's totals,
+  Team today and exceptions all count them. Inside a session the
+  correction's kind replaces what was there; `not_worked` removes the
+  time; outside every session it adds a `corrected` session, which is
+  how a day the app never recorded gets its hours. Where two overlap,
+  the later-approved one wins. Pending and rejected ones change nothing.
+- The day view lists the corrections touching the day with their
+  status and who asked and decided (`corrections`), and marks corrected
+  stretches (`correction_id`) and sessions (`corrected`). Only known
+  kinds appear, so older desktop versions read corrected days as is.
+
 ### ADR-0030 time corrections, part A: storage
 
 - Migration 0007: `time_correction` (with the person's zone, as events

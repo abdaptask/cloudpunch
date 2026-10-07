@@ -1,7 +1,8 @@
-import type { DbRepositories } from '../db/index.js';
+import type { CorrectionWithDecisions, DbRepositories } from '../db/index.js';
 import {
   buildSession,
   isoWithOffset,
+  localDate,
   totals,
   workingDays,
   type BuiltSession,
@@ -9,6 +10,7 @@ import {
   type WorkingDay,
 } from './build.js';
 import { effectivePolicyFor } from '../policy/service.js';
+import { applyCorrections, correctionStatus, type CorrectionStatus } from './corrections.js';
 import { breakRules, DEFAULT_BREAK_RULES, type BreakRules } from './pay.js';
 
 /** ADR-0016 §4: today and the previous 30 days. */
@@ -22,9 +24,12 @@ export interface DaySessionView {
   tz_iana: string;
   clock_in: string;
   clock_out: string | null;
+  /** `corrected` for a session made only of an approved correction. */
   close_reason: string | null;
   reconstructed: boolean;
   open: boolean;
+  /** Made only of an approved correction (ADR-0030 §4); no device recorded it. */
+  corrected?: true;
   /** Started from the Windows sign-in time (ADR-0018 §4). */
   started_from_sign_in: boolean;
   segments: {
@@ -39,13 +44,29 @@ export interface DaySessionView {
     presence_check?: 'continuous' | 'periodic';
     /** An Away that ended on its own (ADR-0027). */
     ended_by?: 'input' | 'call';
+    /** This stretch is an approved correction's (ADR-0030 §4). */
+    correction_id?: string;
   }[];
+}
+
+/** A correction touching the day, whatever its status (ADR-0030 §4: nothing hidden). */
+export interface DayCorrectionView {
+  id: string;
+  from: string;
+  to: string;
+  kind: string;
+  reason: string;
+  status: CorrectionStatus;
+  requested_by: string;
+  requested_at: string;
+  decisions: { decision: string; by: string; at: string; note: string | null }[];
 }
 
 export interface DayView {
   date: string;
   sessions: DaySessionView[];
   totals: DayTotals;
+  corrections: DayCorrectionView[];
 }
 
 export interface DaySummary extends DayTotals {
@@ -61,7 +82,9 @@ function utcMidnight(date: string): number {
 /**
  * Working days touching [firstDate, lastDate]. Sessions are loaded with
  * two days' margin on each side, so a day that starts or ends near the
- * edge (other zones, the 6-hour chaining) is complete.
+ * edge (other zones, the 6-hour chaining) is complete. Approved time
+ * corrections are laid over them first (ADR-0030 §4), so every total
+ * and status that starts here counts them.
  */
 export async function daysAround(
   db: DbRepositories,
@@ -79,7 +102,8 @@ export async function daysAround(
     const b = buildSession(s, events, now);
     if (b) built.push(b);
   }
-  return workingDays(built);
+  const corrections = await db.corrections.listForEmployee(employeeId, from, to);
+  return workingDays(applyCorrections(built, corrections));
 }
 
 /**
@@ -100,9 +124,10 @@ function sessionView(s: BuiltSession): DaySessionView {
     tz_iana: s.tzIana,
     clock_in: isoWithOffset(s.clockIn, s.offsetMinutes),
     clock_out: s.open ? null : isoWithOffset(s.end, lastOffset),
-    close_reason: s.session.closedReason,
+    close_reason: s.corrected ? 'corrected' : s.session.closedReason,
     reconstructed: s.session.reconstructed,
     open: s.open,
+    ...(s.corrected ? { corrected: true as const } : {}),
     started_from_sign_in: s.startedFromSignIn,
     segments: s.segments.map((g) => ({
       kind: g.kind,
@@ -112,7 +137,44 @@ function sessionView(s: BuiltSession): DaySessionView {
       ...(g.plannedMinutes !== undefined ? { planned_minutes: g.plannedMinutes } : {}),
       ...(g.presenceCheck ? { presence_check: g.presenceCheck } : {}),
       ...(g.endedBy ? { ended_by: g.endedBy } : {}),
+      ...(g.correctionId ? { correction_id: g.correctionId } : {}),
     })),
+  };
+}
+
+/** A user's display name, for who asked and who decided. */
+async function nameOf(db: DbRepositories, userId: string, cache: Map<string, string>) {
+  const known = cache.get(userId);
+  if (known !== undefined) return known;
+  const name = (await db.users.findById(userId))?.displayName ?? 'Someone';
+  cache.set(userId, name);
+  return name;
+}
+
+async function correctionView(
+  db: DbRepositories,
+  c: CorrectionWithDecisions,
+  names: Map<string, string>,
+): Promise<DayCorrectionView> {
+  const decisions = [];
+  for (const d of c.decisions) {
+    decisions.push({
+      decision: d.decision,
+      by: await nameOf(db, d.decidedByUserId, names),
+      at: d.decidedAt.toISOString(),
+      note: d.note,
+    });
+  }
+  return {
+    id: c.id,
+    from: isoWithOffset(c.fromAt, c.utcOffsetMinutes),
+    to: isoWithOffset(c.toAt, c.utcOffsetMinutes),
+    kind: c.kind,
+    reason: c.reason,
+    status: correctionStatus(c),
+    requested_by: await nameOf(db, c.requestedByUserId, names),
+    requested_at: c.requestedAt.toISOString(),
+    decisions,
   };
 }
 
@@ -124,10 +186,31 @@ export async function dayView(
   now: Date,
 ): Promise<DayView> {
   const day = (await daysAround(db, employeeId, date, date, now)).find((d) => d.date === date);
+  // Corrections dated this day, or touching one of its sessions.
+  const nearby = await db.corrections.listForEmployee(
+    employeeId,
+    new Date(utcMidnight(date) - DAY_MS),
+    new Date(utcMidnight(date) + 2 * DAY_MS),
+  );
+  const span = day
+    ? [
+        day.sessions[0]?.clockIn.getTime() ?? 0,
+        Math.max(...day.sessions.map((s) => s.end.getTime())),
+      ]
+    : null;
+  const names = new Map<string, string>();
+  const corrections: DayCorrectionView[] = [];
+  for (const c of nearby) {
+    const dated = localDate(c.fromAt, c.utcOffsetMinutes) === date;
+    const touches =
+      span !== null && c.fromAt.getTime() < (span[1] ?? 0) && c.toAt.getTime() > (span[0] ?? 0);
+    if (dated || touches) corrections.push(await correctionView(db, c, names));
+  }
   return {
     date,
     sessions: day ? day.sessions.map(sessionView) : [],
     totals: totals(day ?? null, await rulesFor(db, employeeId)),
+    corrections,
   };
 }
 
