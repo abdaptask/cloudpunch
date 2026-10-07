@@ -220,6 +220,81 @@ pub fn team_exceptions(
     send(http, base, token, reqwest::Method::GET, &path, None)
 }
 
+// Time corrections (ADR-0030 §3). The server decides who may do what:
+// anyone for their own time, a manager for a direct report (endorsed),
+// an Administrator approves what others asked and endorsed.
+
+/// What a correction asks for; times are ISO 8601 with an offset.
+pub struct CorrectionRequest<'a> {
+    pub from: &'a str,
+    pub to: &'a str,
+    pub tz_iana: &'a str,
+    pub kind: &'a str,
+    pub reason: &'a str,
+}
+
+/// Ask to correct your own time (`employee_id` None), or, as their
+/// manager, correct a report's.
+pub fn request_correction(
+    http: &Client,
+    base: &str,
+    token: &str,
+    employee_id: Option<&str>,
+    c: &CorrectionRequest<'_>,
+) -> Result<Value, DayError> {
+    let path = match employee_id {
+        None => "/v1/me/corrections".to_string(),
+        Some(e) if is_uuid(e) => format!("/v1/team/{e}/corrections"),
+        Some(_) => return Err(DayError::Refused("invalid_argument".into())),
+    };
+    let body = serde_json::json!({
+        "from": c.from,
+        "to": c.to,
+        "tz_iana": c.tz_iana,
+        "kind": c.kind,
+        "reason": c.reason,
+    });
+    send(http, base, token, reqwest::Method::POST, &path, Some(&body))
+}
+
+/// What waits on the caller: `{ to_endorse, to_approve }`.
+pub fn corrections_queue(http: &Client, base: &str, token: &str) -> Result<Value, DayError> {
+    send(
+        http,
+        base,
+        token,
+        reqwest::Method::GET,
+        "/v1/corrections/queue",
+        None,
+    )
+}
+
+/// Endorse, approve, reject or withdraw a correction.
+pub fn decide_correction(
+    http: &Client,
+    base: &str,
+    token: &str,
+    id: &str,
+    decision: &str,
+    note: Option<&str>,
+) -> Result<Value, DayError> {
+    if !is_uuid(id) || !matches!(decision, "endorse" | "approve" | "reject" | "withdraw") {
+        return Err(DayError::Refused("invalid_argument".into()));
+    }
+    let mut body = serde_json::json!({ "decision": decision });
+    if let Some(n) = note.map(str::trim).filter(|n| !n.is_empty()) {
+        body["note"] = Value::String(n.to_string());
+    }
+    send(
+        http,
+        base,
+        token,
+        reqwest::Method::POST,
+        &format!("/v1/corrections/{id}/decision"),
+        Some(&body),
+    )
+}
+
 // Connection location (ADR-0029 §5). The server decides who sees whom:
 // an Administrator everyone, a Manager direct reports, never HR.
 
@@ -385,6 +460,32 @@ mod tests {
             .timeout(Duration::from_secs(5))
             .build()
             .unwrap()
+    }
+
+    #[test]
+    fn correction_calls_refuse_bad_ids_and_decisions_before_sending() {
+        let http = client();
+        let bad = |r: Result<Value, DayError>| matches!(r, Err(DayError::Refused(c)) if c == "invalid_argument");
+        let id = "0f8e1c2a-3b4d-4e5f-8a9b-0c1d2e3f4a5b";
+        let c = CorrectionRequest {
+            from: "2026-10-05T17:30:00+05:30",
+            to: "2026-10-06T01:30:00+05:30",
+            tz_iana: "Asia/Kolkata",
+            kind: "working",
+            reason: "not recorded",
+        };
+        let base = "http://127.0.0.1:9";
+        assert!(bad(request_correction(
+            &http,
+            base,
+            "t",
+            Some("x/../y"),
+            &c
+        )));
+        assert!(bad(decide_correction(
+            &http, base, "t", "x/../y", "approve", None
+        )));
+        assert!(bad(decide_correction(&http, base, "t", id, "delete", None)));
     }
 
     #[test]

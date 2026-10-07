@@ -1,4 +1,4 @@
-import type { Status } from './api.js';
+import type { DayCorrection, Status } from './api.js';
 import type { Segment, SegmentKind } from './timelineModel.js';
 
 /**
@@ -29,6 +29,8 @@ export interface DayApiSession {
 export interface DayApi {
   date: string;
   sessions: DayApiSession[];
+  /** Corrections touching the day (ADR-0030; older servers leave it out). */
+  corrections?: DayCorrection[];
 }
 
 /** Mirrors `commands::DayResult`. */

@@ -98,6 +98,55 @@ export interface TeamConnections {
   people: (Connection & { employee_id: string; name: string })[];
 }
 
+/** What a correction may say the time was (ADR-0030 §1). */
+export type CorrectionKind =
+  | 'working'
+  | 'away_working'
+  | 'bio_break'
+  | 'meal_break'
+  | 'rest_break'
+  | 'personal_break'
+  | 'other_break'
+  | 'not_worked';
+
+/** A correction touching a day, whatever its status (ADR-0030 §4). */
+export interface DayCorrection {
+  id: string;
+  /** ISO 8601 with the person's offset. */
+  from: string;
+  to: string;
+  kind: CorrectionKind;
+  reason: string;
+  status: 'requested' | 'endorsed' | 'approved' | 'rejected' | 'withdrawn';
+  requested_by: string;
+  requested_at: string;
+  decisions: { decision: string; by: string; at: string; note: string | null }[];
+}
+
+export interface CorrectionQueueItem {
+  employee_id: string;
+  name: string;
+  /** The working day it is on, `YYYY-MM-DD`. */
+  date: string;
+  correction: DayCorrection;
+}
+
+/** What waits on the signed-in user. */
+export interface CorrectionQueue {
+  to_endorse: CorrectionQueueItem[];
+  to_approve: CorrectionQueueItem[];
+}
+
+export interface CorrectionInput {
+  /** A direct report's id, as their manager; absent for your own time. */
+  employeeId?: string;
+  from: string;
+  to: string;
+  tzIana: string;
+  kind: CorrectionKind;
+  reason: string;
+}
+
 export interface TeamDaySegment {
   kind: string;
   started_at: string;
@@ -106,6 +155,8 @@ export interface TeamDaySegment {
   planned_minutes?: number;
   presence_check?: 'continuous' | 'periodic';
   ended_by?: 'input' | 'call';
+  /** An approved correction's stretch (ADR-0030 §4). */
+  correction_id?: string;
 }
 
 /** A team member's day: `/v1/me/days`' shape plus their name. */
@@ -122,8 +173,12 @@ export interface TeamDay {
     reconstructed: boolean;
     open: boolean;
     started_from_sign_in: boolean;
+    /** Made only of an approved correction. */
+    corrected?: true;
     segments: TeamDaySegment[];
   }[];
+  /** Corrections touching the day (older servers leave it out). */
+  corrections?: DayCorrection[];
   totals: {
     worked_ms: number;
     calls_ms: number;
@@ -374,6 +429,23 @@ export const api = {
    * `not_configured`, `signed_out` or `offline`.
    */
   checkForUpdate: (): Promise<UpdateCheck> => invoke<UpdateCheck>('check_for_update'),
+  /** Ask to correct your own time, or (with `employeeId`) a report's, as their manager. */
+  requestCorrection: (c: CorrectionInput): Promise<{ correction: DayCorrection }> =>
+    invoke<{ correction: DayCorrection }>('request_correction', {
+      employeeId: c.employeeId ?? null,
+      from: c.from,
+      to: c.to,
+      tzIana: c.tzIana,
+      kind: c.kind,
+      reason: c.reason,
+    }),
+  correctionsQueue: (): Promise<CorrectionQueue> => invoke<CorrectionQueue>('corrections_queue'),
+  decideCorrection: (
+    id: string,
+    decision: 'endorse' | 'approve' | 'reject' | 'withdraw',
+    note: string | null = null,
+  ): Promise<{ correction: DayCorrection }> =>
+    invoke<{ correction: DayCorrection }>('decide_correction', { id, decision, note }),
   /** `plannedMinutes`: the "Back in?" answer; null = Not sure. */
   startBreak: (kind: BreakId, plannedMinutes: number | null = null): Promise<StateView> =>
     invoke<StateView>('start_break', { kind, plannedMinutes }),
