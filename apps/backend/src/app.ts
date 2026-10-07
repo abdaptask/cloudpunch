@@ -6,6 +6,7 @@ import type { Env } from './config/env.js';
 import { ConnectionRecorder } from './connections/recorder.js';
 import { connectionRoutes } from './connections/routes.js';
 import { correctionRoutes } from './corrections/routes.js';
+import { shiftRoutes } from './shifts/routes.js';
 import { DbIpProviderLookup } from './connections/provider.js';
 import type { DbRepositories } from './db/index.js';
 import { dayRoutes } from './days/routes.js';
@@ -112,6 +113,7 @@ export async function buildApp(opts: BuildAppOptions) {
     await app.register(teamRoutes, { db: opts.db });
     await app.register(connectionRoutes, { db: opts.db });
     await app.register(correctionRoutes, { db: opts.db });
+    await app.register(shiftRoutes, { db: opts.db });
     await app.register(peopleRoutes, {
       db: opts.db,
       graphFor: opts.graphFor ?? graphFromEnv(opts),

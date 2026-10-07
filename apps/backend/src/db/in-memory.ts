@@ -10,6 +10,9 @@ import type {
   CorrectionRepo,
   CorrectionWithDecisions,
   DbRepositories,
+  NotWorkingDeclaration,
+  ShiftAssignment,
+  ShiftRepo,
   Device,
   DeviceConnection,
   DeviceEnrollInput,
@@ -56,6 +59,13 @@ export class InMemoryDb implements DbRepositories {
   readonly people: PeopleRepo;
   readonly connections: ConnectionRepo;
   readonly corrections: CorrectionRepo;
+  readonly shifts: ShiftRepo;
+  /** shift_assignment rows (ADR-0031), for tests. */
+  readonly shiftRows: ShiftAssignment[] = [];
+  /** not_working_day rows (ADR-0031), for tests. */
+  readonly notWorkingRows: NotWorkingDeclaration[] = [];
+  /** audit_log actions for shifts, for tests. */
+  readonly shiftAudit: string[] = [];
   /** time_correction rows with their decisions (ADR-0030), for tests. */
   readonly correctionRows: CorrectionWithDecisions[] = [];
   /** audit_log rows for corrections (ADR-0030 §2), for tests. */
@@ -92,6 +102,52 @@ export class InMemoryDb implements DbRepositories {
       decisions: c.decisions.map((d) => ({ ...d })),
     });
     const FINAL = new Set(['approved', 'rejected', 'withdrawn']);
+    this.shifts = {
+      assign: async (i) => {
+        const row: ShiftAssignment = {
+          id: randomUUID(),
+          employeeId: i.employeeId,
+          days: [...i.days],
+          start: i.start,
+          end: i.end,
+          tzIana: i.tzIana,
+          effectiveFrom: i.effectiveFrom,
+          reason: i.reason,
+          assignedByUserId: i.assignedByUserId,
+          assignedAt: i.at,
+        };
+        this.shiftRows.push(row);
+        this.shiftAudit.push('shift_assigned');
+        return { ...row };
+      },
+      history: async (ids) =>
+        this.shiftRows
+          .filter((r) => ids.includes(r.employeeId))
+          .sort(
+            (a, b) =>
+              b.effectiveFrom.localeCompare(a.effectiveFrom) ||
+              b.assignedAt.getTime() - a.assignedAt.getTime(),
+          )
+          .map((r) => ({ ...r, days: [...r.days] })),
+      declareNotWorking: async (i) => {
+        if (
+          this.notWorkingRows.some(
+            (r) => r.employeeId === i.employeeId && r.shiftDate === i.shiftDate,
+          )
+        ) {
+          return false;
+        }
+        this.notWorkingRows.push({ ...i });
+        this.shiftAudit.push('not_working_declared');
+        return true;
+      },
+      notWorking: async (ids, dates) =>
+        new Set(
+          this.notWorkingRows
+            .filter((r) => ids.includes(r.employeeId) && dates.includes(r.shiftDate))
+            .map((r) => `${r.employeeId}:${r.shiftDate}`),
+        ),
+    };
     this.corrections = {
       request: async (i) => {
         const c: CorrectionWithDecisions = {

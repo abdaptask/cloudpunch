@@ -3,6 +3,7 @@ import type { DbRepositories, Employee } from '../db/index.js';
 import { MAX_GAP_MS, totals, type DaySegment, type WorkingDay } from '../days/build.js';
 import { daysAround, rulesFor } from '../days/service.js';
 import { effectivePolicyFor } from '../policy/service.js';
+import { activeWindow, type ShiftWindow } from '../shifts/model.js';
 
 /**
  * Manager and HR team views (ADR-0025). Pure helpers plus the reads
@@ -44,7 +45,17 @@ export const nameOf = (e: Employee): string =>
   e.displayName ?? `${e.givenName} ${e.familyName}`.trim();
 
 export type LiveStatus =
-  'clocked_out' | 'working' | 'on_call' | 'on_break' | 'away' | 'prompt' | 'idle';
+  | 'clocked_out'
+  | 'working'
+  | 'on_call'
+  | 'on_break'
+  | 'away'
+  | 'prompt'
+  | 'idle'
+  /** In their shift, not clocked in since it started (ADR-0031 §2); `since` = shift start. */
+  | 'shift_not_started'
+  /** Said "Not working today" for the shift they're in (ADR-0031 §2). */
+  | 'not_working';
 
 export interface PersonNow {
   employee_id: string;
@@ -109,7 +120,30 @@ export function statusFrom(
   };
 }
 
-/** Team today: each person's status now (ADR-0025 §3). */
+/**
+ * Pure: a clocked-out person in their shift (ADR-0031 §2). If nothing
+ * they worked touches the shift yet, they haven't started it, or said
+ * they aren't working; otherwise "clocked out" stands.
+ */
+export function withShift(
+  p: PersonNow,
+  window: ShiftWindow | null,
+  days: readonly WorkingDay[],
+  saidNotWorking: boolean,
+): PersonNow {
+  if (p.status !== 'clocked_out' || !window) return p;
+  const started = days.some((d) =>
+    d.sessions.some((s) => s.clockIn < window.end && s.end > window.start),
+  );
+  if (started) return p;
+  return {
+    ...p,
+    status: saidNotWorking ? 'not_working' : 'shift_not_started',
+    since: window.start.toISOString(),
+  };
+}
+
+/** Team today: each person's status now (ADR-0025 §3), with their shift (ADR-0031). */
 export async function teamNow(
   db: DbRepositories,
   people: readonly Employee[],
@@ -117,11 +151,18 @@ export async function teamNow(
 ): Promise<PersonNow[]> {
   const today = now.toISOString().slice(0, 10);
   const yesterday = new Date(now.getTime() - 86_400_000).toISOString().slice(0, 10);
+  const shiftRows = await db.shifts.history(people.map((p) => p.id));
   const out: PersonNow[] = [];
   for (const e of people) {
     const days = await daysAround(db, e.id, yesterday, today, now);
     const day = days.at(-1);
-    out.push(statusFrom(e, day, now, day ? totals(day).worked_ms : 0));
+    const p = statusFrom(e, day, now, day ? totals(day).worked_ms : 0);
+    const window = activeWindow(
+      shiftRows.filter((r) => r.employeeId === e.id),
+      now,
+    );
+    const said = window ? (await db.shifts.notWorking([e.id], [window.date])).size > 0 : false;
+    out.push(withShift(p, window, days, said));
   }
   return out;
 }

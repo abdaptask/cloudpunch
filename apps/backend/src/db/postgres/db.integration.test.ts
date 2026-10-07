@@ -52,7 +52,7 @@ beforeEach(async () => {
   // dependencies: event → session → device/employee → user.
   // time_event and audit_log are append-only (row triggers reject
   // DELETE); TRUNCATE is DDL and resets them between tests.
-  await sql`TRUNCATE audit_log, policy_override, time_event, time_session, device, employee_override, time_correction_decision, time_correction RESTART IDENTITY CASCADE`;
+  await sql`TRUNCATE audit_log, policy_override, time_event, time_session, device, employee_override, time_correction_decision, time_correction, shift_assignment, not_working_day RESTART IDENTITY CASCADE`;
   await sql`DELETE FROM admin_review_case`;
   await sql`UPDATE app_user SET employee_id = NULL`;
   await sql`DELETE FROM employee`;
@@ -843,5 +843,91 @@ describe('PostgresDb — time corrections', () => {
       });
     await expect(bad('2026-10-05T00:00:00Z', '2026-10-05T16:00:01Z', 'x')).rejects.toThrow();
     await expect(bad('2026-10-05T00:00:00Z', '2026-10-05T01:00:00Z', '  ')).rejects.toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------
+// shifts (ADR-0031)
+// ---------------------------------------------------------------------
+
+describe('PostgresDb — shifts', () => {
+  it('assigns (audited), lists newest first, and records "not working" once', async () => {
+    const employeeId = await seedEmployee();
+    const { userId } = await seedUser();
+    const base = {
+      employeeId,
+      tzIana: 'Asia/Kolkata',
+      reason: null,
+      assignedByUserId: userId,
+      correlationId: randomUUID(),
+    };
+    await db.shifts.assign({
+      ...base,
+      days: [1, 2, 3, 4, 5],
+      start: '12:00',
+      end: '21:00',
+      effectiveFrom: '2026-10-01',
+      at: new Date('2026-10-01T00:00:00Z'),
+    });
+    const later = await db.shifts.assign({
+      ...base,
+      days: [],
+      start: null,
+      end: null,
+      effectiveFrom: '2026-10-08',
+      at: new Date('2026-10-08T00:00:00Z'),
+    });
+    expect(later).toMatchObject({ days: [], start: null, end: null, effectiveFrom: '2026-10-08' });
+    const rows = await db.shifts.history([employeeId]);
+    expect(rows.map((r) => [r.effectiveFrom, r.start, r.end, r.days])).toEqual([
+      ['2026-10-08', null, null, []],
+      ['2026-10-01', '12:00', '21:00', [1, 2, 3, 4, 5]],
+    ]);
+
+    const declare = () =>
+      db.shifts.declareNotWorking({
+        employeeId,
+        shiftDate: '2026-10-05',
+        declaredByUserId: userId,
+        correlationId: randomUUID(),
+        at: new Date(),
+      });
+    expect(await declare()).toBe(true);
+    expect(await declare()).toBe(false);
+    expect(await db.shifts.notWorking([employeeId], ['2026-10-05', '2026-10-06'])).toEqual(
+      new Set([`${employeeId}:2026-10-05`]),
+    );
+
+    const audit = await sql<{ action: string }[]>`
+      SELECT action FROM audit_log WHERE entity_id = ${employeeId} ORDER BY action`;
+    expect(audit.map((a) => a.action)).toEqual([
+      'not_working_declared',
+      'shift_assigned',
+      'shift_assigned',
+    ]);
+  });
+
+  it('both tables are append-only, and a shift needs a start and a different end', async () => {
+    const employeeId = await seedEmployee();
+    const { userId } = await seedUser();
+    const bad = (start: string | null, end: string | null) =>
+      db.shifts.assign({
+        employeeId,
+        days: [1],
+        start,
+        end,
+        tzIana: 'UTC',
+        effectiveFrom: '2026-10-01',
+        reason: null,
+        assignedByUserId: userId,
+        correlationId: randomUUID(),
+        at: new Date(),
+      });
+    await expect(bad('09:00', null)).rejects.toThrow();
+    await expect(bad('09:00', '09:00')).rejects.toThrow();
+    await bad('09:00', '17:00');
+    // Planted on purpose: the triggers must refuse these.
+    await expect(sql`UPDATE shift_assignment SET tz_iana = 'UTC'`).rejects.toThrow(/append-only/);
+    await expect(sql`DELETE FROM not_working_day`).rejects.toThrow(/append-only/);
   });
 });

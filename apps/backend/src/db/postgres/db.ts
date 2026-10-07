@@ -9,6 +9,8 @@ import type {
   CorrectionRepo,
   CorrectionWithDecisions,
   DbRepositories,
+  ShiftAssignment,
+  ShiftRepo,
   DeviceConnection,
   Device,
   DeviceEnrollInput,
@@ -55,8 +57,10 @@ export class PostgresDb implements DbRepositories {
   readonly people: PeopleRepo;
   readonly connections: ConnectionRepo;
   readonly corrections: CorrectionRepo;
+  readonly shifts: ShiftRepo;
 
   constructor(private readonly sql: postgres.Sql) {
+    this.shifts = this.buildShiftRepo();
     this.connections = this.buildConnectionRepo();
     this.corrections = this.buildCorrectionRepo();
     this.employees = this.buildEmployeeRepo();
@@ -164,6 +168,77 @@ export class PostgresDb implements DbRepositories {
           WHERE employee_id IN ${this.sql(employeeIds)} AND last_seen_at >= ${since}
           ORDER BY employee_id, last_seen_at DESC`;
         return new Map(rows.map((r) => [r.employeeId, r]));
+      },
+    };
+  }
+
+  // -------------------------------------------------------------------
+  // shifts (ADR-0031)
+  // -------------------------------------------------------------------
+
+  private buildShiftRepo(): ShiftRepo {
+    // Times as HH:MM and dates as YYYY-MM-DD text, so no zone creeps in.
+    const cols = this.sql`id, employee_id, days::int[] AS days,
+                          to_char(start_time, 'HH24:MI') AS start,
+                          to_char(end_time, 'HH24:MI') AS "end",
+                          tz_iana, to_char(effective_from, 'YYYY-MM-DD') AS effective_from,
+                          reason, assigned_by_user_id, assigned_at`;
+    return {
+      assign: async (i) =>
+        this.sql.begin(async (tx) => {
+          const [row] = await tx<ShiftAssignment[]>`
+            INSERT INTO shift_assignment (employee_id, days, start_time, end_time, tz_iana,
+                                          effective_from, reason, assigned_by_user_id, assigned_at)
+            VALUES (${i.employeeId}, ${i.days}::smallint[], ${i.start}::time, ${i.end}::time,
+                    ${i.tzIana}, ${i.effectiveFrom}::date, ${i.reason}, ${i.assignedByUserId},
+                    ${i.at})
+            RETURNING ${cols}`;
+          if (!row) throw new Error('shift_assignment insert returned no row');
+          await tx`
+            INSERT INTO audit_log (actor_type, actor_user_id, entity_type, entity_id, action,
+                                   previous_value, new_value, reason, correlation_id, occurred_at)
+            VALUES ('user', ${i.assignedByUserId}, 'employee', ${i.employeeId}, 'shift_assigned',
+                    NULL,
+                    ${tx.json({
+                      days: i.days,
+                      start: i.start,
+                      end: i.end,
+                      tz_iana: i.tzIana,
+                      effective_from: i.effectiveFrom,
+                    })},
+                    ${i.reason}, ${i.correlationId}, ${i.at})`;
+          return row;
+        }),
+      history: async (ids) => {
+        if (ids.length === 0) return [];
+        return this.sql<ShiftAssignment[]>`
+          SELECT ${cols} FROM shift_assignment
+          WHERE employee_id IN ${this.sql(ids)}
+          ORDER BY effective_from DESC, assigned_at DESC`;
+      },
+      declareNotWorking: async (i) =>
+        this.sql.begin(async (tx) => {
+          const rows = await tx`
+            INSERT INTO not_working_day (employee_id, shift_date, declared_by_user_id, declared_at)
+            VALUES (${i.employeeId}, ${i.shiftDate}::date, ${i.declaredByUserId}, ${i.at})
+            ON CONFLICT (employee_id, shift_date) DO NOTHING
+            RETURNING id`;
+          if (rows.length === 0) return false;
+          await tx`
+            INSERT INTO audit_log (actor_type, actor_user_id, entity_type, entity_id, action,
+                                   previous_value, new_value, reason, correlation_id, occurred_at)
+            VALUES ('user', ${i.declaredByUserId}, 'employee', ${i.employeeId},
+                    'not_working_declared', NULL, ${tx.json({ shift_date: i.shiftDate })},
+                    NULL, ${i.correlationId}, ${i.at})`;
+          return true;
+        }),
+      notWorking: async (ids, dates) => {
+        if (ids.length === 0 || dates.length === 0) return new Set();
+        const rows = await this.sql<{ employeeId: string; shiftDate: string }[]>`
+          SELECT employee_id, to_char(shift_date, 'YYYY-MM-DD') AS shift_date
+          FROM not_working_day
+          WHERE employee_id IN ${this.sql(ids)} AND shift_date::text IN ${this.sql(dates)}`;
+        return new Set(rows.map((r) => `${r.employeeId}:${r.shiftDate}`));
       },
     };
   }
