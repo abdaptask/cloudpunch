@@ -7,8 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Desktop 0.1.14: an expired sign-in says so
+### Desktop 0.1.15: an expired sign-in says so
 
+- 0.1.14 was published before this was merged, so it ships as 0.1.15.
 - When Microsoft refuses to renew someone's sign-in (expired, revoked,
   password changed), the app used to look signed in and every screen
   said "Can't reach CloudPunch", while clock events silently waited.
