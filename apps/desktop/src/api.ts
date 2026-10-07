@@ -291,6 +291,9 @@ export interface EnrollmentStatus {
 /** Emitted whenever the enrollment state changes. */
 export const ENROLLMENT_EVENT = 'cp://enrollment';
 
+/** The account menu's update check. */
+export type UpdateCheck = { status: 'up_to_date' } | { status: 'ready'; version: string };
+
 export const api = {
   getState: (): Promise<StateView> => invoke<StateView>('get_state'),
   clockIn: (): Promise<StateView> => invoke<StateView>('clock_in'),
@@ -360,6 +363,12 @@ export const api = {
   confirmPresence: (): Promise<StateView> => invoke<StateView>('confirm_presence'),
   /** "Restart to update" while clocked out; the app exits and reopens. */
   installUpdateNow: (): Promise<void> => invoke<void>('install_update_now'),
+  /**
+   * "Check for updates" in the account menu: the 4-hourly check, now. A
+   * found update is downloaded and installs like any other. Rejects with
+   * `not_configured`, `signed_out` or `offline`.
+   */
+  checkForUpdate: (): Promise<UpdateCheck> => invoke<UpdateCheck>('check_for_update'),
   /** `plannedMinutes`: the "Back in?" answer; null = Not sure. */
   startBreak: (kind: BreakId, plannedMinutes: number | null = null): Promise<StateView> =>
     invoke<StateView>('start_break', { kind, plannedMinutes }),

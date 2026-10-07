@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Desktop 0.1.14: "Check for updates" in the account menu
+
+- The menu under your initials has **Check for updates**, with the
+  version you're on underneath. It runs the same check as the 4-hourly
+  one, now, and answers in the menu: up to date, a new version ready
+  (Restart to update while clocked out), or why it couldn't check.
+  Every manual check is noted in `update.log`.
+
 ### ADR-0031 proposed: shifts, a clock-in popup that keeps asking, loud break overrun
 
 - Administrators assign each person a weekly shift. During the shift,

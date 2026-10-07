@@ -1307,6 +1307,19 @@ pub fn install_update_now(app: AppHandle) -> Result<(), String> {
     crate::updater::install_now(&app)
 }
 
+/// "Check for updates" (owner request, 2026-10-07): `{ status:
+/// "up_to_date" }` or `{ status: "ready", version }` (downloaded; it
+/// installs as any other update). Fails with `not_configured`,
+/// `signed_out` or `offline`.
+#[tauri::command]
+pub async fn check_for_update(app: AppHandle) -> Result<serde_json::Value, String> {
+    use crate::updater::Checked;
+    Ok(match crate::updater::check_now(&app).await? {
+        Checked::Ready(version) => serde_json::json!({ "status": "ready", "version": version }),
+        _ => serde_json::json!({ "status": "up_to_date" }),
+    })
+}
+
 #[tauri::command]
 pub fn clock_out(agent: State<'_, Arc<Agent>>) -> CommandResult {
     run(&agent, Input::ClockOut)

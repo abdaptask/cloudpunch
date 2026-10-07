@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   clockIn: vi.fn<() => Promise<StateView>>(),
   clockOut: vi.fn<() => Promise<StateView>>(),
   installUpdateNow: vi.fn<() => Promise<void>>(),
+  checkForUpdate: vi.fn(),
   confirmPresence: vi.fn<() => Promise<StateView>>(),
   answerAwayCheck: vi.fn<(back: boolean) => Promise<StateView>>(),
   startBreak: vi.fn<(kind: string, planned?: number | null) => Promise<StateView>>(),
@@ -396,6 +397,17 @@ describe('sign-in (2b.4 F2)', () => {
     expect(screen.getByRole('menu', { name: 'Account menu' })).toBeInTheDocument();
     await user.keyboard('{Escape}');
     expect(screen.queryByRole('menu', { name: 'Account menu' })).not.toBeInTheDocument();
+  });
+
+  it('"Check for updates" answers in the menu and keeps it open', async () => {
+    mocks.checkForUpdate.mockResolvedValue({ status: 'up_to_date' });
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole('button', { name: 'Account' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Check for updates' }));
+    expect(mocks.checkForUpdate).toHaveBeenCalledOnce();
+    expect(await screen.findByText(/You're up to date/)).toBeInTheDocument();
+    expect(screen.getByRole('menu', { name: 'Account menu' })).toBeInTheDocument();
   });
 
   it('clocked in, "Clock out and sign out" asks first, then does both', async () => {

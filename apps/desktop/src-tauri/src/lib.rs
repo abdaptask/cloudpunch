@@ -287,6 +287,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::get_state,
             commands::install_update_now,
+            commands::check_for_update,
             commands::hide_to_tray,
             commands::quit_app,
             commands::clock_out_and_quit,
