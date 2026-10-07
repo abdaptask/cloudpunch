@@ -69,7 +69,9 @@ export function VersionsScreen({ onClose }: { onClose: () => void }): JSX.Elemen
         <p role="alert" style={{ margin: 0, fontSize: 13, color: t.danger }}>
           {error === 'offline'
             ? "Can't reach CloudPunch right now."
-            : `Something went wrong (${error}).`}
+            : error === 'sign_in_again'
+              ? 'Your sign-in has expired. Sign in again to see this.'
+              : `Something went wrong (${error}).`}
         </p>
       )}
       {!devices && !error && <p style={{ margin: 0, fontSize: 13, color: t.muted }}>Loading…</p>}

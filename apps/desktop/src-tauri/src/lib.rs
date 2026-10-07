@@ -248,6 +248,7 @@ pub fn run() {
         keystore::OsStore,
     ));
     let restore_auth = auth.clone();
+    let expiry_auth = auth.clone();
     let enrollment = Arc::new(enroll::Enrollment::new());
     let restore_enrollment = enrollment.clone();
     let watchers = start_watchers(agent.clone());
@@ -345,6 +346,11 @@ pub fn run() {
             }
             let snapshot = agent::tray_snapshot(setup_agent.state(), None);
             tray::install(app.handle(), snapshot)?;
+            // An expired sign-in shows at once, not as "can't reach".
+            let expiry_handle = app.handle().clone();
+            expiry_auth.on_change(move |status| {
+                let _ = expiry_handle.emit(commands::AUTH_EVENT, status);
+            });
             // Silent sign-in from the stored refresh token, off the
             // UI thread; the webview hears the result on cp://auth.
             let handle = app.handle().clone();

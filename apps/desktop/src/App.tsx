@@ -550,6 +550,39 @@ export function App(): JSX.Element {
               onCancel={() => setBreakPicker(false)}
             />
           )}
+          {/* The sign-in expired: say so, not "can't reach" (2026-10-07). */}
+          {signedIn && auth.expired === true && (
+            <section
+              role="alert"
+              aria-label="sign-in-expired"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 8,
+                padding: '8px 12px',
+                borderRadius: 10,
+                border: `1px solid ${t.danger}`,
+                background: t.surfaceAlt,
+                fontSize: 13,
+              }}
+            >
+              <span>
+                {busy
+                  ? 'Finish signing in in your browser.'
+                  : "Your sign-in has expired, so your time isn't reaching CloudPunch. It's kept on this computer until you sign in again."}
+              </span>
+              {busy ? (
+                <Button variant="chip" onClick={cancelSignIn}>
+                  Cancel
+                </Button>
+              ) : (
+                <Button variant="chip" onClick={signIn}>
+                  Sign in again
+                </Button>
+              )}
+            </section>
+          )}
           {/* "Restart to update" (owner request): only while clocked out. */}
           {signedIn && view?.updateReady && view.status === 'clocked_out' && (
             <section
@@ -1509,6 +1542,7 @@ function DayNav({
 
 const PAST_ERROR: Record<string, string> = {
   offline: "Can't reach CloudPunch right now. Past days show when you're online.",
+  sign_in_again: 'Your sign-in has expired. Sign in again to see this.',
   not_configured: "Past days aren't available in this build.",
   no_employee: "Your account isn't linked to an employee record. Contact HR.",
 };

@@ -4,6 +4,7 @@ import { useTheme, type Theme } from './ui/theme.js';
 
 const ERROR_TEXT: Record<string, string> = {
   offline: "Can't reach CloudPunch right now.",
+  sign_in_again: 'Your sign-in has expired. Sign in again to see this.',
   forbidden: "Your role can't change reporting lines.",
   manager_loop: 'That would make a reporting loop.',
   self_manager: "Someone can't be their own manager.",

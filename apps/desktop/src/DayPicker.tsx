@@ -123,7 +123,9 @@ export function DayPicker({
     state.status === 'error'
       ? state.code === 'offline'
         ? "Offline · hours show when you're online"
-        : `Couldn't load hours (${state.code})`
+        : state.code === 'sign_in_again'
+          ? 'Sign in again to see hours'
+          : `Couldn't load hours (${state.code})`
       : state.status === 'ready' && state.result.stale
         ? 'Offline · showing what was loaded earlier'
         : null;

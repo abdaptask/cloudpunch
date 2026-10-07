@@ -276,6 +276,11 @@ export interface AuthStatus {
   unsentKept?: number;
   /** Why the app signed out on its own (ADR-0028 §4). */
   notice?: 'signed_out_by_admin';
+  /**
+   * Signed in, but Microsoft refused to renew the sign-in: nothing
+   * reaches the server until they sign in again (time waits here).
+   */
+  expired?: boolean;
 }
 
 /** Emitted after sign-in, sign-out, and the silent start-up restore. */

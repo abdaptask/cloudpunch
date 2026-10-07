@@ -5,6 +5,7 @@ import { useTheme } from './ui/theme.js';
 
 const ERROR_TEXT: Record<string, string> = {
   offline: "Can't reach CloudPunch right now.",
+  sign_in_again: 'Your sign-in has expired. Sign in again to see this.',
   welcome_not_configured: 'Welcome emails are not set up on the server yet.',
   welcome_not_permitted:
     'Exchange refused to send as the noreply mailbox. An Exchange admin needs to finish the mail setup.',
