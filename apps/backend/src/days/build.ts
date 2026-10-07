@@ -43,8 +43,10 @@ export interface DaySegment {
   offsetMinutes: number;
   /** An idle stretch's own account (ADR-0018 §2), for the manager. */
   explanation?: { explanation: string; note: string | null };
-  /** A break's "Back in?" answer, in minutes (ADR-0023 §2). */
+  /** A break's "Back in?" answer, in minutes (ADR-0023 §2), with any extensions. */
   plannedMinutes?: number;
+  /** Minutes added to the plan with "5 / 10 more min" (ADR-0031 §3). */
+  extendedMinutes?: number;
   /** A presence check's prompt and its idle (ADR-0024). */
   presenceCheck?: 'continuous' | 'periodic';
   /** An Away that ended on its own: back at the computer, or a call (ADR-0027). */
@@ -156,6 +158,7 @@ export function buildSession(
       startedAt: Date;
       offsetMinutes: number;
       plannedMinutes?: number;
+      extendedMinutes?: number;
       presenceCheck?: 'continuous' | 'periodic';
       endedBy?: 'input' | 'call';
     } | null;
@@ -221,6 +224,14 @@ export function buildSession(
       presence = null;
     }
     state = next;
+    // "5 / 10 more min" (ADR-0031 §3): same break, a longer plan.
+    if (evt.eventType === 'USER_BREAK_EXTENDED' && cur.seg?.plannedMinutes !== undefined) {
+      const extra = evt.payload['extend_minutes'];
+      if (typeof extra === 'number') {
+        cur.seg.plannedMinutes += extra;
+        cur.seg.extendedMinutes = (cur.seg.extendedMinutes ?? 0) + extra;
+      }
+    }
     if (kind === (cur.seg?.kind ?? null)) continue;
     const at = evt === clockInEvt ? clockIn : evt.clientTs;
     const endedBy = evt.eventType === 'USER_MARK_BACK' ? evt.payload['ended_by'] : null;

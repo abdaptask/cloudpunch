@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cloudpunch.aptask.com/schemas/user-break-extended.schema.json",
+  "title": "USER_BREAK_EXTENDED event",
+  "description": "The employee's planned break ran over and they chose \"5 more min\" or \"10 more min\". Valid only ON_BREAK; the break goes on and its planned length grows by extend_minutes. See ADR-0031 \u00a73.",
+  "allOf": [
+    { "$ref": "common/base-event.schema.json" },
+    {
+      "type": "object",
+      "properties": {
+        "event_type": { "const": "USER_BREAK_EXTENDED" },
+        "payload": {
+          "type": "object",
+          "properties": {
+            "extend_minutes": { "type": "integer", "enum": [5, 10] }
+          },
+          "required": ["extend_minutes"],
+          "additionalProperties": false
+        }
+      }
+    }
+  ]
+}

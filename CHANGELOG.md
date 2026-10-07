@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Desktop 0.1.18: a loud break overrun, and the break in view (ADR-0031 part 3)
+
+- When a planned break runs past its end, the window comes forward with
+  a red, blinking "Your tea break is over · 3 min over", the taskbar
+  button flashes (the Dock icon bounces on a Mac), the tray dot turns
+  red and a notification goes off, again every 2 minutes, even when
+  minimised and in quiet hours. **I'm back** ends the break; **5 more
+  min** / **10 more min** extend it (recorded) and the alert starts
+  over. It replaces the one-off "Back yet?" note.
+- New event `USER_BREAK_EXTENDED` (`extend_minutes` 5 or 10, only on a
+  break) in the schemas, the shared transition fixture, both state
+  machines and **migration 0009** (the event-type CHECK). The day view
+  carries the longer plan and `extended_minutes`; Team shows "Planned
+  20 min (incl. +5 min) · took 24 min", and "over planned" counts the
+  extension.
+- Choosing a break (or opening the picker) scrolls up to it instead of
+  staying on "Take a break" (owner request).
+
 ### Desktop 0.1.17: shifts (ADR-0031 part 2)
 
 - With a shift, the clock-in popup opens at the shift's start (in the

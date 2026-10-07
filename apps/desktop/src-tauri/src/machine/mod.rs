@@ -377,6 +377,11 @@ pub enum Input {
         planned_minutes: Option<u8>,
     },
     EndBreak,
+    /// "5 more min" / "10 more min" on a break that ran over (ADR-0031
+    /// §3): the break goes on with a longer plan. 5 or 10.
+    ExtendBreak {
+        minutes: u8,
+    },
     /// "I'm back" from `AWAY`.
     MarkBack,
     /// Voluntary tag: "In a meeting", "On a phone call" (ADR-0011 §2).
@@ -430,6 +435,10 @@ pub enum CoreEvent {
         planned_minutes: Option<u8>,
     },
     UserEndBreak,
+    /// The break's plan grew by `extend_minutes` (ADR-0031 §3).
+    UserBreakExtended {
+        extend_minutes: u8,
+    },
     /// `ended_by`: set when Away ended on its own (ADR-0027).
     UserMarkBack {
         ended_by: Option<BackReason>,
@@ -477,6 +486,7 @@ impl CoreEvent {
             CoreEvent::UserClockOut => "USER_CLOCK_OUT",
             CoreEvent::UserStartBreak { .. } => "USER_START_BREAK",
             CoreEvent::UserEndBreak => "USER_END_BREAK",
+            CoreEvent::UserBreakExtended { .. } => "USER_BREAK_EXTENDED",
             CoreEvent::UserMarkBack { .. } => "USER_MARK_BACK",
             CoreEvent::UserMarkAway { .. } => "USER_MARK_AWAY",
             CoreEvent::UserPromptResponse { .. } => "USER_PROMPT_RESPONSE",
@@ -504,6 +514,9 @@ impl CoreEvent {
             } => json!({ "break_kind": kind.as_str(), "planned_minutes": m }),
             CoreEvent::UserPromptResponse { response, .. } => {
                 json!({ "response": response.as_str() })
+            }
+            CoreEvent::UserBreakExtended { extend_minutes } => {
+                json!({ "extend_minutes": extend_minutes })
             }
             CoreEvent::MediaDeviceState {
                 in_use: true,
@@ -747,6 +760,15 @@ impl Core {
             Input::EndBreak => {
                 self.apply(CoreEvent::UserEndBreak, now, &mut fx)?;
             }
+            Input::ExtendBreak { minutes } => {
+                self.apply(
+                    CoreEvent::UserBreakExtended {
+                        extend_minutes: minutes,
+                    },
+                    now,
+                    &mut fx,
+                )?;
+            }
             Input::MarkBack => {
                 self.apply(CoreEvent::UserMarkBack { ended_by: None }, now, &mut fx)?;
             }
@@ -854,7 +876,9 @@ impl Core {
                 CoreState::Idle { since: *since }
             }
             // An annotation: the state (and its details) stay as they are.
-            (_, CoreEvent::UserIdleExplained { .. }) => self.state,
+            (_, CoreEvent::UserIdleExplained { .. } | CoreEvent::UserBreakExtended { .. }) => {
+                self.state
+            }
             (PayrollState::OnBreak, CoreEvent::UserStartBreak { kind, .. }) => {
                 CoreState::OnBreak { kind: *kind }
             }
@@ -884,7 +908,10 @@ impl Core {
             _ => return Err(Rejected::InvalidTransition),
         };
 
-        if matches!(event, CoreEvent::UserIdleExplained { .. }) {
+        if matches!(
+            event,
+            CoreEvent::UserIdleExplained { .. } | CoreEvent::UserBreakExtended { .. }
+        ) {
             fx.push(Effect::Emit { event, at: now });
             return Ok(());
         }

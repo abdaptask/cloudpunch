@@ -137,7 +137,8 @@ export function dayRows(day: TeamDay): DayRow[] {
         detail = 'Corrected';
       } else if (g.planned_minutes !== undefined) {
         late = took > g.planned_minutes;
-        detail = `Planned ${hm(g.planned_minutes)} · took ${hm(took)}`;
+        const more = g.extended_minutes ? ` (incl. +${hm(g.extended_minutes)})` : '';
+        detail = `Planned ${hm(g.planned_minutes)}${more} · took ${hm(took)}`;
       } else if (g.ended_by) {
         detail =
           g.ended_by === 'input'

@@ -293,6 +293,7 @@ pub fn run() {
             commands::request_correction,
             commands::corrections_queue,
             commands::not_working_today,
+            commands::extend_break,
             commands::admin_shifts,
             commands::admin_set_shift,
             commands::decide_correction,

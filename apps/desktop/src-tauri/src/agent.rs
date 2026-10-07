@@ -45,6 +45,8 @@ use crate::tray::{self, TrayStateSnapshot};
 pub const PROMPT_WINDOW: &str = "idle-prompt";
 /// Event carrying a [`StateView`] to every webview.
 pub const STATE_EVENT: &str = "cp://state";
+/// A break past its plan alerts again this often (ADR-0031 §3).
+pub const BREAK_OVER_REPEAT: Duration = Duration::from_secs(2 * 60);
 
 /// This build's version (shown on screen and in the tray, owner request).
 pub const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -91,8 +93,12 @@ pub struct StateView {
     pub break_options: Vec<crate::policy::BreakOption>,
     /// Offer Training as an Away reason (ADR-0023 §1).
     pub offer_training: bool,
-    /// The current break's "Back in?" answer, minutes (ADR-0023 §2).
+    /// The current break's "Back in?" answer, minutes (ADR-0023 §2),
+    /// with any "5 / 10 more min".
     pub planned_break_minutes: Option<u8>,
+    /// When the planned break ran out, while it is still going
+    /// (ADR-0031 §3): the red, blinking "Your break is over".
+    pub break_over_since: Option<u64>,
     /// This build's version.
     pub app_version: &'static str,
     /// A downloaded update's version, waiting to install (ADR-0022).
@@ -139,6 +145,11 @@ impl StateView {
 
     pub fn with_not_working_offered(mut self, offered: bool) -> Self {
         self.not_working_offered = offered;
+        self
+    }
+
+    pub fn with_break_over(mut self, since: Option<SystemTime>) -> Self {
+        self.break_over_since = since.map(epoch_ms);
         self
     }
 
@@ -249,6 +260,7 @@ pub fn view_of(
         signed_in_at: None,
         clock_in_prompt: false,
         not_working_offered: false,
+        break_over_since: None,
         break_options: crate::policy::Breaks::default().offered(),
         offer_training: true,
         planned_break_minutes: None,
@@ -321,6 +333,8 @@ struct UiPlan {
     show_prompt: bool,
     hide_prompt: bool,
     show_main: bool,
+    /// Flash the taskbar / Dock (ADR-0031 §3).
+    attention: bool,
     /// Refresh the tray colour and tooltip.
     tray: bool,
     tooltip: String,
@@ -340,6 +354,9 @@ pub trait Ui: Send + Sync + 'static {
     fn show_prompt(&self);
     fn hide_prompt(&self);
     fn show_main(&self);
+    /// Flash the taskbar / bounce the Dock until the window is used
+    /// (ADR-0031 §3); works even when the OS won't bring it forward.
+    fn request_attention(&self) {}
     fn state_changed(&self, view: &StateView, tray: TrayStateSnapshot);
     /// Main window shown and not minimised (reminders only fire when
     /// it isn't, ADR-0013 §2).
@@ -390,6 +407,14 @@ impl Ui for TauriUi {
         }
     }
 
+    fn request_attention(&self) {
+        // Windows flashes the taskbar button, macOS bounces the Dock
+        // icon, until the window is used.
+        if let Some(w) = self.app.get_webview_window("main") {
+            let _ = w.request_user_attention(Some(tauri::UserAttentionType::Critical));
+        }
+    }
+
     fn state_changed(&self, view: &StateView, tray_state: TrayStateSnapshot) {
         let _ = self.app.emit(STATE_EVENT, view);
         if let Err(e) = tray::update(&self.app, tray_state) {
@@ -434,6 +459,10 @@ struct Inner {
     prompt_state: crate::clock_in_prompt::PromptState,
     /// The person's shift and any "Not working today" (ADR-0031).
     shift: crate::shift::ShiftInfo,
+    /// The planned break ran out at this time and is still going.
+    break_over_since: Option<SystemTime>,
+    /// When the overrun alert last went off (it repeats, ADR-0031 §3).
+    break_over_alerted_at: Option<SystemTime>,
     /// The shift popup waits until then ("Not now", or a clock-out).
     shift_snooze_until: Option<SystemTime>,
     timeline: Timeline,
@@ -491,6 +520,7 @@ impl Inner {
         .with_not_working_offered(
             self.clock_in_prompt && self.shift_window(SystemTime::now()).is_some(),
         )
+        .with_break_over(self.break_over_since)
         .with_blocked(self.blocked.as_ref())
     }
 
@@ -618,6 +648,8 @@ impl<U: Ui> Agent<U> {
                 prompt_state: Default::default(),
                 shift: Default::default(),
                 shift_snooze_until: None,
+                break_over_since: None,
+                break_over_alerted_at: None,
                 timeline: Timeline::new(),
                 reminder_cfg: ReminderConfig::default(),
                 reminders: ReminderState::default(),
@@ -868,6 +900,26 @@ impl<U: Ui> Agent<U> {
         }
     }
 
+    /// "5 more min" / "10 more min" on a break that ran over (ADR-0031
+    /// §3): recorded, the plan grows, and the alert starts over.
+    pub fn extend_break(&self, minutes: u8) -> Result<StateView, Rejected> {
+        if !matches!(minutes, 5 | 10) {
+            return Err(Rejected::InvalidTransition);
+        }
+        if self.lock().planned_break.is_none() {
+            return Err(Rejected::InvalidTransition);
+        }
+        self.handle(Input::ExtendBreak { minutes })?;
+        {
+            let mut inner = self.lock();
+            inner.planned_break = inner.planned_break.map(|m| m.saturating_add(minutes));
+            inner.break_over_since = None;
+            inner.break_over_alerted_at = None;
+        }
+        self.broadcast();
+        Ok(self.view())
+    }
+
     /// Clock in from the sign-in time, if it is still on offer.
     pub fn clock_in_from_sign_in(&self) -> Result<StateView, Rejected> {
         let offer = self
@@ -989,6 +1041,11 @@ impl<U: Ui> Agent<U> {
             if after == CoreState::ClockedOut {
                 inner.long_shift = false;
             }
+            if !matches!(after, CoreState::OnBreak { .. }) && inner.break_over_since.is_some() {
+                inner.break_over_since = None;
+                inner.break_over_alerted_at = None;
+                plan.broadcast = true;
+            }
             if is_tick {
                 let inputs = ReminderInputs {
                     now,
@@ -1069,6 +1126,10 @@ impl<U: Ui> Agent<U> {
                 plan.update_note = crate::app_update::wait_note(&mut inner.update, update);
                 plan.install_update = crate::app_update::install_now(&mut inner.update, update);
                 for r in reminders::due(&cfg, inputs, &mut inner.reminders) {
+                    // The overrun alert below says it, louder.
+                    if matches!(r, Reminder::BackYet { .. }) {
+                        continue;
+                    }
                     if matches!(r, Reminder::LongShift { .. }) {
                         inner.long_shift = true;
                         plan.show_main = true;
@@ -1076,13 +1137,50 @@ impl<U: Ui> Agent<U> {
                     }
                     plan.notes.push(reminder_text(&r, &inner.breaks));
                 }
+                // ADR-0031 §3: a planned break past its end. The window
+                // comes forward, the taskbar flashes and a notification
+                // goes off, again every BREAK_OVER_REPEAT; not muted in
+                // quiet hours (someone on a break is clocked in).
+                let ends = match (after, inner.planned_break, inputs.segment_started_at) {
+                    (CoreState::OnBreak { .. }, Some(m), Some(start)) => {
+                        Some((start + Duration::from_secs(u64::from(m) * 60), m))
+                    }
+                    _ => None,
+                };
+                if let Some((end, planned)) = ends.filter(|(end, _)| now >= *end) {
+                    if inner.break_over_since.is_none() {
+                        inner.break_over_since = Some(end);
+                        plan.broadcast = true;
+                    }
+                    let again = inner.break_over_alerted_at.map_or(true, |at| {
+                        now.duration_since(at).unwrap_or_default() >= BREAK_OVER_REPEAT
+                    });
+                    if again {
+                        inner.break_over_alerted_at = Some(now);
+                        plan.show_main = true;
+                        plan.attention = true;
+                        plan.notes.push((
+                            "Your break is over".to_string(),
+                            format!(
+                                "You planned {}. Back now, or a few more minutes?",
+                                reminders::short_duration(Duration::from_secs(
+                                    u64::from(planned) * 60
+                                ))
+                            ),
+                        ));
+                    }
+                }
                 let minute = epoch_ms(now) / 60_000;
                 if inner.tooltip_minute != Some(minute) {
                     inner.tooltip_minute = Some(minute);
                     plan.tray = true;
                 }
             }
-            let snapshot = tray_snapshot(after, call_after);
+            let snapshot = if inner.break_over_since.is_some() {
+                TrayStateSnapshot::BreakOver
+            } else {
+                tray_snapshot(after, call_after)
+            };
             plan.tray |= plan.broadcast;
             plan.tooltip = inner.tooltip(snapshot, now);
             (inner.view(), plan, snapshot)
@@ -1104,6 +1202,9 @@ impl<U: Ui> Agent<U> {
         }
         if plan.show_main {
             ui.show_main();
+        }
+        if plan.attention {
+            ui.request_attention();
         }
         if plan.broadcast {
             ui.state_changed(view, snapshot);
@@ -1439,6 +1540,9 @@ mod tests {
         fn show_prompt(&self) {
             self.calls.lock().unwrap().push("show_prompt".into());
         }
+        fn request_attention(&self) {
+            self.calls.lock().unwrap().push("attention".into());
+        }
         fn hide_prompt(&self) {
             self.calls.lock().unwrap().push("hide_prompt".into());
         }
@@ -1559,6 +1663,61 @@ mod tests {
             .handle_at(Input::Tick { last_input_at: now }, now)
             .unwrap();
         assert!(!agent.handle(Input::ClockOut).unwrap().long_shift);
+    }
+
+    #[test]
+    fn a_break_past_its_plan_alerts_loudly_and_repeats_until_extended_or_ended() {
+        let (agent, ui) = agent_with_ui();
+        let base = SystemTime::now() - Duration::from_secs(3600);
+        let at = |m: u64| base + Duration::from_secs(m * 60);
+        agent.handle_at(Input::ClockIn, base).unwrap();
+        agent
+            .handle_at(
+                Input::StartBreak {
+                    kind: BreakKind::Rest,
+                    planned_minutes: Some(5),
+                },
+                at(1),
+            )
+            .unwrap();
+        let tick = |t: SystemTime| {
+            agent
+                .handle_at(Input::Tick { last_input_at: t }, t)
+                .unwrap()
+        };
+        let alerts = |ui: &FakeUi| {
+            ui.calls
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|c| *c == "attention")
+                .count()
+        };
+        // Planned 5 min from minute 1: quiet until minute 6.
+        assert_eq!(tick(at(5)).break_over_since, None);
+        assert_eq!(alerts(&ui), 0);
+        let view = tick(at(6));
+        assert_eq!(view.break_over_since, Some(epoch_ms(at(6))));
+        assert_eq!(alerts(&ui), 1);
+        assert!(notes(&ui).contains(&"notify:Your break is over".to_string()));
+        assert!(ui.calls.lock().unwrap().contains(&"show_main".to_string()));
+        // Again two minutes later, not before.
+        tick(at(7));
+        assert_eq!(alerts(&ui), 1);
+        tick(at(8));
+        assert_eq!(alerts(&ui), 2);
+
+        // "5 more min": recorded, the alert stops, the plan is 10 min.
+        let view = agent.extend_break(5).unwrap();
+        assert_eq!(view.break_over_since, None);
+        assert_eq!(view.planned_break_minutes, Some(10));
+        assert_eq!(view.status, "on_break");
+        assert!(agent.extend_break(7).is_err());
+
+        // Ending the break clears everything.
+        let view = agent.handle(Input::EndBreak).unwrap();
+        assert_eq!(view.break_over_since, None);
+        assert!(agent.extend_break(5).is_err());
     }
 
     #[test]
@@ -1844,7 +2003,8 @@ mod tests {
         tick(19);
         assert!(notes(&ui).is_empty());
         tick(20);
-        assert_eq!(notes(&ui), ["notify:Back yet?"]);
+        // ADR-0031 §3: the louder overrun alert replaces "Back yet?".
+        assert_eq!(notes(&ui), ["notify:Your break is over"]);
         tick(30);
         assert_eq!(notes(&ui)[1], "notify:Still on your break?");
         assert_eq!(
