@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Desktop 0.1.21: a person's screen, summary first (owner request)
+
+- Team → a person: their status (and city) under the name, then a
+  **Today** card (worked, a bar of the day, in-time · breaks · idle)
+  that opens in place to the full rows, corrections and "Correct this
+  day". **Earlier** lists the last 30 days that have time on them
+  (worked, sessions), newest first; each opens the same way, one day at
+  a time. For Managers and Administrators, **Where they connect from**
+  is one line at the bottom that opens their connection history.
+- Gone: the Day / Connections tabs and the ‹ Today › arrows.
+- New desktop command `team_days` for the existing
+  `GET /v1/team/:id/days?from&to` (audited as before). No server change.
+
 ### Desktop 0.1.20: the day comes back even if you clocked in first
 
 - Fix: after an update, someone who clocked in (e.g. from the clock-in

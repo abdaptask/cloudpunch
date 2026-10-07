@@ -2,7 +2,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import type { DayResult } from './dayHistory.js';
-import type { DaysResult } from './dayPickerModel.js';
+import type { DaySummary, DaysResult } from './dayPickerModel.js';
 import type { PromptResponse } from './IdlePrompt.js';
 import type { Segment } from './timelineModel.js';
 
@@ -417,6 +417,12 @@ export const api = {
   teamNow: (): Promise<{ people: TeamPerson[] }> => invoke('team_now'),
   teamDay: (employeeId: string, date: string): Promise<TeamDay> =>
     invoke('team_day', { employeeId, date }),
+  /** One person's day totals over `[from, to]` (the person screen's Earlier list). */
+  teamDays: (
+    employeeId: string,
+    from: string,
+    to: string,
+  ): Promise<{ name: string; days: DaySummary[] }> => invoke('team_days', { employeeId, from, to }),
   teamExceptions: (
     from: string,
     to: string,

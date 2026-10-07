@@ -201,6 +201,22 @@ pub fn team_day(
     send(http, base, token, reqwest::Method::GET, &path, None)
 }
 
+/// One person's day totals over `[from, to]`. Audited server-side.
+pub fn team_days(
+    http: &Client,
+    base: &str,
+    token: &str,
+    employee_id: &str,
+    from: &str,
+    to: &str,
+) -> Result<Value, DayError> {
+    if !is_uuid(employee_id) || !is_date(from) || !is_date(to) {
+        return Err(DayError::Refused("invalid_argument".into()));
+    }
+    let path = format!("/v1/team/{employee_id}/days?from={from}&to={to}");
+    send(http, base, token, reqwest::Method::GET, &path, None)
+}
+
 /// Exceptions over `[from, to]`, for everyone in scope or one person.
 pub fn team_exceptions(
     http: &Client,
@@ -556,6 +572,14 @@ mod tests {
             "2026-09-01",
             "today",
             None
+        )));
+        assert!(bad(team_days(
+            &http,
+            "http://127.0.0.1:9",
+            "t",
+            id,
+            "2026-09-01",
+            "2026-9-30"
         )));
         assert!(bad(set_manager(
             &http,

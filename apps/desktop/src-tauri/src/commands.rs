@@ -1036,6 +1036,22 @@ pub async fn team_day(
     answer(fetched)
 }
 
+/// One person's day totals over `[from, to]` (the person screen's
+/// Earlier list). Audited server-side.
+#[tauri::command]
+pub async fn team_days(
+    auth: State<'_, Arc<Auth>>,
+    employee_id: String,
+    from: String,
+    to: String,
+) -> Result<serde_json::Value, String> {
+    let (_, fetched) = fetch_as_user(&auth, move |http, base, token| {
+        admin::team_days(http, base, token, &employee_id, &from, &to)
+    })
+    .await?;
+    answer(fetched)
+}
+
 /// Ask to correct your own time (`employeeId` absent), or, as their
 /// manager, correct a report's (ADR-0030 §3).
 #[tauri::command]
