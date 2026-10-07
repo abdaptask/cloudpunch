@@ -578,9 +578,12 @@ export class PostgresDb implements DbRepositories {
         // Insert. The unique partial index on (employee_id) WHERE
         // closed_at IS NULL will raise 23505 if another session is
         // already open for this employee.
+        const c = input.closed;
         const rows = await this.sql<TimeSessionRow[]>`
-          INSERT INTO time_session (id, employee_id, device_id, opened_at)
-          VALUES (${id}, ${input.employeeId}, ${input.deviceId}, ${input.openedAt})
+          INSERT INTO time_session
+            (id, employee_id, device_id, opened_at, closed_at, closed_reason, reconstructed)
+          VALUES (${id}, ${input.employeeId}, ${input.deviceId}, ${input.openedAt},
+                  ${c?.at ?? null}, ${c?.reason ?? null}, ${c?.reconstructed ?? false})
           RETURNING id, employee_id, device_id, opened_at, closed_at, closed_reason, reconstructed
         `;
         const row = rows[0];

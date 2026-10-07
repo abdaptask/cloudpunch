@@ -174,6 +174,12 @@ export interface OpenSessionInput {
   employeeId: string;
   deviceId: string;
   openedAt: Date;
+  /**
+   * Insert it already closed: a delayed clock-in from before the
+   * device's open session is history, never the live session (ingest,
+   * 2026-10-07). A closed row doesn't count against one-open-session.
+   */
+  closed?: { at: Date; reason: SessionCloseReason; reconstructed: boolean } | undefined;
 }
 
 export interface TimeEventInput {
