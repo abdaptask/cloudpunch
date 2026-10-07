@@ -174,8 +174,8 @@ export class PostgresDb implements DbRepositories {
 
   private buildCorrectionRepo(): CorrectionRepo {
     type Row = Omit<CorrectionWithDecisions, 'decisions'>;
-    const cols = this.sql`id, employee_id, from_at, to_at, kind, reason,
-                          requested_by_user_id, requested_at`;
+    const cols = this.sql`id, employee_id, from_at, to_at, tz_iana, utc_offset_minutes, kind,
+                          reason, requested_by_user_id, requested_at`;
     const dcols = this.sql`id, correction_id, decision, decided_by_user_id, decided_at, note`;
     /** Attach each correction's decisions, oldest first. */
     const withDecisions = async (rows: Row[]): Promise<CorrectionWithDecisions[]> => {
@@ -193,10 +193,10 @@ export class PostgresDb implements DbRepositories {
       request: async (i) =>
         this.sql.begin(async (tx) => {
           const [row] = await tx<Row[]>`
-            INSERT INTO time_correction (employee_id, from_at, to_at, kind, reason,
-                                         requested_by_user_id, requested_at)
-            VALUES (${i.employeeId}, ${i.fromAt}, ${i.toAt}, ${i.kind}, ${i.reason},
-                    ${i.requestedByUserId}, ${i.at})
+            INSERT INTO time_correction (employee_id, from_at, to_at, tz_iana, utc_offset_minutes,
+                                         kind, reason, requested_by_user_id, requested_at)
+            VALUES (${i.employeeId}, ${i.fromAt}, ${i.toAt}, ${i.tzIana}, ${i.utcOffsetMinutes},
+                    ${i.kind}, ${i.reason}, ${i.requestedByUserId}, ${i.at})
             RETURNING ${cols}`;
           if (!row) throw new Error('time_correction insert returned no row');
           const decisions: CorrectionDecision[] = [];

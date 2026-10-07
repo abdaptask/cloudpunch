@@ -99,6 +99,8 @@ export class InMemoryDb implements DbRepositories {
           employeeId: i.employeeId,
           fromAt: i.fromAt,
           toAt: i.toAt,
+          tzIana: i.tzIana,
+          utcOffsetMinutes: i.utcOffsetMinutes,
           kind: i.kind,
           reason: i.reason,
           requestedByUserId: i.requestedByUserId,

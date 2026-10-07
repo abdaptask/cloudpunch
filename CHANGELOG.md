@@ -9,7 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### ADR-0030 time corrections, part A: storage
 
-- Migration 0007: `time_correction` and `time_correction_decision`,
+- Migration 0007: `time_correction` (with the person's zone, as events
+  record it) and `time_correction_decision`,
   both append-only (triggers reject UPDATE and DELETE; the invariants
   scan now covers them). Limits in the database: at most 16 hours, a
   reason of 1 to 500 characters, one endorsement and one final decision

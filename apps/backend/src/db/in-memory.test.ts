@@ -296,6 +296,8 @@ describe('InMemoryDb — time corrections (ADR-0030)', () => {
     employeeId: 'emp-1',
     fromAt: new Date('2026-10-05T12:00:00Z'),
     toAt: new Date('2026-10-05T20:00:00Z'),
+    tzIana: 'Asia/Kolkata',
+    utcOffsetMinutes: 330,
     kind: 'working',
     reason: 'App did not record the day',
     requestedByUserId: 'mgr',

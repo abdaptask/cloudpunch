@@ -21,6 +21,10 @@ CREATE TABLE time_correction (
   employee_id           uuid NOT NULL REFERENCES employee(id),
   from_at               timestamptz NOT NULL,
   to_at                 timestamptz NOT NULL,
+  -- The person's zone when it was entered, as time_event records it:
+  -- dates the correction's working day and shows its clock times.
+  tz_iana               varchar(64) NOT NULL,
+  utc_offset_minutes    smallint NOT NULL CHECK (utc_offset_minutes BETWEEN -720 AND 840),
   kind                  text NOT NULL CHECK (kind ~ '^[a-z_]{1,40}$'),
   reason                text NOT NULL CHECK (length(btrim(reason)) BETWEEN 1 AND 500),
   requested_by_user_id  uuid NOT NULL REFERENCES app_user(id),

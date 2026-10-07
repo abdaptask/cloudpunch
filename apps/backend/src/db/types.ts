@@ -437,6 +437,10 @@ export interface TimeCorrection {
   employeeId: string;
   fromAt: Date;
   toAt: Date;
+  /** The person's zone when entered (dates the day, shows the times). */
+  tzIana: string;
+  /** Minutes east of UTC at `fromAt` in `tzIana`. */
+  utcOffsetMinutes: number;
   /** `working`, `away_working`, a break kind, or `not_worked`. */
   kind: string;
   reason: string;
@@ -462,6 +466,8 @@ export interface NewCorrection {
   employeeId: string;
   fromAt: Date;
   toAt: Date;
+  tzIana: string;
+  utcOffsetMinutes: number;
   kind: string;
   reason: string;
   requestedByUserId: string;
