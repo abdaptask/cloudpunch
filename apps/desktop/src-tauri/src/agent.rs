@@ -83,6 +83,8 @@ pub struct StateView {
     pub signed_in_at: Option<u64>,
     /// The daily clock-in popup is showing.
     pub clock_in_prompt: bool,
+    /// The popup is for a shift (ADR-0031): offer "Not working today".
+    pub not_working_offered: bool,
     /// Policy's long day for the end-of-day summary, ms (ADR-0013 §8).
     pub long_day_ms: u64,
     /// The break types to offer, in menu order (ADR-0023 §1).
@@ -132,6 +134,11 @@ impl StateView {
     pub fn with_clock_in_offer(mut self, offer: Option<SystemTime>, prompt: bool) -> Self {
         self.signed_in_at = offer.map(epoch_ms);
         self.clock_in_prompt = prompt;
+        self
+    }
+
+    pub fn with_not_working_offered(mut self, offered: bool) -> Self {
+        self.not_working_offered = offered;
         self
     }
 
@@ -241,6 +248,7 @@ pub fn view_of(
         auto_clock_out_reason: None,
         signed_in_at: None,
         clock_in_prompt: false,
+        not_working_offered: false,
         break_options: crate::policy::Breaks::default().offered(),
         offer_training: true,
         planned_break_minutes: None,
@@ -424,6 +432,10 @@ struct Inner {
     signed_in_at: Option<SystemTime>,
     clock_in_prompt: bool,
     prompt_state: crate::clock_in_prompt::PromptState,
+    /// The person's shift and any "Not working today" (ADR-0031).
+    shift: crate::shift::ShiftInfo,
+    /// The shift popup waits until then ("Not now", or a clock-out).
+    shift_snooze_until: Option<SystemTime>,
     timeline: Timeline,
     reminder_cfg: ReminderConfig,
     reminders: ReminderState,
@@ -476,7 +488,18 @@ impl Inner {
         .with_idle_return(self.driver.core().idle_return())
         .with_auto_clock_out_reason(self.auto_clock_out_reason)
         .with_clock_in_offer(self.clock_in_offer(SystemTime::now()), self.clock_in_prompt)
+        .with_not_working_offered(
+            self.clock_in_prompt && self.shift_window(SystemTime::now()).is_some(),
+        )
         .with_blocked(self.blocked.as_ref())
+    }
+
+    /// The shift window `now` is in, if the person has a shift (ADR-0031).
+    fn shift_window(&self, now: SystemTime) -> Option<crate::shift::ShiftWindow> {
+        self.shift
+            .shift
+            .as_ref()
+            .and_then(|s| crate::shift::active_window(s, now))
     }
 
     /// The sign-in time a clock-in may start from, while clocked out.
@@ -593,6 +616,8 @@ impl<U: Ui> Agent<U> {
                 signed_in_at: None,
                 clock_in_prompt: false,
                 prompt_state: Default::default(),
+                shift: Default::default(),
+                shift_snooze_until: None,
                 timeline: Timeline::new(),
                 reminder_cfg: ReminderConfig::default(),
                 reminders: ReminderState::default(),
@@ -784,17 +809,63 @@ impl<U: Ui> Agent<U> {
         }
     }
 
-    /// Close the daily clock-in popup without clocking in.
+    /// Close the daily clock-in popup without clocking in. With a shift
+    /// it comes back after [`crate::shift::SNOOZE`] (ADR-0031 §2).
     pub fn dismiss_clock_in_prompt(&self) -> StateView {
         let view = {
             let mut inner = self.lock();
             inner.clock_in_prompt = false;
+            inner.shift_snooze_until = Some(SystemTime::now() + crate::shift::SNOOZE);
             inner.view()
         };
         if let Some(ui) = self.ui.get() {
             ui.state_changed(&view, tray_snapshot(self.state(), None));
         }
         view
+    }
+
+    /// The shift fetched with the policy (ADR-0031). Takes effect at the
+    /// next tick; "Not working today" for the shift showing closes it.
+    pub fn apply_shift(&self, info: crate::shift::ShiftInfo) {
+        let changed = {
+            let mut inner = self.lock();
+            if inner.shift == info {
+                return;
+            }
+            inner.shift = info;
+            let now = SystemTime::now();
+            let silenced = inner
+                .shift_window(now)
+                .is_some_and(|w| inner.shift.not_working_on == Some(w.date));
+            if silenced && inner.clock_in_prompt {
+                inner.clock_in_prompt = false;
+                true
+            } else {
+                false
+            }
+        };
+        if changed {
+            self.broadcast();
+        }
+    }
+
+    /// "Not working today", recorded on the server for shift `date`:
+    /// no more asking until the next shift (ADR-0031 §2).
+    pub fn mark_not_working(&self, date: chrono::NaiveDate) -> StateView {
+        {
+            let mut inner = self.lock();
+            inner.shift.not_working_on = Some(date);
+            inner.clock_in_prompt = false;
+        }
+        self.broadcast();
+        self.view()
+    }
+
+    fn broadcast(&self) {
+        let view = self.view();
+        if let Some(ui) = self.ui.get() {
+            ui.state_changed(&view, tray_snapshot(self.state(), None));
+        }
     }
 
     /// Clock in from the sign-in time, if it is still on offer.
@@ -849,6 +920,8 @@ impl<U: Ui> Agent<U> {
             }
             // A policy that arrived mid-session takes over once it ends.
             if after == CoreState::ClockedOut && before != CoreState::ClockedOut {
+                // A clock-out mid-shift: ask again in a while, not at once.
+                inner.shift_snooze_until = Some(now + crate::shift::SNOOZE);
                 self.adopt_pending(&mut inner);
             }
             let call_after = inner.driver.core().call_type();
@@ -944,7 +1017,30 @@ impl<U: Ui> Agent<U> {
                         last_input_at,
                     };
                     let prompt_cfg = cfg.clock_in_prompt;
-                    if crate::clock_in_prompt::due(&prompt_cfg, prompt, &mut inner.prompt_state) {
+                    if inner.shift.shift.is_some() {
+                        // A shift decides (ADR-0031 §2): ask during it,
+                        // again after "Not now"; stop when it ends.
+                        let window = inner.shift_window(now);
+                        if window.is_none() && inner.clock_in_prompt {
+                            inner.clock_in_prompt = false;
+                            plan.broadcast = true;
+                        }
+                        let due = crate::clock_in_prompt::shift_due(
+                            window,
+                            inner.shift.not_working_on,
+                            inner.shift_snooze_until,
+                            prompt,
+                        );
+                        if due && !inner.clock_in_prompt {
+                            inner.clock_in_prompt = true;
+                            plan.show_main = true;
+                            plan.broadcast = true;
+                        }
+                    } else if crate::clock_in_prompt::due(
+                        &prompt_cfg,
+                        prompt,
+                        &mut inner.prompt_state,
+                    ) {
                         inner.clock_in_prompt = true;
                         plan.show_main = true;
                         plan.broadcast = true;

@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Desktop 0.1.17: shifts (ADR-0031 part 2)
+
+- With a shift, the clock-in popup opens at the shift's start (in the
+  shift's own zone), while clocked out and at the computer. "Not now"
+  and a clock-out mid-shift bring it back after 5 minutes; **Not
+  working today** silences it until the next shift. People without a
+  shift keep the daily 08:00 popup.
+- The shift is fetched with the policy every 15 minutes.
+- Team: "Not clocked in · shift started HH:MM" in amber, and "Said not
+  working today".
+- Settings → People → **Shifts** (Administrators): each person's shift
+  ("Mon–Fri · 08:00–17:30 · US Eastern"), set with weekday toggles,
+  start, end (an earlier end is the next morning) and zone, or cleared.
+
 ### ADR-0031 shifts, part 1: the server
 
 - Migration 0008: `shift_assignment` (a weekly pattern per person: days,

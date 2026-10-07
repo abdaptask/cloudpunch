@@ -32,6 +32,7 @@ function pending(over: Partial<StateView> = {}): StateView {
     autoClockOutReason: null,
     signedInAt: null,
     clockInPrompt: false,
+    notWorkingOffered: false,
     breakOptions: [
       { id: 'bio', label: 'Bio break', maxMinutes: 10 },
       { id: 'meal', label: 'Meal break', maxMinutes: 60 },

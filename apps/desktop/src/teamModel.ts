@@ -30,6 +30,10 @@ export function statusText(p: TeamPerson): string {
       return 'Idle prompt showing';
     case 'idle':
       return `Idle since ${clock(p.since)}`;
+    case 'shift_not_started':
+      return `Not clocked in · shift started ${clock(p.since)}`;
+    case 'not_working':
+      return 'Said not working today';
   }
 }
 

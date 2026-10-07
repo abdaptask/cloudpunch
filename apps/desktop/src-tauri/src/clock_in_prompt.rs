@@ -94,6 +94,30 @@ pub fn due(cfg: &PromptConfig, inp: PromptInputs, st: &mut PromptState) -> bool 
     true
 }
 
+/// ADR-0031 §2: with a shift, the popup asks during it, while clocked
+/// out and at the computer, unless snoozed ("Not now", or just clocked
+/// out) or the person said "Not working today" for this shift. It may
+/// ask again later the same day; `worked_today` doesn't stop it.
+pub fn shift_due(
+    window: Option<crate::shift::ShiftWindow>,
+    not_working_on: Option<NaiveDate>,
+    snooze_until: Option<SystemTime>,
+    inp: PromptInputs,
+) -> bool {
+    let Some(w) = window else { return false };
+    if !inp.ready || !inp.clocked_out || not_working_on == Some(w.date) {
+        return false;
+    }
+    if snooze_until.is_some_and(|until| inp.now < until) {
+        return false;
+    }
+    let idle_for = inp
+        .now
+        .duration_since(inp.last_input_at)
+        .unwrap_or_default();
+    idle_for <= AT_COMPUTER_WITHIN
+}
+
 /// The start to offer: the sign-in, if it is at least a minute ago, at
 /// most 12 hours ago, and after the last session ended.
 pub fn offer(
@@ -186,6 +210,58 @@ mod tests {
             worked_today: false,
             last_input_at: now,
         }
+    }
+
+    fn shift(start: &str, end: &str) -> crate::shift::Shift {
+        crate::shift::Shift {
+            days: vec![1, 2, 3, 4, 5],
+            start: start.into(),
+            end: end.into(),
+            tz_iana: "America/New_York".into(),
+        }
+    }
+
+    #[test]
+    fn with_a_shift_it_asks_during_it_again_after_not_now_and_after_working() {
+        let s = shift("09:00", "17:00");
+        let at = |h, m| ny(2026, 9, 28, h, m);
+        let w = |now| crate::shift::active_window(&s, now);
+        // Never early.
+        assert!(!shift_due(w(at(8, 59)), None, None, inputs(at(8, 59))));
+        assert!(shift_due(w(at(9, 0)), None, None, inputs(at(9, 0))));
+        // "Not now" at 09:00: quiet for five minutes, then asks again.
+        let snooze = Some(at(9, 0) + crate::shift::SNOOZE);
+        assert!(!shift_due(w(at(9, 4)), None, snooze, inputs(at(9, 4))));
+        assert!(shift_due(w(at(9, 5)), None, snooze, inputs(at(9, 5))));
+        // Worked earlier today and clocked out: still asks (unlike the daily popup).
+        let worked = PromptInputs {
+            worked_today: true,
+            ..inputs(at(13, 0))
+        };
+        assert!(shift_due(w(at(13, 0)), None, None, worked));
+        // After the shift, or while clocked in: no.
+        assert!(!shift_due(w(at(17, 0)), None, None, inputs(at(17, 0))));
+        let working = PromptInputs {
+            clocked_out: false,
+            ..inputs(at(10, 0))
+        };
+        assert!(!shift_due(w(at(10, 0)), None, None, working));
+    }
+
+    #[test]
+    fn not_working_today_silences_only_that_shift_and_away_from_the_computer_waits() {
+        let s = shift("09:00", "17:00");
+        let mon = ny(2026, 9, 28, 10, 0);
+        let tue = ny(2026, 9, 29, 10, 0);
+        let said = NaiveDate::from_ymd_opt(2026, 9, 28);
+        let w = |now| crate::shift::active_window(&s, now);
+        assert!(!shift_due(w(mon), said, None, inputs(mon)));
+        assert!(shift_due(w(tue), said, None, inputs(tue)));
+        let away = PromptInputs {
+            last_input_at: tue - Duration::from_secs(6 * 60),
+            ..inputs(tue)
+        };
+        assert!(!shift_due(w(tue), None, None, away));
     }
 
     #[test]
