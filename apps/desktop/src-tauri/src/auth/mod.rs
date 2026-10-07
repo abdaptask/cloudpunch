@@ -117,6 +117,11 @@ pub struct AuthStatus {
     /// (ADR-0028 §4). Shown on the sign-in screen.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub notice: Option<&'static str>,
+    /// Signed in, but Microsoft refused to renew the sign-in (expired,
+    /// revoked, password changed): nothing reaches the server until the
+    /// person signs in again. Their time waits in the outbox.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub expired: bool,
 }
 
 impl AuthStatus {
@@ -127,6 +132,7 @@ impl AuthStatus {
             username: None,
             unsent_kept: None,
             notice: None,
+            expired: false,
         }
     }
 }
@@ -137,7 +143,12 @@ struct Session {
     username: Option<String>,
     access_token: String,
     expires_at: SystemTime,
+    /// Microsoft refused the refresh token; see [`AuthStatus::expired`].
+    expired: bool,
 }
+
+/// Told when the sign-in expires, so the app can say so.
+type OnChange = Box<dyn Fn(&AuthStatus) + Send + Sync>;
 
 /// Refresh the access token this long before it expires.
 const REFRESH_MARGIN: Duration = Duration::from_secs(5 * 60);
@@ -149,6 +160,7 @@ pub struct AuthManager<S: SecretStore> {
     session: Mutex<Option<Session>>,
     /// Cancel flag of the interactive sign-in in progress, if any.
     attempt: Mutex<Option<Arc<AtomicBool>>>,
+    on_change: Mutex<Option<OnChange>>,
 }
 
 impl<S: SecretStore> AuthManager<S> {
@@ -165,7 +177,13 @@ impl<S: SecretStore> AuthManager<S> {
             store: Arc::new(store),
             session: Mutex::new(None),
             attempt: Mutex::new(None),
+            on_change: Mutex::new(None),
         }
+    }
+
+    /// Called with the new status when the sign-in expires.
+    pub fn on_change(&self, f: impl Fn(&AuthStatus) + Send + Sync + 'static) {
+        *self.on_change.lock().unwrap_or_else(|p| p.into_inner()) = Some(Box::new(f));
     }
 
     pub fn status(&self) -> AuthStatus {
@@ -176,6 +194,7 @@ impl<S: SecretStore> AuthManager<S> {
                 username: s.username.clone(),
                 unsent_kept: None,
                 notice: None,
+                expired: s.expired,
             },
             None => AuthStatus::signed_out(),
         }
@@ -267,6 +286,11 @@ impl<S: SecretStore> AuthManager<S> {
         let (oid, fresh) = {
             let guard = self.lock();
             let s = guard.as_ref().ok_or(AuthError::NotSignedIn)?;
+            if s.expired {
+                // Already refused: only a new sign-in helps, so don't
+                // ask Microsoft again on every call.
+                return Err(AuthError::Rejected("expired".into()));
+            }
             let fresh = s.expires_at > now + REFRESH_MARGIN;
             (s.oid.clone(), fresh.then(|| s.access_token.clone()))
         };
@@ -275,7 +299,14 @@ impl<S: SecretStore> AuthManager<S> {
         }
         let slot = Slot::refresh_token(self.cfg.tenant_id, self.cfg.client_id, &oid)?;
         let refresh_token = self.store.get(&slot)?.ok_or(AuthError::NotSignedIn)?;
-        let tokens = token::refresh(&self.cfg, &self.token_url, &refresh_token)?;
+        let tokens = match token::refresh(&self.cfg, &self.token_url, &refresh_token) {
+            Ok(t) => t,
+            Err(AuthError::Rejected(code)) => {
+                self.mark_expired(&oid);
+                return Err(AuthError::Rejected(code));
+            }
+            Err(e) => return Err(e),
+        };
         let access = tokens.access_token.clone();
         let (name, username) = self
             .lock()
@@ -338,8 +369,33 @@ impl<S: SecretStore> AuthManager<S> {
             username,
             expires_at: tokens.expires_at(SystemTime::now()),
             access_token: tokens.access_token,
+            expired: false,
         });
         Ok(self.status())
+    }
+
+    /// The refresh token was refused: keep the session (its outbox and
+    /// device stay this person's) but say a sign-in is needed.
+    fn mark_expired(&self, oid: &str) {
+        let changed = match self.lock().as_mut() {
+            Some(s) if s.oid == oid && !s.expired => {
+                s.expired = true;
+                true
+            }
+            _ => false,
+        };
+        if changed {
+            eprintln!("[cloudpunch] sign-in expired: Microsoft refused to renew it");
+            let status = self.status();
+            if let Some(f) = self
+                .on_change
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .as_ref()
+            {
+                f(&status);
+            }
+        }
     }
 
     /// Register a new attempt, cancelling any earlier one.

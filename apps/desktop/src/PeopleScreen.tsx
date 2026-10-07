@@ -19,6 +19,7 @@ const HR_ASSIGNABLE = ['Employee', 'Manager'];
 
 const ERROR_TEXT: Record<string, string> = {
   offline: "Can't reach CloudPunch right now.",
+  sign_in_again: 'Your sign-in has expired. Sign in again to see this.',
   people_not_configured: 'People is not set up on the server yet.',
   consent_required: 'An Entra admin still needs to grant consent for People.',
   directory_forbidden:
@@ -32,6 +33,7 @@ const ERROR_TEXT: Record<string, string> = {
 /** Active machine (ADR-0028 §4). */
 const MACHINE_ERROR_TEXT: Record<string, string> = {
   offline: "Can't reach CloudPunch right now.",
+  sign_in_again: 'Your sign-in has expired. Sign in again to see this.',
   forbidden: 'Only Administrators can sign someone out of a computer.',
 };
 const machineErrorText = (code: string): string =>

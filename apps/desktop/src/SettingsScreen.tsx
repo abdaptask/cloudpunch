@@ -25,6 +25,7 @@ interface Loaded {
 
 const ERROR_TEXT: Record<string, string> = {
   offline: "Can't reach CloudPunch right now.",
+  sign_in_again: 'Your sign-in has expired. Sign in again to see this.',
   forbidden: "Your role can't change this.",
   policy_invalid: 'CloudPunch refused these values. Check the ranges.',
   not_configured: "Settings aren't available in this build.",

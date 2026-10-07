@@ -427,6 +427,18 @@ describe('sign-in (2b.4 F2)', () => {
     ).toBeInTheDocument();
   });
 
+  it('an expired sign-in says so, with Sign in again', async () => {
+    mocks.authStatus.mockResolvedValue({ ...SIGNED_IN, expired: true });
+    mocks.signIn.mockResolvedValue(SIGNED_IN);
+    const user = userEvent.setup();
+    render(<App />);
+    const banner = await screen.findByRole('alert', { name: 'sign-in-expired' });
+    expect(banner).toHaveTextContent("Your sign-in has expired, so your time isn't reaching");
+    await user.click(within(banner).getByRole('button', { name: 'Sign in again' }));
+    expect(mocks.signIn).toHaveBeenCalledOnce();
+    expect(screen.queryByRole('alert', { name: 'sign-in-expired' })).not.toBeInTheDocument();
+  });
+
   it('"Clock out and sign out" can be cancelled', async () => {
     mocks.getState.mockResolvedValue(view({ status: 'on_break', breakKind: 'meal' }));
     const user = userEvent.setup();

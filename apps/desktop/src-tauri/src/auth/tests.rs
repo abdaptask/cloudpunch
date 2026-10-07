@@ -311,3 +311,61 @@ fn cancel_stops_a_waiting_sign_in() {
     // Cancelling with nothing in progress is harmless.
     auth.cancel_sign_in();
 }
+
+#[test]
+fn a_refused_refresh_marks_the_sign_in_expired_until_the_next_sign_in() {
+    let server = MockServer::start();
+    let mut code = server.mock(|when, then| {
+        when.method(POST)
+            .path("/token")
+            .body_contains("grant_type=authorization_code");
+        // Inside the refresh margin, so the next call refreshes.
+        then.status(200)
+            .json_body(token_json("at-short", Some("rt-1"), OID, 60));
+    });
+    let refused = server.mock(|when, then| {
+        when.method(POST)
+            .path("/token")
+            .body_contains("grant_type=refresh_token");
+        then.status(400)
+            .json_body(serde_json::json!({ "error": "invalid_grant" }));
+    });
+    let auth = manager(&server);
+    let told = Arc::new(Mutex::new(Vec::<bool>::new()));
+    let sink = told.clone();
+    auth.on_change(move |s| sink.lock().unwrap().push(s.expired));
+    auth.sign_in(&fake_browser, Duration::from_secs(5)).unwrap();
+
+    assert!(matches!(
+        auth.access_token(SystemTime::now()),
+        Err(AuthError::Rejected(c)) if c == "invalid_grant"
+    ));
+    let status = auth.status();
+    assert!(status.signed_in && status.expired);
+    assert_eq!(*told.lock().unwrap(), [true], "told once");
+    // Not asked again: only a sign-in helps.
+    assert!(auth.access_token(SystemTime::now()).is_err());
+    refused.assert_hits(1);
+    assert_eq!(told.lock().unwrap().len(), 1);
+    assert_eq!(
+        serde_json::to_value(&status).unwrap()["expired"],
+        serde_json::json!(true)
+    );
+
+    // Signing in again clears it.
+    code.delete();
+    server.mock(|when, then| {
+        when.method(POST)
+            .path("/token")
+            .body_contains("grant_type=authorization_code");
+        then.status(200)
+            .json_body(token_json("at-new", Some("rt-2"), OID, 3600));
+    });
+    auth.sign_in(&fake_browser, Duration::from_secs(5)).unwrap();
+    assert!(!auth.status().expired);
+    assert_eq!(auth.access_token(SystemTime::now()).unwrap(), "at-new");
+    assert!(serde_json::to_value(auth.status())
+        .unwrap()
+        .get("expired")
+        .is_none());
+}

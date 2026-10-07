@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Desktop: an expired sign-in says so (ships with 0.1.14)
+
+- When Microsoft refuses to renew someone's sign-in (expired, revoked,
+  password changed), the app used to look signed in and every screen
+  said "Can't reach CloudPunch", while clock events silently waited.
+  Now a red banner says the sign-in has expired, that time is kept on
+  the computer, and offers **Sign in again**. Screens say "Sign in
+  again" instead of "Can't reach". The app stops asking Microsoft
+  after the first refusal.
+
 ### Desktop 0.1.14: "Check for updates" in the account menu
 
 - The menu under your initials has **Check for updates**, with the

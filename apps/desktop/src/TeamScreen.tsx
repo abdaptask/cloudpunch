@@ -15,6 +15,7 @@ const EXCEPTION_DAYS = 7;
 
 const ERROR_TEXT: Record<string, string> = {
   offline: "Can't reach CloudPunch right now.",
+  sign_in_again: 'Your sign-in has expired. Sign in again to see this.',
   forbidden: "Your role can't see team members.",
   not_found: "That person isn't on your team.",
 };

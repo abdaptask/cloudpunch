@@ -1227,6 +1227,8 @@ async fn fetch_as_user(
         let token = match auth.access_token(SystemTime::now()) {
             Ok(t) => t,
             Err(AuthError::NotSignedIn) => return Err(DayError::Refused("not_signed_in".into())),
+            // Microsoft refused to renew the sign-in: not "offline".
+            Err(AuthError::Rejected(_)) => return Err(DayError::Refused("sign_in_again".into())),
             Err(e) => return Err(DayError::Unavailable(format!("token {}", e.code()))),
         };
         // Signed out or switched user while waiting: don't answer for them.
