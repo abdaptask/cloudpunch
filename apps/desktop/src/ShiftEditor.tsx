@@ -163,11 +163,131 @@ function Editor({
   );
 }
 
+/**
+ * "Copy to…": give one person's shift to several others in one go. Each
+ * person is saved with the same call as a single edit, so each gets its
+ * own audited row; anyone that fails stays ticked to try again.
+ */
+function Copier({
+  from,
+  shift,
+  others,
+  onCopied,
+  onCancel,
+}: {
+  from: string;
+  shift: Shift;
+  others: ShiftRow[];
+  onCopied: (employeeId: string, s: Shift | null) => void;
+  onCancel: () => void;
+}): JSX.Element {
+  const t = useTheme();
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const toggle = (id: string): void =>
+    setPicked((p) => {
+      const n = new Set(p);
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
+      return n;
+    });
+  const allPicked = others.length > 0 && others.every((o) => picked.has(o.employee_id));
+
+  const copy = async (): Promise<void> => {
+    setBusy(true);
+    setError(null);
+    const failed = new Set<string>();
+    let firstError = '';
+    for (const o of others.filter((x) => picked.has(x.employee_id))) {
+      try {
+        const r = await api.adminSetShift(o.employee_id, {
+          days: shift.days,
+          start: shift.start,
+          end: shift.end,
+          tzIana: shift.tz_iana,
+        });
+        onCopied(o.employee_id, r.shift);
+      } catch (e: unknown) {
+        failed.add(o.employee_id);
+        firstError ||= String(e);
+      }
+    }
+    setBusy(false);
+    if (failed.size === 0) {
+      onCancel();
+      return;
+    }
+    setPicked(failed);
+    const names = others.filter((o) => failed.has(o.employee_id)).map((o) => o.name);
+    setError(`Not copied to ${names.join(', ')}: ${errorText(firstError)}`);
+  };
+
+  return (
+    <div
+      aria-label={`copy shift of ${from}`}
+      style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: '8px 0' }}
+    >
+      <span style={{ fontSize: 12, color: t.muted }}>Give {shiftText(shift)} to:</span>
+      <label style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 13 }}>
+        <input
+          type="checkbox"
+          checked={allPicked}
+          disabled={busy}
+          onChange={() =>
+            setPicked(allPicked ? new Set() : new Set(others.map((o) => o.employee_id)))
+          }
+        />
+        Everyone
+      </label>
+      {others.map((o) => (
+        <label
+          key={o.employee_id}
+          style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 13 }}
+        >
+          <input
+            type="checkbox"
+            aria-label={`copy to ${o.name}`}
+            checked={picked.has(o.employee_id)}
+            disabled={busy}
+            onChange={() => toggle(o.employee_id)}
+          />
+          <span>
+            {o.name}
+            <span style={{ color: t.muted }}> · {o.shift ? shiftText(o.shift) : 'No shift'}</span>
+          </span>
+        </label>
+      ))}
+      {picked.size > 0 && others.some((o) => picked.has(o.employee_id) && o.shift) && (
+        <span style={{ fontSize: 12, color: t.muted }}>
+          This replaces the shift of anyone ticked who already has one.
+        </span>
+      )}
+      {error && (
+        <span role="alert" style={{ fontSize: 12, color: t.danger }}>
+          {error}
+        </span>
+      )}
+      <div style={{ display: 'flex', gap: 8 }}>
+        <Button variant="primary" disabled={picked.size === 0 || busy} onClick={() => void copy()}>
+          {busy ? 'Copying…' : `Copy to ${picked.size} ${picked.size === 1 ? 'person' : 'people'}`}
+        </Button>
+        <Button variant="chip" disabled={busy} onClick={onCancel}>
+          Cancel
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 export function ShiftEditor(): JSX.Element {
   const t = useTheme();
   const [rows, setRows] = useState<ShiftRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
+  const [copying, setCopying] = useState<string | null>(null);
+  const setShift = (employeeId: string, shift: Shift | null): void =>
+    setRows((rs) => rs?.map((r) => (r.employee_id === employeeId ? { ...r, shift } : r)) ?? null);
   useEffect(() => {
     let current = true;
     api.adminShifts().then(
@@ -212,10 +332,29 @@ export function ShiftEditor(): JSX.Element {
                   {shiftText(row.shift)}
                 </span>
               </span>
-              {editing !== row.employee_id && (
-                <Button variant="chip" onClick={() => setEditing(row.employee_id)}>
-                  {row.shift ? 'Edit' : 'Set shift'}
-                </Button>
+              {editing !== row.employee_id && copying !== row.employee_id && (
+                <>
+                  {row.shift && rows.length > 1 && (
+                    <Button
+                      variant="chip"
+                      onClick={() => {
+                        setEditing(null);
+                        setCopying(row.employee_id);
+                      }}
+                    >
+                      Copy to…
+                    </Button>
+                  )}
+                  <Button
+                    variant="chip"
+                    onClick={() => {
+                      setCopying(null);
+                      setEditing(row.employee_id);
+                    }}
+                  >
+                    {row.shift ? 'Edit' : 'Set shift'}
+                  </Button>
+                </>
               )}
             </div>
             {editing === row.employee_id && (
@@ -223,13 +362,18 @@ export function ShiftEditor(): JSX.Element {
                 row={row}
                 onCancel={() => setEditing(null)}
                 onSaved={(shift) => {
-                  setRows(
-                    (rs) =>
-                      rs?.map((r) => (r.employee_id === row.employee_id ? { ...r, shift } : r)) ??
-                      null,
-                  );
+                  setShift(row.employee_id, shift);
                   setEditing(null);
                 }}
+              />
+            )}
+            {copying === row.employee_id && row.shift && (
+              <Copier
+                from={row.name}
+                shift={row.shift}
+                others={rows.filter((r) => r.employee_id !== row.employee_id)}
+                onCopied={setShift}
+                onCancel={() => setCopying(null)}
               />
             )}
           </li>

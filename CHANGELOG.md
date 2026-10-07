@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Desktop 0.1.19: copy a shift to several people (ADR-0031)
+
+- Settings → People → Shifts: **Copy to…** next to anyone with a shift
+  lists everyone else (with their current shift) and an **Everyone**
+  box; **Copy to N people** gives them all the same days, hours and
+  zone. Each person is saved with the existing per-person call, so each
+  still gets its own append-only row and audit entry. Anyone it could
+  not copy to stays ticked, named in the error, to try again. No server
+  change.
+
 ### Desktop 0.1.18: a loud break overrun, and the break in view (ADR-0031 part 3)
 
 - When a planned break runs past its end, the window comes forward with
