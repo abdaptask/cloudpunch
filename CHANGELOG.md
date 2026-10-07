@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### ADR-0031 proposed: shifts, a clock-in popup that keeps asking, loud break overrun
+
+- Administrators assign each person a weekly shift. During the shift,
+  the clock-in popup returns every 5 minutes until they clock in (or
+  say "Not working today"), including after a clock-out. Clock out
+  keeps you signed in.
+- A break past its planned end brings the window forward with a
+  blinking red banner, flashes the taskbar/Dock and repeats every 2
+  minutes: I'm back, 5 or 10 more minutes, or switch.
+
 ### ADR-0030 accepted: time corrections
 
 - A correction is one interval with a new meaning (`working`,
