@@ -1,6 +1,7 @@
 # ADR-0029 — Connection location: IP, city, state and provider
 
-- **Status:** Accepted (2026-09-30, the owner approved)
+- **Status:** Accepted (2026-09-30, the owner approved); §7 superseded
+  by ADR-0032 (on from the start, no separate announcement)
 - **Date:** 2026-09-30
 - **Deciders:** Abdulla Sheikh (project owner), Architecture (Claude)
 - **Builds on:** ADR-0004 (event model and the no-content invariant),
@@ -88,6 +89,10 @@ doesn't apply. The job runs as the migrator role; the app role can't
 delete.
 
 ### 7. Privacy notice first
+
+> Superseded by ADR-0032 (2026-10-07): no announcement or waiting
+> period; the notice describes it from the start. Kept for history.
+
 
 - New section: what's recorded, why (to confirm work location and spot
   shared or unexpected connections), who sees it, 30 days.

@@ -1,11 +1,11 @@
 /**
  * The welcome email (ADR-0021): what a new CloudPunch user needs to get
- * started, and where to get help. Sent from the noreply mailbox; the
- * sender and Cc come from server settings, not code.
+ * started, and where to get help. Sent from CloudPunch's own mailbox
+ * (WELCOME_FROM); the sender and Cc come from server settings, not code.
  */
 
 export interface WelcomeSettings {
-  /** The mailbox it's sent from, e.g. noreply@aptask.com. */
+  /** The mailbox it's sent from, e.g. cloudpunch@aptask.com. */
   from: string;
   /** Always copied, e.g. support@, the owner. */
   cc: string[];

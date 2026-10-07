@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Docs: connection location on from the start (ADR-0032); welcome email from cloudpunch@
+
+- **ADR-0032** supersedes ADR-0029 §7: no announcement or waiting
+  period before connection location is switched on (owner's decision);
+  its purpose includes detecting a misrepresented work location. The
+  rest of ADR-0029 is unchanged (same fields, who sees it, audited,
+  30 days, the employee sees their own history).
+- **Privacy notice** (still an undistributed draft): "Where you connect
+  from" is part of what CloudPunch records, with no "once ApTask turns
+  it on"; the purpose says so.
+- **ADR-0021 amendment:** welcome emails come from a new shared mailbox
+  **cloudpunch@aptask.com** ("ApTask CloudPunch"), not noreply@, which
+  stays as it is for its other uses. Runbook updated; `WELCOME_FROM`
+  changes on the VM.
+
 ### Desktop 0.1.21: a person's screen, summary first (owner request)
 
 - Team → a person: their status (and city) under the name, then a

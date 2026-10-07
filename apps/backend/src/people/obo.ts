@@ -100,7 +100,7 @@ let appToken: { token: string; until: number } | null = null;
 /**
  * CloudPunch's own Graph token (client credentials), for the welcome
  * email (ADR-0021). What it may do is set in Exchange, not Entra:
- * "Application Mail.Send" scoped to the noreply mailbox only. Cached
+ * "Application Mail.Send" scoped to CloudPunch's mailbox only. Cached
  * until a minute before it expires.
  */
 export async function graphTokenForApp(cfg: OboConfig): Promise<string> {
