@@ -1,5 +1,25 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
+import type { UpdateCheck } from './api.js';
 import { useTheme } from './ui/theme.js';
+
+/** What "Check for updates" says: an answer, or a rejection's code. */
+export function updateCheckText(
+  result: UpdateCheck | { error: string },
+  version: string | null,
+  clockedIn: boolean,
+): string {
+  if ('error' in result) {
+    if (result.error === 'signed_out') return 'Sign in again to check for updates.';
+    if (result.error === 'not_configured') return "This copy of CloudPunch doesn't get updates.";
+    return "Couldn't check right now. Try again in a minute.";
+  }
+  if (result.status === 'up_to_date') {
+    return version ? `You're up to date (version ${version}).` : "You're up to date.";
+  }
+  return clockedIn
+    ? `Version ${result.version} is downloaded. Clock out, then choose Restart to update.`
+    : `Version ${result.version} is ready. Choose Restart to update.`;
+}
 
 /** "Abdulla Sheikh" → "AS"; one word → its first two letters. */
 export function initials(name: string): string {
@@ -27,6 +47,8 @@ export function AccountMenu({
   onSignOut,
   onClockOutAndSignOut,
   onConnections,
+  version = null,
+  onCheckForUpdate,
 }: {
   name: string | null;
   username: string | null;
@@ -35,13 +57,20 @@ export function AccountMenu({
   onClockOutAndSignOut: () => void;
   /** "Where you connect from" (ADR-0029 §5); absent hides it. */
   onConnections?: (() => void) | undefined;
+  /** This app's version, shown under "Check for updates". */
+  version?: string | null;
+  /** "Check for updates" (owner request, 2026-10-07); absent hides it. */
+  onCheckForUpdate?: (() => Promise<UpdateCheck>) | undefined;
 }): JSX.Element {
   const t = useTheme();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLSpanElement>(null);
   const label = name ?? username ?? 'Account';
+  // null: not checked since the menu opened; 'checking' while it runs.
+  const [check, setCheck] = useState<string | null>(null);
 
   useEffect(() => {
+    setCheck(null);
     if (!open) return;
     const onDown = (e: MouseEvent): void => {
       if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
@@ -136,6 +165,36 @@ export function AccountMenu({
             >
               Where you connect from
             </button>
+          )}
+          {onCheckForUpdate && (
+            <>
+              <button
+                type="button"
+                role="menuitem"
+                disabled={check === 'checking'}
+                onClick={() => {
+                  // Stays open: the answer shows right here.
+                  setCheck('checking');
+                  onCheckForUpdate().then(
+                    (r) => setCheck(updateCheckText(r, version, clockedIn)),
+                    (e: unknown) =>
+                      setCheck(updateCheckText({ error: String(e) }, version, clockedIn)),
+                  );
+                }}
+                style={item(false)}
+              >
+                Check for updates
+              </button>
+              <div
+                role="status"
+                aria-label="update-check"
+                style={{ padding: '0 12px 6px', fontSize: 12, color: t.muted }}
+              >
+                {check === 'checking'
+                  ? 'Checking…'
+                  : (check ?? (version ? `Version ${version}` : ''))}
+              </div>
+            </>
           )}
           <button
             type="button"

@@ -456,6 +456,8 @@ export function App(): JSX.Element {
               clockedIn={!!view && view.status !== 'clocked_out'}
               onSignOut={() => signOutWithSummary()}
               onClockOutAndSignOut={() => setSignOutAsked(true)}
+              version={view?.appVersion ?? null}
+              onCheckForUpdate={api.checkForUpdate}
               onConnections={
                 canSeeOwnConnections
                   ? () => {

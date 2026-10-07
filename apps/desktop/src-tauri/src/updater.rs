@@ -89,15 +89,50 @@ pub fn start(app: AppHandle) {
     }
 }
 
-async fn check_once(app: &AppHandle) -> Result<(), String> {
+/// What a check found.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Checked {
+    /// No backend in this build: nothing to check against.
+    NoBackend,
+    /// No usable sign-in (also a sign-in that can't refresh).
+    SignedOut,
+    UpToDate,
+    /// This version is downloaded and verified, waiting to install.
+    Ready(String),
+}
+
+/// "Check for updates" from the account menu: the same check as the
+/// 4-hourly one, now. Fails with `not_configured` in a build without the
+/// updater, `signed_out`, or `offline` when the check itself failed.
+pub async fn check_now(app: &AppHandle) -> Result<Checked, String> {
+    if app.try_state::<Pending>().is_none() {
+        return Err("not_configured".into());
+    }
+    log(app, "update check requested from the menu");
+    match check_once(app).await {
+        Ok(Checked::NoBackend) => Err("not_configured".into()),
+        Ok(Checked::SignedOut) => Err("signed_out".into()),
+        Ok(found) => Ok(found),
+        Err(e) => {
+            log(app, &format!("update check failed: {e}"));
+            Err("offline".into())
+        }
+    }
+}
+
+async fn check_once(app: &AppHandle) -> Result<Checked, String> {
     let Some(base) = backend_http::base_url() else {
-        return Ok(());
+        return Ok(Checked::NoBackend);
     };
     let auth = app.state::<Arc<Auth>>().inner().clone();
-    // On the updater's own thread, so a blocking refresh is fine.
-    let Ok(token) = auth.access_token(SystemTime::now()) else {
+    // A refresh blocks; keep it off the async runtime (the menu's check
+    // runs there, not on the updater's own thread).
+    let token = tauri::async_runtime::spawn_blocking(move || auth.access_token(SystemTime::now()))
+        .await
+        .map_err(|e| e.to_string())?;
+    let Ok(token) = token else {
         log(app, "update check skipped: signed out");
-        return Ok(());
+        return Ok(Checked::SignedOut);
     };
     let endpoint = format!(
         "{}/v1/desktop/update/{UPDATE_PLATFORM}/{{{{current_version}}}}",
@@ -117,7 +152,7 @@ async fn check_once(app: &AppHandle) -> Result<(), String> {
         .map_err(|e| e.to_string())?
     else {
         log(app, "update check: up to date");
-        return Ok(());
+        return Ok(Checked::UpToDate);
     };
     let pending = app.state::<Pending>();
     let have = pending
@@ -126,7 +161,7 @@ async fn check_once(app: &AppHandle) -> Result<(), String> {
         .ok()
         .and_then(|p| p.as_ref().map(|(u, _)| u.version.clone()));
     if have.as_deref() == Some(update.version.as_str()) {
-        return Ok(());
+        return Ok(Checked::Ready(update.version));
     }
     let bytes = update
         .download(|_, _| {}, || {})
@@ -137,8 +172,8 @@ async fn check_once(app: &AppHandle) -> Result<(), String> {
         *p = Some((update, bytes));
     }
     log(app, &format!("update {version} downloaded"));
-    app.state::<Arc<Agent>>().update_ready(version);
-    Ok(())
+    app.state::<Arc<Agent>>().update_ready(version.clone());
+    Ok(Checked::Ready(version))
 }
 
 /// "Restart to update" (owner request, ADR-0022 amendment): install the
