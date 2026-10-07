@@ -420,7 +420,13 @@ impl EventSink for OutboxSink {
             Mode::Armed(t) => t,
         };
 
-        if matches!(event, CoreEvent::UserClockIn) {
+        // Both clock-ins open a session, "from sign-in" included: missing
+        // it dropped that whole session's events (fixed in 0.1.13).
+        let clock_in = matches!(
+            event,
+            CoreEvent::UserClockIn | CoreEvent::UserClockInFrom { .. }
+        );
+        if clock_in {
             self.session = Some(Session {
                 ctx: SessionContext {
                     device_id: target.identity.device_id.clone(),
@@ -456,9 +462,9 @@ impl EventSink for OutboxSink {
             offline_captured: !online,
         };
         let zone = (self.zone)(at);
-        let encoded = match (event, shared.policy_version.as_deref()) {
+        let encoded = match (clock_in, shared.policy_version.as_deref()) {
             // The session names the policy it runs under (ADR-0015 §6).
-            (CoreEvent::UserClockIn, Some(version)) => {
+            (true, Some(version)) => {
                 let mut payload = wire_payload(event, &zone);
                 if let Some(obj) = payload.as_object_mut() {
                     obj.insert("policy_version".into(), version.into());
@@ -943,6 +949,25 @@ mod tests {
         let types: Vec<_> = rows(&r).into_iter().map(|e| e.event_type).collect();
         assert_eq!(types, ["USER_CLOCK_IN"]);
         assert!(open_row(&r).is_some());
+    }
+
+    #[test]
+    fn a_clock_in_from_sign_in_opens_a_session_and_records_it() {
+        let (r, mut sink) = armed();
+        r.set_policy_version(Some("sha256-abc".into()));
+        sink.record(&CoreEvent::UserClockInFrom { started_at: t(0) }, t(600))
+            .unwrap();
+        sink.record(&CoreEvent::UserClockOut, t(900)).unwrap();
+
+        let rows = rows(&r);
+        let types: Vec<_> = rows.iter().map(|e| e.event_type.as_str()).collect();
+        assert_eq!(types, ["USER_CLOCK_IN", "USER_CLOCK_OUT"]);
+        assert_eq!(rows[0].sequence_number, 1);
+        assert_eq!(rows[0].session_id, rows[1].session_id);
+        let payload =
+            serde_json::from_slice::<Value>(&rows[0].event_body).unwrap()["payload"].clone();
+        assert!(payload["started_at"].is_string(), "{payload}");
+        assert_eq!(payload["policy_version"], "sha256-abc");
     }
 
     #[test]
