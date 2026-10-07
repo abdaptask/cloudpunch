@@ -128,7 +128,10 @@ export function dayRows(day: TeamDay): DayRow[] {
       const took = Math.round((to - from) / 60_000);
       let detail: string | null = null;
       let late = false;
-      if (g.planned_minutes !== undefined) {
+      if (g.correction_id) {
+        // An approved correction's stretch (ADR-0030 §4: never hidden).
+        detail = 'Corrected';
+      } else if (g.planned_minutes !== undefined) {
         late = took > g.planned_minutes;
         detail = `Planned ${hm(g.planned_minutes)} · took ${hm(took)}`;
       } else if (g.ended_by) {

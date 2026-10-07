@@ -1,6 +1,7 @@
 import { useEffect, useState, type CSSProperties } from 'react';
 import { api, type TeamDay, type TeamException, type TeamPerson } from './api.js';
 import { PersonConnections } from './ConnectionsView.js';
+import { CorrectionForm, DayCorrections } from './Corrections.js';
 import { placeOf } from './connectionsModel.js';
 import { dayLabel, localDateOf, LOOKBACK_DAYS, shiftDate } from './dayHistory.js';
 import { dayRows, exceptionText, hm, overdue, statusText } from './teamModel.js';
@@ -29,10 +30,13 @@ const errorText = (code: string): string => ERROR_TEXT[code] ?? `Something went 
 export function TeamScreen({
   onClose,
   canSeeConnections = false,
+  canCorrect = false,
 }: {
   onClose: () => void;
   /** Managers and Administrators (ADR-0029 §5); not HR. The server checks again. */
   canSeeConnections?: boolean;
+  /** Offer "Correct this day" (ADR-0030; only a direct manager succeeds). */
+  canCorrect?: boolean;
 }): JSX.Element {
   const t = useTheme();
   const [tab, setTab] = useState<'today' | 'exceptions'>('today');
@@ -48,7 +52,7 @@ export function TeamScreen({
         </button>
       </div>
       {person ? (
-        <Person id={person.id} canSeeConnections={canSeeConnections} />
+        <Person id={person.id} canSeeConnections={canSeeConnections} canCorrect={canCorrect} />
       ) : (
         <>
           <div role="tablist" aria-label="team-tabs" style={{ display: 'flex', gap: 6 }}>
@@ -197,13 +201,15 @@ function TeamToday({
 function Person({
   id,
   canSeeConnections,
+  canCorrect,
 }: {
   id: string;
   canSeeConnections: boolean;
+  canCorrect: boolean;
 }): JSX.Element {
   const t = useTheme();
   const [tab, setTab] = useState<'day' | 'connections'>('day');
-  if (!canSeeConnections) return <PersonDay id={id} />;
+  if (!canSeeConnections) return <PersonDay id={id} canCorrect={canCorrect} />;
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
       <div role="tablist" aria-label="person-tabs" style={{ display: 'flex', gap: 6 }}>
@@ -225,17 +231,26 @@ function Person({
           </Button>
         ))}
       </div>
-      {tab === 'day' ? <PersonDay id={id} /> : <PersonConnections id={id} />}
+      {tab === 'day' ? (
+        <PersonDay id={id} canCorrect={canCorrect} />
+      ) : (
+        <PersonConnections id={id} />
+      )}
     </div>
   );
 }
 
-function PersonDay({ id }: { id: string }): JSX.Element {
+function PersonDay({ id, canCorrect }: { id: string; canCorrect: boolean }): JSX.Element {
   const t = useTheme();
   const today = localDateOf(Date.now());
   const [date, setDate] = useState(today);
   const [day, setDay] = useState<TeamDay | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [correcting, setCorrecting] = useState(false);
+  const [reload, setReload] = useState(0);
+  useEffect(() => {
+    setCorrecting(false);
+  }, [id, date]);
   useEffect(() => {
     let current = true;
     setDay(null);
@@ -251,7 +266,7 @@ function PersonDay({ id }: { id: string }): JSX.Element {
     return () => {
       current = false;
     };
-  }, [id, date]);
+  }, [id, date, reload]);
   const earliest = shiftDate(today, -LOOKBACK_DAYS);
   const rows = day ? dayRows(day) : [];
   return (
@@ -337,6 +352,29 @@ function PersonDay({ id }: { id: string }): JSX.Element {
               ))}
             </ul>
           )}
+          <DayCorrections corrections={day.corrections} />
+          {canCorrect &&
+            (correcting ? (
+              <CorrectionForm
+                date={date}
+                defaultTz={day.sessions[0]?.tz_iana ?? null}
+                submitLabel="Send for approval"
+                onSubmit={(c) => api.requestCorrection({ ...c, employeeId: id })}
+                onDone={() => {
+                  setCorrecting(false);
+                  setReload((n) => n + 1);
+                }}
+                onCancel={() => setCorrecting(false)}
+              />
+            ) : (
+              <Button
+                variant="chip"
+                style={{ alignSelf: 'flex-start' }}
+                onClick={() => setCorrecting(true)}
+              >
+                Correct this day
+              </Button>
+            ))}
         </>
       )}
     </div>

@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Desktop 0.1.16: time corrections (ADR-0030 part D)
+
+- **Team → a person's day → Correct this day** (managers): from, to
+  (an end before the start is the next morning), time zone (India, US
+  Eastern, or this computer's), what the time was, and a reason. It goes
+  to an Administrator for approval.
+- **Your own past day → Details → Ask to correct this day**: the same
+  form; it goes to your manager first.
+- Each day lists its corrections and where they stand (waiting, approved
+  by, rejected by), and corrected stretches say "Corrected".
+- A banner, "N time corrections wait for you · Review", opens the queue
+  to endorse (as the manager) or approve and reject (as an
+  Administrator).
+
 ### ADR-0030 time corrections, part C: asking, endorsing, approving
 
 - `POST /v1/me/corrections`: ask to correct your own time.

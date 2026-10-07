@@ -8,8 +8,11 @@ export type DayState =
   | { status: 'ready'; result: DayResult }
   | { status: 'error'; code: string };
 
-/** A past working day from the agent (ADR-0016); idle when `date` is null. */
-export function useDay(date: string | null): DayState {
+/**
+ * A past working day from the agent (ADR-0016); idle when `date` is
+ * null. A new `reload` value fetches it again (after a correction).
+ */
+export function useDay(date: string | null, reload = 0): DayState {
   const [state, setState] = useState<DayState>({ status: 'idle' });
   useEffect(() => {
     if (date === null) {
@@ -29,6 +32,6 @@ export function useDay(date: string | null): DayState {
     return () => {
       current = false;
     };
-  }, [date]);
+  }, [date, reload]);
   return state;
 }

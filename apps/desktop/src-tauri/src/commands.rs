@@ -1027,6 +1027,55 @@ pub async fn team_day(
     answer(fetched)
 }
 
+/// Ask to correct your own time (`employeeId` absent), or, as their
+/// manager, correct a report's (ADR-0030 §3).
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub async fn request_correction(
+    auth: State<'_, Arc<Auth>>,
+    employee_id: Option<String>,
+    from: String,
+    to: String,
+    tz_iana: String,
+    kind: String,
+    reason: String,
+) -> Result<serde_json::Value, String> {
+    let (_, fetched) = fetch_as_user(&auth, move |http, base, token| {
+        let c = admin::CorrectionRequest {
+            from: &from,
+            to: &to,
+            tz_iana: &tz_iana,
+            kind: &kind,
+            reason: &reason,
+        };
+        admin::request_correction(http, base, token, employee_id.as_deref(), &c)
+    })
+    .await?;
+    answer(fetched)
+}
+
+/// Corrections waiting on the signed-in user.
+#[tauri::command]
+pub async fn corrections_queue(auth: State<'_, Arc<Auth>>) -> Result<serde_json::Value, String> {
+    let (_, fetched) = fetch_as_user(&auth, admin::corrections_queue).await?;
+    answer(fetched)
+}
+
+/// Endorse, approve, reject or withdraw a correction.
+#[tauri::command]
+pub async fn decide_correction(
+    auth: State<'_, Arc<Auth>>,
+    id: String,
+    decision: String,
+    note: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let (_, fetched) = fetch_as_user(&auth, move |http, base, token| {
+        admin::decide_correction(http, base, token, &id, &decision, note.as_deref())
+    })
+    .await?;
+    answer(fetched)
+}
+
 /// Exceptions for the team, or one person.
 #[tauri::command]
 pub async fn team_exceptions(
