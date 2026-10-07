@@ -151,7 +151,7 @@ async function nameOf(db: DbRepositories, userId: string, cache: Map<string, str
   return name;
 }
 
-async function correctionView(
+export async function correctionView(
   db: DbRepositories,
   c: CorrectionWithDecisions,
   names: Map<string, string>,

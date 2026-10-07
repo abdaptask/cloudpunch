@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### ADR-0030 time corrections, part C: asking, endorsing, approving
+
+- `POST /v1/me/corrections`: ask to correct your own time.
+- `POST /v1/team/:id/corrections`: a manager corrects a direct report's
+  time; it counts as endorsed. HR has no part (404, as for strangers).
+- `GET /v1/corrections/queue`: what waits on you (to endorse as the
+  manager, to approve as an Administrator).
+- `POST /v1/corrections/:id/decision`: endorse, approve, reject or
+  withdraw. An Administrator approves only what their manager endorsed
+  (or, with no manager, what was asked), and never a correction they
+  asked for or endorsed, or one on their own time. Final decisions are
+  final.
+- Limits: never in the future, at most 16 hours, within the last 30
+  days, a known kind and time zone, a reason, and no overlap with a
+  pending correction for the same person.
+
 ### ADR-0030 time corrections, part B: corrected days and totals
 
 - Approved corrections are laid over every day before anything is
