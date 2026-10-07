@@ -5,6 +5,7 @@ import { BlockedElsewherePanel } from './BlockedElsewhere.js';
 import { BreakPicker, callName } from './BreakPicker.js';
 import { ClockInPrompt } from './ClockInPrompt.js';
 import { ClockOutDialog } from './ClockOutDialog.js';
+import { ShiftEditor } from './ShiftEditor.js';
 import {
   CorrectionForm,
   CorrectionsBanner,
@@ -284,6 +285,7 @@ export function App(): JSX.Element {
   const canSeeOwnConnections = capabilities.includes('self.connection.read');
   const canEditSettings = canEditRules || canManagePeople || canSeeAllConnections;
   const canSeeTeam = capabilities.includes('team.timeline.read');
+  const canSetShifts = capabilities.includes('admin.shift.write');
   const canCorrectTeam = capabilities.includes('team.correction.review');
   const canAskCorrection = capabilities.includes('self.correction.request');
   const reviewsCorrections = canCorrectTeam || capabilities.includes('admin.correction.approve');
@@ -543,6 +545,7 @@ export function App(): JSX.Element {
               onClockInFrom={() => run(api.clockInFromSignIn)}
               onClockInNow={() => run(api.clockIn)}
               onNotNow={() => run(api.dismissClockInPrompt)}
+              onNotWorking={view.notWorkingOffered ? () => run(api.notWorkingToday) : undefined}
             />
           )}
           {signedIn && view?.idleReturn && (
@@ -743,6 +746,7 @@ export function App(): JSX.Element {
                       onClose={() => setSettingsOpen(false)}
                     />
                     <ReportingLines />
+                    {canSetShifts && <ShiftEditor />}
                   </>
                 ) : tab === 'versions' ? (
                   <VersionsScreen onClose={() => setSettingsOpen(false)} />

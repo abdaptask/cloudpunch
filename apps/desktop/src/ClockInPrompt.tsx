@@ -14,12 +14,15 @@ export function ClockInPrompt({
   onClockInFrom,
   onClockInNow,
   onNotNow,
+  onNotWorking,
 }: {
   /** Sign-in time a clock-in may start from, or null. */
   signedInAt: number | null;
   onClockInFrom: () => void;
   onClockInNow: () => void;
   onNotNow: () => void;
+  /** With a shift (ADR-0031): no more asking until the next shift. */
+  onNotWorking?: (() => void) | undefined;
 }): JSX.Element {
   const t = useTheme();
   return (
@@ -78,6 +81,24 @@ export function ClockInPrompt({
       >
         Not now
       </button>
+      {onNotWorking && (
+        <button
+          type="button"
+          onClick={onNotWorking}
+          style={{
+            alignSelf: 'center',
+            padding: 0,
+            border: 'none',
+            background: 'none',
+            color: t.muted,
+            font: 'inherit',
+            fontSize: 12,
+            cursor: 'pointer',
+          }}
+        >
+          Not working today
+        </button>
+      )}
     </section>
   );
 }

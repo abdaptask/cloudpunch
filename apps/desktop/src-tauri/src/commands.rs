@@ -523,6 +523,14 @@ fn start_policy_sync(
                 .expect("reqwest Client::builder is infallible for this config");
             while auth.oid().as_deref() == Some(oid.as_str()) {
                 let mut wait = policy::REFRESH_EVERY;
+                // The shift rides along (ADR-0031); a failure keeps the
+                // one we have.
+                if let Ok(token) = auth.access_token(SystemTime::now()) {
+                    match crate::shift::fetch(&http, &base_url, &token) {
+                        Ok(info) => agent.apply_shift(info),
+                        Err(e) => eprintln!("[cloudpunch] shift not fetched: {e:?}"),
+                    }
+                }
                 match auth.access_token(SystemTime::now()) {
                     Ok(token) => match policy::fetch(&http, &base_url, &token, known.as_deref()) {
                         Ok(FetchOutcome::NotModified) => {}
@@ -1054,6 +1062,36 @@ pub async fn request_correction(
     answer(fetched)
 }
 
+/// Everyone's current shift (Administrators, ADR-0031 §1).
+#[tauri::command]
+pub async fn admin_shifts(auth: State<'_, Arc<Auth>>) -> Result<serde_json::Value, String> {
+    let (_, fetched) = fetch_as_user(&auth, admin::shifts).await?;
+    answer(fetched)
+}
+
+/// Set or clear someone's shift. `days`: ISO weekdays, empty clears.
+#[tauri::command]
+pub async fn admin_set_shift(
+    auth: State<'_, Arc<Auth>>,
+    employee_id: String,
+    days: Vec<u8>,
+    start: Option<String>,
+    end: Option<String>,
+    tz_iana: String,
+) -> Result<serde_json::Value, String> {
+    let body = serde_json::json!({
+        "days": days,
+        "start": start,
+        "end": end,
+        "tz_iana": tz_iana,
+    });
+    let (_, fetched) = fetch_as_user(&auth, move |http, base, token| {
+        admin::set_shift(http, base, token, &employee_id, &body)
+    })
+    .await?;
+    answer(fetched)
+}
+
 /// Corrections waiting on the signed-in user.
 #[tauri::command]
 pub async fn corrections_queue(auth: State<'_, Arc<Auth>>) -> Result<serde_json::Value, String> {
@@ -1334,6 +1372,26 @@ pub fn quit_app(app: AppHandle, agent: State<'_, Arc<Agent>>) -> Result<(), Stri
     }
     app.exit(0);
     Ok(())
+}
+
+/// "Not working today" for the shift showing (ADR-0031 §2): recorded on
+/// the server, then the popup stops until the next shift.
+#[tauri::command]
+pub async fn not_working_today(
+    auth: State<'_, Arc<Auth>>,
+    agent: State<'_, Arc<Agent>>,
+) -> Result<StateView, String> {
+    let (_, fetched) = fetch_as_user(&auth, |http, base, token| {
+        crate::shift::declare_not_working(http, base, token)
+            .map(|d| serde_json::Value::String(d.format("%Y-%m-%d").to_string()))
+    })
+    .await?;
+    let date = answer(fetched)?;
+    let date = date
+        .as_str()
+        .and_then(|d| chrono::NaiveDate::parse_from_str(d, "%Y-%m-%d").ok())
+        .ok_or_else(|| "internal".to_string())?;
+    Ok(agent.mark_not_working(date))
 }
 
 /// Close dialog: "Clock out & quit".

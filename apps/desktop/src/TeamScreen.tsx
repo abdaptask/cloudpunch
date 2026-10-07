@@ -146,7 +146,13 @@ function TeamToday({
   return (
     <ul aria-label="team-today" style={{ listStyle: 'none', margin: 0, padding: 0 }}>
       {people.map((p) => {
-        const color = p.kind && p.kind in t.kind ? t.kind[p.kind as SegmentKind] : t.muted;
+        // In their shift and not clocked in (ADR-0031): amber.
+        const missing = p.status === 'shift_not_started';
+        const color = missing
+          ? t.kind.meal_break
+          : p.kind && p.kind in t.kind
+            ? t.kind[p.kind as SegmentKind]
+            : t.muted;
         const late = overdue(p, now);
         return (
           <li key={p.employee_id}>
@@ -180,7 +186,13 @@ function TeamToday({
               />
               <span style={{ flex: 1, minWidth: 0 }}>
                 <span style={{ display: 'block', fontSize: 14, fontWeight: 600 }}>{p.name}</span>
-                <span style={{ display: 'block', fontSize: 12, color: late ? t.danger : t.muted }}>
+                <span
+                  style={{
+                    display: 'block',
+                    fontSize: 12,
+                    color: late ? t.danger : missing ? t.warnText : t.muted,
+                  }}
+                >
                   {statusText(p)}
                   {late && ' · late'}
                   {places.has(p.employee_id) && ` · ${places.get(p.employee_id)}`}

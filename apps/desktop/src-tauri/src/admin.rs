@@ -220,6 +220,41 @@ pub fn team_exceptions(
     send(http, base, token, reqwest::Method::GET, &path, None)
 }
 
+// Shifts (ADR-0031 §1): Administrators only; the server checks.
+
+/// Everyone's current shift.
+pub fn shifts(http: &Client, base: &str, token: &str) -> Result<Value, DayError> {
+    send(
+        http,
+        base,
+        token,
+        reqwest::Method::GET,
+        "/v1/admin/shifts",
+        None,
+    )
+}
+
+/// Set someone's shift (`days` empty clears it).
+pub fn set_shift(
+    http: &Client,
+    base: &str,
+    token: &str,
+    employee_id: &str,
+    shift: &Value,
+) -> Result<Value, DayError> {
+    if !is_uuid(employee_id) {
+        return Err(DayError::Refused("invalid_argument".into()));
+    }
+    send(
+        http,
+        base,
+        token,
+        reqwest::Method::PUT,
+        &format!("/v1/admin/employees/{employee_id}/shift"),
+        Some(shift),
+    )
+}
+
 // Time corrections (ADR-0030 §3). The server decides who may do what:
 // anyone for their own time, a manager for a direct report (endorsed),
 // an Administrator approves what others asked and endorsed.

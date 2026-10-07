@@ -59,7 +59,18 @@ export interface IdleReturn {
 export interface TeamPerson {
   employee_id: string;
   name: string;
-  status: 'clocked_out' | 'working' | 'on_call' | 'on_break' | 'away' | 'prompt' | 'idle';
+  status:
+    | 'clocked_out'
+    | 'working'
+    | 'on_call'
+    | 'on_break'
+    | 'away'
+    | 'prompt'
+    | 'idle'
+    /** In their shift, not clocked in since it started (ADR-0031); `since` = shift start. */
+    | 'shift_not_started'
+    /** Said "Not working today" (ADR-0031). */
+    | 'not_working';
   /** Segment kind now (`personal_break`, `away_meeting`, …). */
   kind: string | null;
   since: string | null;
@@ -135,6 +146,20 @@ export interface CorrectionQueueItem {
 export interface CorrectionQueue {
   to_endorse: CorrectionQueueItem[];
   to_approve: CorrectionQueueItem[];
+}
+
+/** A weekly shift (ADR-0031): ISO weekdays, 1 = Monday … 7 = Sunday. */
+export interface Shift {
+  days: number[];
+  start: string;
+  end: string;
+  tz_iana: string;
+}
+
+export interface ShiftRow {
+  employee_id: string;
+  name: string;
+  shift: Shift | null;
 }
 
 export interface CorrectionInput {
@@ -293,6 +318,8 @@ export interface StateView {
   signedInAt: number | null;
   /** The daily clock-in popup is showing (8:00 New York by default). */
   clockInPrompt: boolean;
+  /** The popup is for a shift: offer "Not working today" (ADR-0031). */
+  notWorkingOffered: boolean;
   /** Break types to offer, in menu order (ADR-0023). */
   breakOptions: BreakOption[];
   /** Offer Training as an Away tag. */
@@ -440,6 +467,22 @@ export const api = {
       reason: c.reason,
     }),
   correctionsQueue: (): Promise<CorrectionQueue> => invoke<CorrectionQueue>('corrections_queue'),
+  /** "Not working today" for the shift showing (ADR-0031). */
+  notWorkingToday: (): Promise<StateView> => invoke<StateView>('not_working_today'),
+  adminShifts: (): Promise<{ people: ShiftRow[] }> =>
+    invoke<{ people: ShiftRow[] }>('admin_shifts'),
+  /** Set someone's shift; `days` empty clears it. */
+  adminSetShift: (
+    employeeId: string,
+    s: { days: number[]; start: string | null; end: string | null; tzIana: string },
+  ): Promise<{ shift: Shift | null }> =>
+    invoke<{ shift: Shift | null }>('admin_set_shift', {
+      employeeId,
+      days: s.days,
+      start: s.start,
+      end: s.end,
+      tzIana: s.tzIana,
+    }),
   decideCorrection: (
     id: string,
     decision: 'endorse' | 'approve' | 'reject' | 'withdraw',

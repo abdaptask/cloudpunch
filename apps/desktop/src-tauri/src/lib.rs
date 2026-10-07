@@ -48,6 +48,7 @@ pub mod outbox;
 pub mod policy;
 pub mod recorder;
 pub mod reminders;
+pub mod shift;
 pub mod strip;
 pub mod sync;
 pub mod timeline;
@@ -291,6 +292,9 @@ pub fn run() {
             commands::check_for_update,
             commands::request_correction,
             commands::corrections_queue,
+            commands::not_working_today,
+            commands::admin_shifts,
+            commands::admin_set_shift,
             commands::decide_correction,
             commands::hide_to_tray,
             commands::quit_app,
