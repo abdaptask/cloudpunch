@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Desktop 0.1.13: "Clock in from sign-in" now records the day
+
+- Choosing "clock in from 07:55, when you signed in" (the start popup
+  or the link under Clock in) started the timer on screen but recorded
+  nothing: the recorder only opened a session for a plain clock-in, so
+  every event of that session was dropped as "outside a session". Both
+  clock-ins now open the session, and the policy version rides on
+  either. Broken since the popup shipped (2026-09-28). Days
+  already lost need corrections (ADR-0030); there is nothing to resend.
+
 ### ADR-0030 accepted: time corrections
 
 - A correction is one interval with a new meaning (`working`,
