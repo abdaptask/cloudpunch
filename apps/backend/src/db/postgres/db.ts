@@ -5,6 +5,9 @@ import type {
   AppUser,
   AppUserRepo,
   ConnectionRepo,
+  CorrectionDecision,
+  CorrectionRepo,
+  CorrectionWithDecisions,
   DbRepositories,
   DeviceConnection,
   Device,
@@ -29,6 +32,7 @@ import type {
   TimeSession,
   TimeSessionRepo,
 } from '../types.js';
+import { CorrectionDecisionConflictError } from '../types.js';
 
 /**
  * Postgres-backed implementation of DbRepositories. Mirrors the exact
@@ -50,9 +54,11 @@ export class PostgresDb implements DbRepositories {
   readonly departments: DepartmentRepo;
   readonly people: PeopleRepo;
   readonly connections: ConnectionRepo;
+  readonly corrections: CorrectionRepo;
 
   constructor(private readonly sql: postgres.Sql) {
     this.connections = this.buildConnectionRepo();
+    this.corrections = this.buildCorrectionRepo();
     this.employees = this.buildEmployeeRepo();
     this.users = this.buildAppUserRepo();
     this.devices = this.buildDeviceRepo();
@@ -159,6 +165,109 @@ export class PostgresDb implements DbRepositories {
           ORDER BY employee_id, last_seen_at DESC`;
         return new Map(rows.map((r) => [r.employeeId, r]));
       },
+    };
+  }
+
+  // -------------------------------------------------------------------
+  // time corrections (ADR-0030)
+  // -------------------------------------------------------------------
+
+  private buildCorrectionRepo(): CorrectionRepo {
+    type Row = Omit<CorrectionWithDecisions, 'decisions'>;
+    const cols = this.sql`id, employee_id, from_at, to_at, kind, reason,
+                          requested_by_user_id, requested_at`;
+    const dcols = this.sql`id, correction_id, decision, decided_by_user_id, decided_at, note`;
+    /** Attach each correction's decisions, oldest first. */
+    const withDecisions = async (rows: Row[]): Promise<CorrectionWithDecisions[]> => {
+      if (rows.length === 0) return [];
+      const ds = await this.sql<CorrectionDecision[]>`
+        SELECT ${dcols} FROM time_correction_decision
+        WHERE correction_id IN ${this.sql(rows.map((r) => r.id))}
+        ORDER BY decided_at, id`;
+      return rows.map((r) => ({ ...r, decisions: ds.filter((d) => d.correctionId === r.id) }));
+    };
+    const isUniqueViolation = (e: unknown): boolean =>
+      typeof e === 'object' && e !== null && (e as { code?: string }).code === '23505';
+
+    return {
+      request: async (i) =>
+        this.sql.begin(async (tx) => {
+          const [row] = await tx<Row[]>`
+            INSERT INTO time_correction (employee_id, from_at, to_at, kind, reason,
+                                         requested_by_user_id, requested_at)
+            VALUES (${i.employeeId}, ${i.fromAt}, ${i.toAt}, ${i.kind}, ${i.reason},
+                    ${i.requestedByUserId}, ${i.at})
+            RETURNING ${cols}`;
+          if (!row) throw new Error('time_correction insert returned no row');
+          const decisions: CorrectionDecision[] = [];
+          if (i.endorse) {
+            const [d] = await tx<CorrectionDecision[]>`
+              INSERT INTO time_correction_decision (correction_id, decision,
+                                                    decided_by_user_id, decided_at)
+              VALUES (${row.id}, 'endorsed', ${i.requestedByUserId}, ${i.at})
+              RETURNING ${dcols}`;
+            if (d) decisions.push(d);
+          }
+          await tx`
+            INSERT INTO audit_log (actor_type, actor_user_id, entity_type, entity_id, action,
+                                   previous_value, new_value, reason, correlation_id, occurred_at)
+            VALUES ('user', ${i.requestedByUserId}, 'time_correction', ${row.id},
+                    'correction_requested', NULL,
+                    ${tx.json({
+                      employee_id: i.employeeId,
+                      from: i.fromAt.toISOString(),
+                      to: i.toAt.toISOString(),
+                      kind: i.kind,
+                      endorsed: i.endorse,
+                    })},
+                    ${i.reason}, ${i.correlationId}, ${i.at})`;
+          return { ...row, decisions };
+        }),
+      decide: async (i) => {
+        try {
+          return await this.sql.begin(async (tx) => {
+            const [d] = await tx<CorrectionDecision[]>`
+              INSERT INTO time_correction_decision (correction_id, decision,
+                                                    decided_by_user_id, decided_at, note)
+              VALUES (${i.correctionId}, ${i.decision}, ${i.decidedByUserId}, ${i.at}, ${i.note})
+              RETURNING ${dcols}`;
+            if (!d) throw new Error('time_correction_decision insert returned no row');
+            await tx`
+              INSERT INTO audit_log (actor_type, actor_user_id, entity_type, entity_id, action,
+                                     previous_value, new_value, reason, correlation_id, occurred_at)
+              VALUES ('user', ${i.decidedByUserId}, 'time_correction', ${i.correctionId},
+                      ${`correction_${i.decision}`}, NULL,
+                      ${tx.json({ employee_id: i.employeeId })},
+                      ${i.note}, ${i.correlationId}, ${i.at})`;
+            return d;
+          });
+        } catch (e) {
+          // One endorsement and one final decision per correction.
+          if (isUniqueViolation(e)) throw new CorrectionDecisionConflictError(i.correctionId);
+          throw e;
+        }
+      },
+      findById: async (id) => {
+        const rows = await this.sql<Row[]>`SELECT ${cols} FROM time_correction WHERE id = ${id}`;
+        const [c] = await withDecisions(rows);
+        return c ?? null;
+      },
+      listForEmployee: async (employeeId, from, to) =>
+        withDecisions(
+          await this.sql<Row[]>`
+            SELECT ${cols} FROM time_correction
+            WHERE employee_id = ${employeeId} AND from_at < ${to} AND to_at > ${from}
+            ORDER BY from_at, requested_at LIMIT 1000`,
+        ),
+      listOpen: async () =>
+        withDecisions(
+          await this.sql<Row[]>`
+            SELECT ${cols} FROM time_correction c
+            WHERE NOT EXISTS (
+              SELECT 1 FROM time_correction_decision d
+              WHERE d.correction_id = c.id AND d.decision IN ('approved','rejected','withdrawn'))
+            ORDER BY requested_at LIMIT 1000`,
+        ),
     };
   }
 

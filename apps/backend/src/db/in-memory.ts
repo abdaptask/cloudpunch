@@ -6,6 +6,9 @@ import type {
   AppUser,
   AppUserRepo,
   ConnectionRepo,
+  CorrectionDecision,
+  CorrectionRepo,
+  CorrectionWithDecisions,
   DbRepositories,
   Device,
   DeviceConnection,
@@ -30,6 +33,7 @@ import type {
   SetManagerInput,
   ViewAudit,
 } from './types.js';
+import { CorrectionDecisionConflictError } from './types.js';
 
 /**
  * In-memory repository backing. Used by unit and route tests to
@@ -51,6 +55,11 @@ export class InMemoryDb implements DbRepositories {
   readonly departments: DepartmentRepo;
   readonly people: PeopleRepo;
   readonly connections: ConnectionRepo;
+  readonly corrections: CorrectionRepo;
+  /** time_correction rows with their decisions (ADR-0030), for tests. */
+  readonly correctionRows: CorrectionWithDecisions[] = [];
+  /** audit_log rows for corrections (ADR-0030 §2), for tests. */
+  readonly correctionAudit: { action: string; correctionId: string; actorUserId: string }[] = [];
   /** device_connection rows (ADR-0029), for tests. */
   readonly connectionRows: DeviceConnection[] = [];
   /** audit_log rows written by role changes, for tests. */
@@ -78,6 +87,84 @@ export class InMemoryDb implements DbRepositories {
   private readonly seqByEventKey = new Map<string, string>(); // `${sessionId}:${seq}` -> eventUlid
 
   constructor() {
+    const copy = (c: CorrectionWithDecisions): CorrectionWithDecisions => ({
+      ...c,
+      decisions: c.decisions.map((d) => ({ ...d })),
+    });
+    const FINAL = new Set(['approved', 'rejected', 'withdrawn']);
+    this.corrections = {
+      request: async (i) => {
+        const c: CorrectionWithDecisions = {
+          id: randomUUID(),
+          employeeId: i.employeeId,
+          fromAt: i.fromAt,
+          toAt: i.toAt,
+          kind: i.kind,
+          reason: i.reason,
+          requestedByUserId: i.requestedByUserId,
+          requestedAt: i.at,
+          decisions: i.endorse
+            ? [
+                {
+                  id: randomUUID(),
+                  correctionId: '',
+                  decision: 'endorsed',
+                  decidedByUserId: i.requestedByUserId,
+                  decidedAt: i.at,
+                  note: null,
+                },
+              ]
+            : [],
+        };
+        for (const d of c.decisions) d.correctionId = c.id;
+        this.correctionRows.push(c);
+        this.correctionAudit.push({
+          action: 'correction_requested',
+          correctionId: c.id,
+          actorUserId: i.requestedByUserId,
+        });
+        return copy(c);
+      },
+      decide: async (i) => {
+        const c = this.correctionRows.find((x) => x.id === i.correctionId);
+        if (!c) throw new Error(`correction ${i.correctionId} not found`);
+        const clash = c.decisions.some((d) =>
+          i.decision === 'endorsed'
+            ? d.decision === 'endorsed'
+            : FINAL.has(d.decision) && FINAL.has(i.decision),
+        );
+        if (clash) throw new CorrectionDecisionConflictError(c.id);
+        const d: CorrectionDecision = {
+          id: randomUUID(),
+          correctionId: c.id,
+          decision: i.decision,
+          decidedByUserId: i.decidedByUserId,
+          decidedAt: i.at,
+          note: i.note,
+        };
+        c.decisions.push(d);
+        this.correctionAudit.push({
+          action: `correction_${i.decision}`,
+          correctionId: c.id,
+          actorUserId: i.decidedByUserId,
+        });
+        return { ...d };
+      },
+      findById: async (id) => {
+        const c = this.correctionRows.find((x) => x.id === id);
+        return c ? copy(c) : null;
+      },
+      listForEmployee: async (employeeId, from, to) =>
+        this.correctionRows
+          .filter((c) => c.employeeId === employeeId && c.fromAt < to && c.toAt > from)
+          .sort((a, b) => a.fromAt.getTime() - b.fromAt.getTime())
+          .map(copy),
+      listOpen: async () =>
+        this.correctionRows
+          .filter((c) => !c.decisions.some((d) => FINAL.has(d.decision)))
+          .sort((a, b) => a.requestedAt.getTime() - b.requestedAt.getTime())
+          .map(copy),
+    };
     this.connections = {
       latestForDevice: async (deviceId) => {
         const mine = this.connectionRows.filter((c) => c.deviceId === deviceId);

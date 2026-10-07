@@ -100,6 +100,19 @@ describe('ROLE_CAPABILITIES', () => {
     }
   });
 
+  it('corrections (ADR-0030 §3): only an Administrator approves', () => {
+    expect(hasCapability([AppRole.Administrator], Capability.AdminCorrectionApprove)).toBe(true);
+    for (const role of [
+      AppRole.Employee,
+      AppRole.Manager,
+      AppRole.HR,
+      AppRole.Payroll,
+      AppRole.Auditor,
+    ]) {
+      expect(hasCapability([role], Capability.AdminCorrectionApprove)).toBe(false);
+    }
+  });
+
   it('connections (ADR-0029): Administrator everyone, Manager reports, no HR or Auditor', () => {
     expect(hasCapability([AppRole.Administrator], Capability.AdminConnectionRead)).toBe(true);
     expect(hasCapability([AppRole.Manager], Capability.TeamConnectionRead)).toBe(true);
