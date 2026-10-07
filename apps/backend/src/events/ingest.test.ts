@@ -355,6 +355,86 @@ describe('ingestBatch — batch-level gates', () => {
     expect((await ctx.db.timeSessions.findById(ctx.sessionId))?.closedAt).toBeNull();
   });
 
+  it('same device: an OLDER session arriving late is history and never closes the live one', async () => {
+    // 2026-10-07: a clock-in stuck in the outbox (sign-in couldn't
+    // refresh) arrived after the person had clocked in again.
+    const live = new Date(Date.now() - 10 * 60_000);
+    await send(ctx, [
+      await signedEvent(ctx, {
+        event_type: 'USER_CLOCK_IN',
+        sequence_number: 1,
+        event_ulid: '01J8Q00000000000000000000D',
+        client_ts: live.toISOString(),
+      }),
+    ]);
+
+    const late = { ...ctx, sessionId: randomUUID() };
+    const lateIn = new Date(live.getTime() - 14 * 60_000);
+    const lateLast = new Date(live.getTime() - 60_000);
+    const r = await send(late, [
+      await signedEvent(late, {
+        event_type: 'USER_CLOCK_IN',
+        sequence_number: 1,
+        event_ulid: '01J8Q00000000000000000000E',
+        client_ts: lateIn.toISOString(),
+      }),
+      await signedEvent(late, {
+        event_type: 'USER_START_BREAK',
+        sequence_number: 2,
+        event_ulid: '01J8Q00000000000000000000F',
+        client_ts: lateLast.toISOString(),
+        payload: { break_kind: 'meal' },
+      }),
+    ]);
+    expect(r.status).toBe('batch_accepted');
+    if (r.status === 'batch_accepted') {
+      expect(r.results.map((x) => x.status)).toEqual(['accepted', 'accepted']);
+    }
+
+    const current = await ctx.db.timeSessions.findById(ctx.sessionId);
+    expect(current?.closedAt).toBeNull();
+    const old = await ctx.db.timeSessions.findById(late.sessionId);
+    expect(old?.openedAt.toISOString()).toBe(lateIn.toISOString());
+    expect(old?.closedAt?.toISOString()).toBe(lateLast.toISOString());
+    expect(old?.closedReason).toBe('system_shutdown_reconstructed');
+    expect(old?.reconstructed).toBe(true);
+    expect((await ctx.db.timeSessions.findOpenByEmployeeId(ctx.employeeId))?.id).toBe(
+      ctx.sessionId,
+    );
+  });
+
+  it('same device: a late session is closed no later than the live one began', async () => {
+    const live = new Date(Date.now() - 10 * 60_000);
+    await send(ctx, [
+      await signedEvent(ctx, {
+        event_type: 'USER_CLOCK_IN',
+        sequence_number: 1,
+        event_ulid: '01J8Q00000000000000000000G',
+        client_ts: live.toISOString(),
+      }),
+    ]);
+    const late = { ...ctx, sessionId: randomUUID() };
+    await send(late, [
+      await signedEvent(late, {
+        event_type: 'USER_CLOCK_IN',
+        sequence_number: 1,
+        event_ulid: '01J8Q00000000000000000000H',
+        client_ts: new Date(live.getTime() - 30 * 60_000).toISOString(),
+      }),
+      await signedEvent(late, {
+        event_type: 'USER_START_BREAK',
+        sequence_number: 2,
+        event_ulid: '01J8Q00000000000000000000J',
+        // Overlaps the live session: the stuck app kept running.
+        client_ts: new Date(live.getTime() + 60_000).toISOString(),
+        payload: { break_kind: 'meal' },
+      }),
+    ]);
+    const old = await ctx.db.timeSessions.findById(late.sessionId);
+    expect(old?.closedAt?.toISOString()).toBe(live.toISOString());
+    expect((await ctx.db.timeSessions.findById(ctx.sessionId))?.closedAt).toBeNull();
+  });
+
   it('SESSION_RECOVERED closes the session at the last heartbeat, flagged for review', async () => {
     const opened = new Date(Date.now() - 3 * 3600_000);
     const heartbeat = new Date(Date.now() - 3600_000);

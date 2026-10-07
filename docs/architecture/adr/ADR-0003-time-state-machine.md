@@ -410,6 +410,17 @@ API failure as a health telemetry event, never as an anomaly.
     the same way at its last event time instead of answering
     `multi_device_conflict`. One device cannot be in two sessions. A
     different device still gets the §8 conflict.
+  - **Amendment (2026-10-07, owner approved): only a newer clock-in
+    closes the old one.** The safety net assumed the arriving session
+    is the newer one. A clock-in held in the outbox (a sign-in that
+    couldn't refresh) can arrive after the person clocked in again, and
+    then the net closed the live session. Now, if the arriving
+    session's start is before the open session's start, the open one
+    stays open. The arriving one is recorded already closed as
+    `system_shutdown_reconstructed` (`reconstructed=true`), at its last
+    event in that batch but no later than the live session's start.
+    Later batches of that late session are refused as `session_closed`
+    and set aside on the device. Manager review covers both cases.
 - **Termination in greytHR while clocked in** (once greytHR is enabled):
   next backend heartbeat check terminates the session with
   `reason=greythr_termination_forced`, records last heartbeat as
