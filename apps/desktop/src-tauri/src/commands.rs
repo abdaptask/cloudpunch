@@ -234,13 +234,14 @@ fn arm_from_cache(app: &AppHandle, oid: &str, recorder: &Recorder) {
 }
 
 /// Today's history from the server when there's none on screen (after
-/// a sign-out, or on another computer). Fetches yesterday's and today's
+/// a sign-out, or on another computer), or only the session running now
+/// (clocked in before this ran, e.g. right after an update). Fetches yesterday's and today's
 /// day views (a night shift may be dated yesterday); the agent keeps
 /// only the current working day. Offline or refused: the day starts
 /// empty, as before.
 fn restore_today_from_server(app: &AppHandle, auth: &Arc<Auth>, base_url: &str) {
     let agent = app.state::<Arc<Agent>>();
-    if !agent.timeline_empty() {
+    if !agent.lacks_history() {
         return;
     }
     let Ok(token) = auth.access_token(SystemTime::now()) else {

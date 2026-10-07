@@ -1223,9 +1223,11 @@ impl<U: Ui> Agent<U> {
         }
     }
 
-    /// Put back today's timeline from the journal after a restart (only
-    /// while clocked out with nothing on screen yet). A segment a crash
-    /// left open closes at the recovered session's last heartbeat.
+    /// Put back today's timeline from the journal after a restart. If
+    /// they already clocked in (the popup can beat the restore after an
+    /// update), the history goes in ahead of that session instead of
+    /// being skipped. A segment a crash left open closes at the
+    /// recovered session's last heartbeat.
     pub fn restore_today(&self) {
         let Some(json) = self.recorder.load_today() else {
             return;
@@ -1236,13 +1238,12 @@ impl<U: Ui> Agent<U> {
             .unwrap_or(SystemTime::UNIX_EPOCH);
         let (view, snapshot) = {
             let mut inner = self.lock();
-            if inner.driver.state() != CoreState::ClockedOut
-                || !inner.timeline.restore(&json, close_at)
-            {
+            if !inner.timeline.restore(&json, close_at) {
                 return;
             }
             // Only the current working day comes back.
             inner.timeline.prune(SystemTime::now());
+            self.recorder.save_day(&inner.timeline.to_json());
             let snapshot = tray_snapshot(inner.driver.state(), inner.driver.core().call_type());
             (inner.view(), snapshot)
         };
@@ -1252,22 +1253,21 @@ impl<U: Ui> Agent<U> {
         }
     }
 
-    /// Whether no day is on screen (nothing to lose by restoring one).
-    pub fn timeline_empty(&self) -> bool {
-        self.lock().timeline.segments().is_empty()
+    /// Whether the day's earlier history may be missing: nothing on
+    /// screen, or only the session running now.
+    pub fn lacks_history(&self) -> bool {
+        self.lock().timeline.lacks_history()
     }
 
     /// Put back today's timeline from the server's day views (after
-    /// signing in again, the journal is gone): only while clocked out
-    /// with nothing on screen yet, and only the current working day. The
-    /// result is journaled, so a restart keeps it. Returns whether
-    /// anything was restored.
+    /// signing in again, the journal is gone), only the current working
+    /// day. If they already clocked in, the history goes in ahead of
+    /// that session. The result is journaled, so a restart keeps it.
+    /// Returns whether anything was restored.
     pub fn restore_today_from_server(&self, json: &str) -> bool {
         let (view, snapshot) = {
             let mut inner = self.lock();
-            if inner.driver.state() != CoreState::ClockedOut
-                || !inner.timeline.restore(json, SystemTime::now())
-            {
+            if !inner.timeline.restore(json, SystemTime::now()) {
                 return false;
             }
             inner.timeline.prune(SystemTime::now());
@@ -2252,5 +2252,40 @@ mod tests {
         assert_eq!(second.view().timeline.len(), 3);
         second.clear_timeline();
         assert!(second.view().timeline.is_empty());
+    }
+
+    #[test]
+    fn clocking_in_before_the_restore_keeps_the_morning() {
+        use crate::recorder::Target;
+        use ed25519_dalek::SigningKey;
+
+        let id = crate::enroll::Identity {
+            oid: "0f8e1c2a-3b4d-4e5f-8a9b-0c1d2e3f4a5b".into(),
+            device_id: "33333333-3333-4333-8333-333333333333".into(),
+            employee_id: "44444444-4444-4444-8444-444444444444".into(),
+        };
+        let recorder = Recorder::new();
+        recorder.arm(Target::in_memory(id, SigningKey::from_bytes(&[7u8; 32])));
+        let first = Agent::<Arc<FakeUi>>::with_recorder(CoreConfig::default(), &recorder);
+        first.handle(Input::ClockIn).unwrap();
+        first.handle(Input::ClockOut).unwrap();
+        let morning = first.view().timeline;
+        assert_eq!(morning.len(), 1);
+
+        // After the update: clocked in from the popup before signing-in
+        // finished, then today comes back from the server.
+        std::thread::sleep(Duration::from_millis(5));
+        let fresh = Recorder::new();
+        let second = Agent::<Arc<FakeUi>>::with_recorder(CoreConfig::default(), &fresh);
+        second.handle(Input::ClockIn).unwrap();
+        assert!(second.lacks_history());
+        let server = serde_json::to_string(&morning).unwrap();
+        assert!(second.restore_today_from_server(&server));
+        let day = second.view().timeline;
+        assert_eq!(day.len(), 2);
+        assert_eq!(day[0], morning[0]);
+        assert_eq!((day[0].session, day[1].session), (1, 2));
+        assert!(day[1].ended_at.is_none());
+        assert!(!second.lacks_history());
     }
 }

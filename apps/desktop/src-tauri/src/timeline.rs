@@ -252,14 +252,16 @@ impl Timeline {
         serde_json::to_string(&self.views()).unwrap_or_else(|_| "[]".into())
     }
 
-    /// Load a journaled day into an **empty** timeline (a live day is
-    /// never overwritten). A segment still open — the app stopped
-    /// without clocking out — is closed at `close_open_at`, never
-    /// before it started. Returns whether anything was restored.
+    /// Load a journaled day. A live day is never overwritten: if
+    /// something is already on screen (clocked in before the restore
+    /// ran, e.g. from the clock-in popup right after an update), only
+    /// the history from before it comes back, ahead of it, and its
+    /// sessions are numbered after the restored ones. A segment still
+    /// open — the app stopped without clocking out — is closed at
+    /// `close_open_at`, never before it started nor after what's on
+    /// screen began. Returns whether anything was restored.
     pub fn restore(&mut self, json: &str, close_open_at: SystemTime) -> bool {
-        if !self.segments.is_empty() {
-            return false;
-        }
+        let live_from = self.segments.first().map(|s| s.started_at);
         let stored: Vec<StoredSegment> = serde_json::from_str(json).unwrap_or_default();
         let mut segments: Vec<Segment> = stored
             .into_iter()
@@ -272,18 +274,36 @@ impl Timeline {
                 })
             })
             .collect();
+        if let Some(live) = live_from {
+            segments.retain(|s| s.started_at < live);
+        }
         for seg in &mut segments {
-            if seg.ended_at.is_none() {
-                seg.ended_at = Some(close_open_at.max(seg.started_at));
+            let mut end = seg.ended_at.unwrap_or(close_open_at.max(seg.started_at));
+            if let Some(live) = live_from {
+                end = end.min(live);
             }
+            seg.ended_at = Some(end);
         }
         if segments.is_empty() {
             return false;
         }
-        self.sessions = segments.iter().map(|s| s.session).max().unwrap_or(0);
-        self.session_started_at = None;
+        let restored = segments.iter().map(|s| s.session).max().unwrap_or(0);
+        for seg in &mut self.segments {
+            seg.session += restored;
+        }
+        self.sessions += restored;
+        segments.append(&mut self.segments);
         self.segments = segments;
         true
+    }
+
+    /// Whether everything on screen is the session running now (or
+    /// nothing is): the day's earlier history may still be missing.
+    pub fn lacks_history(&self) -> bool {
+        match self.session_started_at {
+            None => self.segments.is_empty(),
+            Some(_) => self.segments.iter().all(|s| s.session == self.sessions),
+        }
     }
 
     pub fn views(&self) -> Vec<SegmentView> {
@@ -552,6 +572,50 @@ mod tests {
             at(10)
         ));
         assert!(empty.segments().is_empty());
+    }
+
+    #[test]
+    fn clocked_in_before_the_restore_keeps_the_morning_ahead_of_it() {
+        // The morning: two sessions, the second cut off by the update.
+        let mut morning = Timeline::new();
+        morning.on_state(CoreState::Active, at(0));
+        morning.on_state(CoreState::ClockedOut, at(3600));
+        morning.on_state(CoreState::Active, at(4000));
+        let json = morning.to_json();
+
+        // After the update: clocked in from the popup before the restore.
+        let mut live = Timeline::new();
+        live.on_state(CoreState::Active, at(9000));
+        assert!(live.lacks_history());
+        assert!(live.restore(&json, at(20_000)));
+        let segs = live.segments();
+        assert_eq!(segs.len(), 3);
+        assert_eq!(
+            segs.iter().map(|s| s.session).collect::<Vec<_>>(),
+            vec![1, 2, 3]
+        );
+        // The open morning segment stops where the live one starts.
+        assert_eq!(segs[1].ended_at, Some(at(9000)));
+        assert_eq!(segs[2].started_at, at(9000));
+        assert_eq!(segs[2].ended_at, None);
+        assert_eq!(live.session_started_at(), Some(at(9000)));
+        assert!(!live.lacks_history());
+
+        // The server's copy also has the live session: never doubled.
+        let mut again = Timeline::new();
+        again.on_state(CoreState::Active, at(9000));
+        let mut server = morning;
+        server.on_state(CoreState::ClockedOut, at(5000));
+        server.on_state(CoreState::Active, at(9000));
+        assert!(again.restore(&server.to_json(), at(20_000)));
+        assert_eq!(again.segments().len(), 3);
+        // Restoring once more adds nothing.
+        assert!(!again.restore(&server.to_json(), at(20_000)));
+
+        // The next clock-in after this one is the fourth session.
+        again.on_state(CoreState::ClockedOut, at(10_000));
+        again.on_state(CoreState::Active, at(11_000));
+        assert_eq!(again.segments().last().unwrap().session, 4);
     }
 
     #[test]
