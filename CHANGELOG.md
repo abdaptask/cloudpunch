@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### ADR-0031 shifts, part 1: the server
+
+- Migration 0008: `shift_assignment` (a weekly pattern per person: days,
+  start, end, zone, from a date) and `not_working_day`, both
+  append-only (triggers; the invariants scan covers them).
+- New capability `admin.shift.write` (Administrator only).
+- `GET /v1/admin/shifts` and `PUT /v1/admin/employees/:id/shift` (set
+  or clear, audited `shift_assigned`); `GET /v1/me/shift` (your shift
+  and the window you're in now, in the shift's own zone, overnight
+  shifts belonging to the day they start); `POST
+  /v1/me/not-working-today` (once per shift, no reason, audited).
+- Team today: "not clocked in, shift started HH:MM"
+  (`shift_not_started`) and "said not working" (`not_working`) for
+  people in their shift who haven't worked in it yet.
+- ADR-0031 implementation notes: migration 0008, "Not working today"
+  is a table not an event, shifts on their own route, the overrun alert
+  ignores quiet hours.
+
 ### Desktop 0.1.16: time corrections (ADR-0030 part D)
 
 - **Team → a person's day → Correct this day** (managers): from, to

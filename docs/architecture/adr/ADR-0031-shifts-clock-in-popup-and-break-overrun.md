@@ -44,7 +44,7 @@ A shift is a weekly pattern:
 | `effective_from` | 2026-10-12 | a new row replaces the old one from that date |
 
 - **Storage:** a new append-only table `shift_assignment` (migration
-  0007) with the actor, the reason and the effective date. A change is a
+  0008) with the actor, the reason and the effective date. A change is a
   new row and never an update, matching ADR-0030's correction model.
 - **Audit:** every change writes an `audit_log` row (`shift_assigned`).
 - **No shift assigned:** the person keeps today's company-wide 08:00
@@ -110,9 +110,10 @@ At the planned end of a break (ADR-0023 §2), while still on that break:
 
 ## Consequences
 
-- One migration (0007, `shift_assignment`), two new event types
-  (`USER_NOT_WORKING_TODAY` and `USER_BREAK_EXTENDED`) accepted by
-  ingest, and a new Settings → People → Shift screen for Administrators.
+- One migration (0008: `shift_assignment`, `not_working_day`), one new
+  event type (`USER_BREAK_EXTENDED`) accepted by ingest, and a new
+  Settings → People → Shift screen for Administrators (see the
+  implementation notes).
 - Shifts give ADR-0030 corrections and later timesheets a baseline:
   expected hours against worked hours.
 - A popup every 5 minutes will annoy people who start late on purpose.
@@ -139,3 +140,24 @@ At the planned end of a break (ADR-0023 §2), while still on that break:
 2. The popup starts **at the shift's start time** in the shift's time
    zone, not before.
 3. **"Not working today" asks no reason.**
+
+## Implementation notes (2026-10-07, while building)
+
+These change *how*, not *what*, the owner decided:
+
+1. **Migration 0008, not 0007.** ADR-0030's corrections took 0007.
+2. **"Not working today" is not a clock event.** The event ingest only
+   accepts events inside a clocked-in session (ADR-0003), and this
+   choice is made while clocked out. It is its own append-only table
+   (`not_working_day`: person, shift date, when) behind
+   `POST /v1/me/not-working-today`, audited, like ADR-0030's
+   corrections. `USER_BREAK_EXTENDED` stays an event (it happens inside
+   a session).
+3. **Shifts reach the app on their own route**, `GET /v1/me/shift`,
+   polled with the policy every 15 minutes. The policy document stays
+   company and department rules only, so older apps are unaffected.
+4. **Administrators only** is a new capability, `admin.shift.write`.
+   Managers and HR read shifts through the team views.
+5. **The break-overrun alert ignores quiet hours.** "Back yet?" is muted
+   in quiet hours, but someone on a break is clocked in, and the owner
+   asked for it to be loud.

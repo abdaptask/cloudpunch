@@ -51,6 +51,8 @@ export const Capability = {
   AdminConnectionRead: 'admin.connection.read',
   /** Approve or reject time corrections, never one's own (ADR-0030 §3). */
   AdminCorrectionApprove: 'admin.correction.approve',
+  /** Assign people's weekly shifts (ADR-0031 §1). */
+  AdminShiftWrite: 'admin.shift.write',
 
   // Payroll — read-only access to approved records + export
   PayrollApprovedRead: 'payroll.approved.read',
@@ -116,6 +118,7 @@ const _ROLE_CAPABILITIES: { readonly [K in AppRole]: readonly Capability[] } = {
     Capability.AdminPolicyWrite,
     Capability.AdminConnectionRead,
     Capability.AdminCorrectionApprove,
+    Capability.AdminShiftWrite,
     // Admin can also manage employees (HR-adjacent config)
     Capability.HrEmployeeRead,
     Capability.HrEmployeeWrite,

@@ -519,6 +519,55 @@ export interface CorrectionRepo {
   listOpen(): Promise<CorrectionWithDecisions[]>;
 }
 
+// ---------------------------------------------------------------------
+// Shifts (ADR-0031)
+// ---------------------------------------------------------------------
+
+export interface ShiftAssignment {
+  id: string;
+  employeeId: string;
+  /** ISO weekdays, 1 = Monday … 7 = Sunday. Empty: no shift. */
+  days: number[];
+  /** `HH:MM`, null when there is no shift. */
+  start: string | null;
+  /** `HH:MM`; at or before `start` means the next day. */
+  end: string | null;
+  tzIana: string;
+  /** `YYYY-MM-DD`: applies from this date on. */
+  effectiveFrom: string;
+  reason: string | null;
+  assignedByUserId: string;
+  assignedAt: Date;
+}
+
+export interface NewShiftAssignment extends Omit<ShiftAssignment, 'id' | 'assignedAt'> {
+  correlationId: string;
+  at: Date;
+}
+
+export interface NotWorkingDeclaration {
+  employeeId: string;
+  /** The date the shift starts on, in its zone. */
+  shiftDate: string;
+  declaredByUserId: string;
+  correlationId: string;
+  at: Date;
+}
+
+export interface ShiftRepo {
+  /** Store a shift (a new row) with an audit_log row `shift_assigned`, in one transaction. */
+  assign(input: NewShiftAssignment): Promise<ShiftAssignment>;
+  /** Every shift row for these people, newest first (effective_from, then assigned_at). */
+  history(employeeIds: readonly string[]): Promise<ShiftAssignment[]>;
+  /**
+   * Record "Not working today" with an audit_log row. Saying it twice
+   * for the same shift is a no-op; returns whether it was new.
+   */
+  declareNotWorking(input: NotWorkingDeclaration): Promise<boolean>;
+  /** `${employeeId}:${shiftDate}` for each declaration among these dates. */
+  notWorking(employeeIds: readonly string[], dates: readonly string[]): Promise<Set<string>>;
+}
+
 export interface DbRepositories {
   people: PeopleRepo;
   employees: EmployeeRepo;
@@ -530,4 +579,5 @@ export interface DbRepositories {
   departments: DepartmentRepo;
   connections: ConnectionRepo;
   corrections: CorrectionRepo;
+  shifts: ShiftRepo;
 }

@@ -100,6 +100,13 @@ describe('ROLE_CAPABILITIES', () => {
     }
   });
 
+  it('shifts (ADR-0031 §1): only an Administrator assigns them', () => {
+    expect(hasCapability([AppRole.Administrator], Capability.AdminShiftWrite)).toBe(true);
+    for (const role of [AppRole.Employee, AppRole.Manager, AppRole.HR, AppRole.Payroll]) {
+      expect(hasCapability([role], Capability.AdminShiftWrite)).toBe(false);
+    }
+  });
+
   it('corrections (ADR-0030 §3): only an Administrator approves', () => {
     expect(hasCapability([AppRole.Administrator], Capability.AdminCorrectionApprove)).toBe(true);
     for (const role of [

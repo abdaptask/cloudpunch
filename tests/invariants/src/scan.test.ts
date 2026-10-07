@@ -95,6 +95,9 @@ describe('appendOnlyViolations', () => {
     // ADR-0030: corrections and their decisions too.
     expect(appendOnlyViolations('UPDATE time_correction SET reason = $1')).toHaveLength(1);
     expect(appendOnlyViolations('DELETE FROM time_correction_decision')).toHaveLength(1);
+    // ADR-0031: shifts and "not working today".
+    expect(appendOnlyViolations('UPDATE shift_assignment SET days = $1')).toHaveLength(1);
+    expect(appendOnlyViolations('DELETE FROM not_working_day')).toHaveLength(1);
     // Trigger definitions and other tables are fine.
     expect(appendOnlyViolations('CREATE TRIGGER t BEFORE UPDATE ON time_event')).toEqual([]);
     expect(appendOnlyViolations('UPDATE time_session SET closed_at = now()')).toEqual([]);
