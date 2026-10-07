@@ -53,6 +53,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### ADR-0030 time corrections, part A: storage
 
+- A correction's decisions list the endorsement first even when two
+  share a timestamp (found by the Postgres integration test on main).
 - Migration 0007: `time_correction` (with the person's zone, as events
   record it) and `time_correction_decision`,
   both append-only (triggers reject UPDATE and DELETE; the invariants
