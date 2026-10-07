@@ -49,6 +49,8 @@ export interface DaySegment {
   presenceCheck?: 'continuous' | 'periodic';
   /** An Away that ended on its own: back at the computer, or a call (ADR-0027). */
   endedBy?: 'input' | 'call';
+  /** Set by an approved time correction (ADR-0030 §4). */
+  correctionId?: string;
 }
 
 export interface BuiltSession {
@@ -62,6 +64,8 @@ export interface BuiltSession {
   /** Where the session ends: its close, else the last segment's end. */
   end: Date;
   open: boolean;
+  /** Made only of an approved correction: no device recorded it (ADR-0030 §4). */
+  corrected?: boolean;
   segments: DaySegment[];
 }
 
