@@ -5,6 +5,7 @@ import { PostgreSqlContainer, type StartedPostgreSqlContainer } from '@testconta
 import postgres from 'postgres';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { migrate } from '../migrations/runner.js';
+import { CorrectionDecisionConflictError } from '../types.js';
 import { PostgresDb } from './db.js';
 import { createPostgresClient } from './pool.js';
 
@@ -51,7 +52,7 @@ beforeEach(async () => {
   // dependencies: event → session → device/employee → user.
   // time_event and audit_log are append-only (row triggers reject
   // DELETE); TRUNCATE is DDL and resets them between tests.
-  await sql`TRUNCATE audit_log, policy_override, time_event, time_session, device, employee_override RESTART IDENTITY CASCADE`;
+  await sql`TRUNCATE audit_log, policy_override, time_event, time_session, device, employee_override, time_correction_decision, time_correction RESTART IDENTITY CASCADE`;
   await sql`DELETE FROM admin_review_case`;
   await sql`UPDATE app_user SET employee_id = NULL`;
   await sql`DELETE FROM employee`;
@@ -739,5 +740,108 @@ describe('PostgresDb — device connections', () => {
         lastSeenAt: at,
       }),
     ).rejects.toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------
+// time corrections (ADR-0030)
+// ---------------------------------------------------------------------
+
+describe('PostgresDb — time corrections', () => {
+  it('stores a manager correction endorsed, audits it, one final decision only', async () => {
+    const employeeId = await seedEmployee();
+    const { userId: mgr } = await seedUser();
+    const { userId: admin } = await seedUser();
+    const at = new Date('2026-10-07T15:00:00Z');
+    const c = await db.corrections.request({
+      employeeId,
+      fromAt: new Date('2026-10-05T12:00:00Z'),
+      toAt: new Date('2026-10-05T20:00:00Z'),
+      tzIana: 'Asia/Kolkata',
+      utcOffsetMinutes: 330,
+      kind: 'working',
+      reason: 'App did not record the day',
+      requestedByUserId: mgr,
+      endorse: true,
+      correlationId: randomUUID(),
+      at,
+    });
+    expect(c.decisions.map((d) => d.decision)).toEqual(['endorsed']);
+    expect((await db.corrections.listOpen()).map((x) => x.id)).toEqual([c.id]);
+
+    const decide = (decision: 'endorsed' | 'approved' | 'rejected', by: string) =>
+      db.corrections.decide({
+        correctionId: c.id,
+        employeeId,
+        decision,
+        decidedByUserId: by,
+        note: 'ok',
+        correlationId: randomUUID(),
+        at,
+      });
+    await expect(decide('endorsed', admin)).rejects.toBeInstanceOf(CorrectionDecisionConflictError);
+    await decide('approved', admin);
+    await expect(decide('rejected', admin)).rejects.toBeInstanceOf(CorrectionDecisionConflictError);
+    expect(await db.corrections.listOpen()).toEqual([]);
+    const found = await db.corrections.findById(c.id);
+    expect(found?.decisions.map((d) => d.decision)).toEqual(['endorsed', 'approved']);
+    expect(found?.fromAt.toISOString()).toBe('2026-10-05T12:00:00.000Z');
+
+    const audit = await sql<{ action: string }[]>`
+      SELECT action FROM audit_log WHERE entity_type = 'time_correction'`;
+    expect(audit.map((a) => a.action).sort()).toEqual([
+      'correction_approved',
+      'correction_requested',
+    ]);
+
+    const listed = await db.corrections.listForEmployee(
+      employeeId,
+      new Date('2026-10-05T00:00:00Z'),
+      new Date('2026-10-06T00:00:00Z'),
+    );
+    expect(listed.map((x) => x.id)).toEqual([c.id]);
+  });
+
+  it('both tables are append-only and keep their limits', async () => {
+    const employeeId = await seedEmployee();
+    const { userId } = await seedUser();
+    const c = await db.corrections.request({
+      employeeId,
+      fromAt: new Date('2026-10-05T12:00:00Z'),
+      toAt: new Date('2026-10-05T13:00:00Z'),
+      tzIana: 'Asia/Kolkata',
+      utcOffsetMinutes: 330,
+      kind: 'working',
+      reason: 'x',
+      requestedByUserId: userId,
+      endorse: false,
+      correlationId: randomUUID(),
+      at: new Date(),
+    });
+    // Planted on purpose: the triggers must refuse these.
+    await expect(sql`UPDATE time_correction SET reason = 'y' WHERE id = ${c.id}`).rejects.toThrow(
+      /append-only/,
+    );
+    await expect(sql`DELETE FROM time_correction WHERE id = ${c.id}`).rejects.toThrow(
+      /append-only/,
+    );
+    await expect(sql`DELETE FROM time_correction_decision`).rejects.toThrow(/append-only/);
+    // More than 16 hours, or a blank reason: refused.
+    const bad = (from: string, to: string, reason: string) =>
+      db.corrections.request({
+        employeeId,
+        fromAt: new Date(from),
+        toAt: new Date(to),
+        tzIana: 'Asia/Kolkata',
+        utcOffsetMinutes: 330,
+        kind: 'working',
+        reason,
+        requestedByUserId: userId,
+        endorse: false,
+        correlationId: randomUUID(),
+        at: new Date(),
+      });
+    await expect(bad('2026-10-05T00:00:00Z', '2026-10-05T16:00:01Z', 'x')).rejects.toThrow();
+    await expect(bad('2026-10-05T00:00:00Z', '2026-10-05T01:00:00Z', '  ')).rejects.toThrow();
   });
 });

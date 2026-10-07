@@ -426,6 +426,99 @@ export interface ConnectionRepo {
   ): Promise<Map<string, DeviceConnection>>;
 }
 
+// ---------------------------------------------------------------------
+// Time corrections (ADR-0030)
+// ---------------------------------------------------------------------
+
+export type CorrectionDecisionKind = 'endorsed' | 'approved' | 'rejected' | 'withdrawn';
+
+export interface TimeCorrection {
+  id: string;
+  employeeId: string;
+  fromAt: Date;
+  toAt: Date;
+  /** The person's zone when entered (dates the day, shows the times). */
+  tzIana: string;
+  /** Minutes east of UTC at `fromAt` in `tzIana`. */
+  utcOffsetMinutes: number;
+  /** `working`, `away_working`, a break kind, or `not_worked`. */
+  kind: string;
+  reason: string;
+  requestedByUserId: string;
+  requestedAt: Date;
+}
+
+export interface CorrectionDecision {
+  id: string;
+  correctionId: string;
+  decision: CorrectionDecisionKind;
+  decidedByUserId: string;
+  decidedAt: Date;
+  note: string | null;
+}
+
+/** A correction with its decisions, oldest first. */
+export interface CorrectionWithDecisions extends TimeCorrection {
+  decisions: CorrectionDecision[];
+}
+
+export interface NewCorrection {
+  employeeId: string;
+  fromAt: Date;
+  toAt: Date;
+  tzIana: string;
+  utcOffsetMinutes: number;
+  kind: string;
+  reason: string;
+  requestedByUserId: string;
+  /**
+   * A manager correcting a report's time: it counts as endorsed by them
+   * (ADR-0030 §3), so an `endorsed` row is written with it.
+   */
+  endorse: boolean;
+  correlationId: string;
+  at: Date;
+}
+
+export interface NewCorrectionDecision {
+  correctionId: string;
+  /** Whose time it is (for the audit row). */
+  employeeId: string;
+  decision: CorrectionDecisionKind;
+  decidedByUserId: string;
+  note: string | null;
+  correlationId: string;
+  at: Date;
+}
+
+/** The correction already has this decision, or a final one. */
+export class CorrectionDecisionConflictError extends Error {
+  constructor(readonly correctionId: string) {
+    super(`correction ${correctionId} already decided`);
+    this.name = 'CorrectionDecisionConflictError';
+  }
+}
+
+export interface CorrectionRepo {
+  /**
+   * Store a correction (and its `endorsed` row when `endorse`) with an
+   * audit_log row (`correction_requested`), in one transaction.
+   */
+  request(input: NewCorrection): Promise<CorrectionWithDecisions>;
+  /**
+   * Add a decision with an audit_log row (`correction_<decision>`), in
+   * one transaction. Throws {@link CorrectionDecisionConflictError} if
+   * it was already endorsed (for `endorsed`) or already has a final
+   * decision (approved, rejected, withdrawn).
+   */
+  decide(input: NewCorrectionDecision): Promise<CorrectionDecision>;
+  findById(id: string): Promise<CorrectionWithDecisions | null>;
+  /** The employee's corrections overlapping [from, to), by start. */
+  listForEmployee(employeeId: string, from: Date, to: Date): Promise<CorrectionWithDecisions[]>;
+  /** Corrections with no final decision yet, oldest first. */
+  listOpen(): Promise<CorrectionWithDecisions[]>;
+}
+
 export interface DbRepositories {
   people: PeopleRepo;
   employees: EmployeeRepo;
@@ -436,4 +529,5 @@ export interface DbRepositories {
   policies: PolicyRepo;
   departments: DepartmentRepo;
   connections: ConnectionRepo;
+  corrections: CorrectionRepo;
 }

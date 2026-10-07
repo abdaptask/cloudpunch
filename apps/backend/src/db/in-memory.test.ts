@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { InMemoryDb, SessionOpenConflictError } from './in-memory.js';
+import { CorrectionDecisionConflictError } from './types.js';
 import type { AppUser, Employee } from './types.js';
 
 const mkEmployee = (id: string = randomUUID(), overrides: Partial<Employee> = {}): Employee => ({
@@ -286,5 +287,78 @@ describe('InMemoryDb — events (idempotency + sequence)', () => {
 
   it('findMaxSequenceForSession returns null for an unknown session', async () => {
     expect(await db.timeEvents.findMaxSequenceForSession(randomUUID())).toBeNull();
+  });
+});
+
+describe('InMemoryDb — time corrections (ADR-0030)', () => {
+  const at = new Date('2026-10-07T15:00:00Z');
+  const base = {
+    employeeId: 'emp-1',
+    fromAt: new Date('2026-10-05T12:00:00Z'),
+    toAt: new Date('2026-10-05T20:00:00Z'),
+    tzIana: 'Asia/Kolkata',
+    utcOffsetMinutes: 330,
+    kind: 'working',
+    reason: 'App did not record the day',
+    requestedByUserId: 'mgr',
+    correlationId: randomUUID(),
+    at,
+  };
+
+  it('a manager correction is stored endorsed; decisions follow, one final only', async () => {
+    const db = new InMemoryDb();
+    const c = await db.corrections.request({ ...base, endorse: true });
+    expect(c.decisions.map((d) => [d.decision, d.decidedByUserId])).toEqual([['endorsed', 'mgr']]);
+    expect((await db.corrections.listOpen()).map((x) => x.id)).toEqual([c.id]);
+
+    const decide = (decision: 'endorsed' | 'approved' | 'rejected', by: string) =>
+      db.corrections.decide({
+        correctionId: c.id,
+        employeeId: 'emp-1',
+        decision,
+        decidedByUserId: by,
+        note: null,
+        correlationId: randomUUID(),
+        at,
+      });
+    await expect(decide('endorsed', 'other')).rejects.toBeInstanceOf(
+      CorrectionDecisionConflictError,
+    );
+    await decide('approved', 'admin');
+    await expect(decide('rejected', 'admin2')).rejects.toBeInstanceOf(
+      CorrectionDecisionConflictError,
+    );
+    expect(await db.corrections.listOpen()).toEqual([]);
+    const found = await db.corrections.findById(c.id);
+    expect(found?.decisions.map((d) => d.decision)).toEqual(['endorsed', 'approved']);
+    expect(db.correctionAudit.map((a) => a.action)).toEqual([
+      'correction_requested',
+      'correction_approved',
+    ]);
+  });
+
+  it("lists an employee's corrections overlapping a range, by start", async () => {
+    const db = new InMemoryDb();
+    const late = await db.corrections.request({
+      ...base,
+      endorse: false,
+      fromAt: new Date('2026-10-06T12:00:00Z'),
+      toAt: new Date('2026-10-06T13:00:00Z'),
+    });
+    const early = await db.corrections.request({ ...base, endorse: false });
+    await db.corrections.request({ ...base, employeeId: 'emp-2', endorse: false });
+    const got = await db.corrections.listForEmployee(
+      'emp-1',
+      new Date('2026-10-05T19:00:00Z'),
+      new Date('2026-10-07T00:00:00Z'),
+    );
+    expect(got.map((c) => c.id)).toEqual([early.id, late.id]);
+    expect(
+      await db.corrections.listForEmployee(
+        'emp-1',
+        new Date('2026-10-05T20:00:00Z'),
+        new Date('2026-10-06T12:00:00Z'),
+      ),
+    ).toEqual([]);
   });
 });

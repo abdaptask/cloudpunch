@@ -152,11 +152,12 @@ export function cargoDependencies(toml: string): string[] {
 }
 
 /**
- * CLAUDE.md invariant 2: `time_event` (and `audit_log`) are append-only.
+ * CLAUDE.md invariant 2: `time_event` (and `audit_log`, and the ADR-0030
+ * correction tables) are append-only.
  * Returns each offending statement fragment.
  */
 export function appendOnlyViolations(source: string): string[] {
   const re =
-    /\b(UPDATE\s+(?:ONLY\s+)?"?(time_event|audit_log)"?\s+SET\b|DELETE\s+FROM\s+(?:ONLY\s+)?"?(time_event|audit_log)"?\b|TRUNCATE\s+(?:TABLE\s+)?"?(time_event|audit_log)"?\b)/gi;
+    /\b(UPDATE\s+(?:ONLY\s+)?"?(time_event|audit_log|time_correction_decision|time_correction)"?\s+SET\b|DELETE\s+FROM\s+(?:ONLY\s+)?"?(time_event|audit_log|time_correction_decision|time_correction)"?\b|TRUNCATE\s+(?:TABLE\s+)?"?(time_event|audit_log|time_correction_decision|time_correction)"?\b)/gi;
   return [...source.matchAll(re)].map((m) => m[0]);
 }

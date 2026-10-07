@@ -92,7 +92,7 @@ describe('invariant 1: no content capture', () => {
   });
 });
 
-describe('invariant 2: time_event and audit_log are append-only', () => {
+describe('invariant 2: time_event, audit_log and corrections are append-only', () => {
   it('no migration or backend code updates, deletes or truncates them', () => {
     const sources = [
       ...files('apps/backend/db/migrations', /\.sql$/),

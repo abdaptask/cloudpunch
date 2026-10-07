@@ -92,6 +92,9 @@ describe('appendOnlyViolations', () => {
     expect(appendOnlyViolations('UPDATE time_event SET payload = $1')).toHaveLength(1);
     expect(appendOnlyViolations('delete from audit_log where id = 1')).toHaveLength(1);
     expect(appendOnlyViolations('TRUNCATE TABLE time_event')).toHaveLength(1);
+    // ADR-0030: corrections and their decisions too.
+    expect(appendOnlyViolations('UPDATE time_correction SET reason = $1')).toHaveLength(1);
+    expect(appendOnlyViolations('DELETE FROM time_correction_decision')).toHaveLength(1);
     // Trigger definitions and other tables are fine.
     expect(appendOnlyViolations('CREATE TRIGGER t BEFORE UPDATE ON time_event')).toEqual([]);
     expect(appendOnlyViolations('UPDATE time_session SET closed_at = now()')).toEqual([]);
