@@ -3,7 +3,8 @@
 - **Status:** Template draft. Requires review by ApTask HR and by
   legal counsel qualified under India's Digital Personal Data
   Protection Act, 2023 (DPDPA) before being shown to employees.
-- **Last updated:** 2026-10-01 (where you connect from, ADR-0029).
+- **Last updated:** 2026-10-07 (where you connect from is part of what
+  CloudPunch records, ADR-0032).
 - **Intended audience:** every ApTask employee who uses CloudPunch.
 
 This notice explains, in plain language, what CloudPunch records about
@@ -67,12 +68,11 @@ That is the complete list. Every piece of it exists in
 attempt to add a field outside that list is blocked by an automated
 check in our build process.
 
-## Where you connect from (only once ApTask turns it on)
+## Where you connect from
 
 When the desktop app talks to the CloudPunch server, the server can
-see the internet connection the request came from. If ApTask turns
-this on, CloudPunch keeps a short history of those connections. For
-each one it records:
+see the internet connection the request came from. CloudPunch keeps a
+short history of those connections. For each one it records:
 
 - the **IP address** the server saw;
 - the **approximate city, state and country** of that address;
@@ -91,8 +91,9 @@ when you move from home Wi-Fi to mobile data.
   company network it shows the VPN's or office's location, not yours.
 - **Mobile data or home broadband is not recorded.** CloudPunch shows
   only the provider's name.
-- **Why:** to confirm where work is done from, and to spot a shared
-  account or a connection nobody expected.
+- **Why:** to confirm where work is done from, and to detect a work
+  location that has been misrepresented, a shared account, or a
+  connection nobody expected.
 - **Who sees it:** you (your own history in the app), your reporting
   manager (only for people who report to them), and CloudPunch
   administrators. HR, auditors and your colleagues don't. Every time a
@@ -119,8 +120,8 @@ following:
 - **Titles** of any windows.
 - **Any audio or video** from your microphone or camera.
 - **Your GPS coordinates or exact location.** Only the approximate
-  city of your internet connection, and only once ApTask turns it on
-  (see "Where you connect from" above).
+  city of your internet connection (see "Where you connect from"
+  above).
 - Any **health, biometric, financial, or personal messages** data.
 
 If a future version of CloudPunch ever adds any capability from this
@@ -249,8 +250,7 @@ Access is on a strict need-to-know basis:
   computer and switch it off.
 - **Your reporting manager and CloudPunch administrators** can see
   **where you connect from** (approximate city and internet provider,
-  last 30 days), once ApTask turns it on. See "Where you connect from"
-  above.
+  last 30 days). See "Where you connect from" above.
 
 No one outside ApTask can see your data. Approved attendance totals
 are sent to greytHR for payroll. Raw activity data is never sent to

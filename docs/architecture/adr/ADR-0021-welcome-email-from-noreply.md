@@ -1,6 +1,7 @@
 # ADR-0021 — Welcome emails from noreply@aptask.com
 
-- **Status:** Accepted (2026-09-28, choices set by the project owner)
+- **Status:** Accepted (2026-09-28, choices set by the project owner);
+  sender changed to cloudpunch@aptask.com (amendment 2026-10-07)
 - **Date:** 2026-09-28
 - **Deciders:** Abdulla Sheikh (project owner), Architecture (Claude)
 - **Builds on:** ADR-0020 (People; same certificate), ADR-0019 (pilot VM,
@@ -87,3 +88,22 @@ should get an email telling them what to do. The owner asked for:
 - **An external email service (SMTP relay or SendGrid).** Rejected: a
   new vendor and a new secret, and noreply@aptask.com is already in
   Microsoft 365.
+
+## Amendment (2026-10-07): sent from cloudpunch@aptask.com
+
+The owner decided not to rename noreply@aptask.com: other systems send
+from it, and its display name would change for all of them (the risk
+this ADR's Consequences named). Instead:
+
+- A new **free shared mailbox, cloudpunch@aptask.com**, display name
+  **ApTask CloudPunch**, is the sender. The owner creates it.
+- `WELCOME_FROM=cloudpunch@aptask.com` on the VM.
+- The Exchange management scope is `PrimarySmtpAddress -eq
+  'cloudpunch@aptask.com'`, so CloudPunch can send only as that
+  mailbox and has no access to noreply@ at all.
+- Replies and bounces to welcome emails land in cloudpunch@, apart
+  from noreply's other mail.
+
+Everything else above stands (own token, Exchange RBAC for
+Applications, no `Mail.Send` in Entra, the Cc list). The setup steps in
+`docs/ops/pilot-vm.md` use the new mailbox.
