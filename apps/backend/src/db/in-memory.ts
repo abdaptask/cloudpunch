@@ -408,9 +408,10 @@ export class InMemoryDb implements DbRepositories {
       const existing = this.sessionById.get(input.id);
       if (existing) return existing;
     }
-    // Enforce the unique-open-per-employee invariant.
+    // Enforce the unique-open-per-employee invariant (a session inserted
+    // already closed doesn't count, as with the partial index).
     for (const s of this.sessionById.values()) {
-      if (s.employeeId === input.employeeId && s.closedAt === null) {
+      if (!input.closed && s.employeeId === input.employeeId && s.closedAt === null) {
         throw new SessionOpenConflictError(input.employeeId, s.id);
       }
     }
@@ -419,9 +420,9 @@ export class InMemoryDb implements DbRepositories {
       employeeId: input.employeeId,
       deviceId: input.deviceId,
       openedAt: input.openedAt,
-      closedAt: null,
-      closedReason: null,
-      reconstructed: false,
+      closedAt: input.closed?.at ?? null,
+      closedReason: input.closed?.reason ?? null,
+      reconstructed: input.closed?.reconstructed ?? false,
     };
     this.sessionById.set(session.id, session);
     return session;

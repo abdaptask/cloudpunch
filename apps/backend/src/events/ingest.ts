@@ -116,6 +116,8 @@ export async function ingestBatch(input: IngestBatchInput): Promise<IngestBatchO
 
   // Session lookup / lazy creation on USER_CLOCK_IN.
   let session = await input.db.timeSessions.findById(input.sessionId);
+  /** This batch opened a late, already-closed session (see below). */
+  let lateSession = false;
   const firstEvt = input.events[0];
   if (!firstEvt) {
     // Should be unreachable — schema enforces min:1.
@@ -138,7 +140,28 @@ export async function ingestBatch(input: IngestBatchInput): Promise<IngestBatchO
     // device). Reject unless the client explicitly opted in to take
     // over. See ADR-0003 §8.
     const existingOpen = await input.db.timeSessions.findOpenByEmployeeId(employee.id);
+    const startedAt = clockInStart(firstEvt);
+    /** Set when this batch is an older session arriving late (below). */
+    let lateClose: Date | null = null;
     if (
+      existingOpen &&
+      existingOpen.id !== input.sessionId &&
+      existingOpen.deviceId === device.id &&
+      startedAt < existingOpen.openedAt
+    ) {
+      // Same computer, but this session began BEFORE the open one: its
+      // events were stuck in the outbox (e.g. a sign-in that couldn't
+      // refresh) and the person has clocked in again since. The open
+      // session is the live one; never close it for an older one
+      // (2026-10-07: that clocked a working person out). Record this
+      // one as history, closed at its last event in the batch but no
+      // later than the live session's start, flagged for review.
+      const lastSeen = input.events.reduce<Date>((latest, e) => {
+        const at = new Date(e.client_ts);
+        return at > latest ? at : latest;
+      }, startedAt);
+      lateClose = new Date(Math.min(lastSeen.getTime(), existingOpen.openedAt.getTime()));
+    } else if (
       existingOpen &&
       existingOpen.id !== input.sessionId &&
       existingOpen.deviceId === device.id
@@ -174,11 +197,16 @@ export async function ingestBatch(input: IngestBatchInput): Promise<IngestBatchO
       id: input.sessionId,
       employeeId: employee.id,
       deviceId: device.id,
-      openedAt: clockInStart(firstEvt),
+      openedAt: startedAt,
+      closed: lateClose
+        ? { at: lateClose, reason: 'system_shutdown_reconstructed', reconstructed: true }
+        : undefined,
     });
+    // The late session's own first batch is still recorded.
+    if (lateClose !== null) lateSession = true;
   }
 
-  if (session.closedAt !== null) return { status: 'session_closed' };
+  if (session.closedAt !== null && !lateSession) return { status: 'session_closed' };
   if (session.employeeId !== employee.id) return { status: 'session_owner_mismatch' };
   if (session.deviceId !== device.id) return { status: 'session_device_mismatch' };
 
