@@ -165,6 +165,13 @@ export function nextState(
       if (current !== 'ON_BREAK') return null;
       return 'ACTIVE';
 
+    case 'USER_BREAK_EXTENDED': {
+      // ADR-0031 §3: the break goes on, planned 5 or 10 minutes longer.
+      if (current !== 'ON_BREAK') return null;
+      const extra = payload?.['extend_minutes'];
+      return extra === 5 || extra === 10 ? 'ON_BREAK' : null;
+    }
+
     case 'USER_MARK_AWAY': {
       if (current !== 'ACTIVE') return null;
       // ADR-0011 §2: the reason is required and must be known.

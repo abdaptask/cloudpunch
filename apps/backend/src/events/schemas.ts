@@ -39,6 +39,8 @@ export const EVENT_TYPES = [
   'IDLE_ENDED',
   'IDLE_CAP_REACHED',
   'USER_IDLE_EXPLAINED',
+  // ADR-0031 §3: "5 more min" / "10 more min" on an overrun break.
+  'USER_BREAK_EXTENDED',
 ] as const;
 
 export const eventItemSchema = z

@@ -35,6 +35,8 @@ pub enum TrayStateSnapshot {
     /// Kind of call (ADR-0012).
     OnCall(CallType),
     OnBreak,
+    /// A planned break ran past its end (ADR-0031 §3): red.
+    BreakOver,
     Away(AwayReason),
 }
 
@@ -48,6 +50,7 @@ pub fn render_status_label(state: &TrayStateSnapshot) -> String {
         TrayStateSnapshot::OnCall(CallType::Zoom) => "Status: On a Zoom call",
         TrayStateSnapshot::OnCall(CallType::Other) => "Status: On a call",
         TrayStateSnapshot::OnBreak => "Status: On break",
+        TrayStateSnapshot::BreakOver => "Status: Break is over",
         TrayStateSnapshot::Away(AwayReason::Meeting) => "Status: In a meeting",
         TrayStateSnapshot::Away(AwayReason::PhoneCall) => "Status: On a phone call",
         TrayStateSnapshot::Away(AwayReason::WorkingAway) => "Status: Working away",
@@ -76,7 +79,9 @@ pub fn action_items(state: TrayStateSnapshot) -> &'static [(&'static str, &'stat
         TrayStateSnapshot::OnCall(_) => {
             &[("clock_out", "Clock out"), (TAKE_BREAK, "Take a break…")]
         }
-        TrayStateSnapshot::OnBreak => &[("end_break", "End break"), ("clock_out", "Clock out")],
+        TrayStateSnapshot::OnBreak | TrayStateSnapshot::BreakOver => {
+            &[("end_break", "End break"), ("clock_out", "Clock out")]
+        }
         TrayStateSnapshot::Away(_) => &[("mark_back", "I'm back"), ("clock_out", "Clock out")],
     }
 }
@@ -149,6 +154,7 @@ pub fn status_color(state: TrayStateSnapshot) -> [u8; 3] {
     match state {
         TrayStateSnapshot::NotClockedIn => [0x9c, 0xa3, 0xaf],
         TrayStateSnapshot::OnBreak => [0xd9, 0x77, 0x06],
+        TrayStateSnapshot::BreakOver => [0xdc, 0x26, 0x26],
         TrayStateSnapshot::ClockedIn
         | TrayStateSnapshot::OnCall(_)
         | TrayStateSnapshot::Away(_) => [0x16, 0xa3, 0x4a],

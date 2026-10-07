@@ -1429,6 +1429,14 @@ pub async fn check_for_update(app: AppHandle) -> Result<serde_json::Value, Strin
     })
 }
 
+/// "5 more min" / "10 more min" on a break that ran over (ADR-0031 §3).
+#[tauri::command]
+pub fn extend_break(agent: State<'_, Arc<Agent>>, minutes: u8) -> CommandResult {
+    agent
+        .extend_break(minutes)
+        .map_err(|r| rejection_code(&r).to_string())
+}
+
 #[tauri::command]
 pub fn clock_out(agent: State<'_, Arc<Agent>>) -> CommandResult {
     run(&agent, Input::ClockOut)

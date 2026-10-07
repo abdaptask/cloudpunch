@@ -19,6 +19,7 @@ const mocks = vi.hoisted(() => ({
   answerAwayCheck: vi.fn<(back: boolean) => Promise<StateView>>(),
   startBreak: vi.fn<(kind: string, planned?: number | null) => Promise<StateView>>(),
   endBreak: vi.fn<() => Promise<StateView>>(),
+  extendBreak: vi.fn<(minutes: number) => Promise<StateView>>(),
   markBack: vi.fn<() => Promise<StateView>>(),
   markAway: vi.fn<(reason: 'meeting' | 'training') => Promise<StateView>>(),
   respondToPrompt: vi.fn(),
@@ -92,6 +93,7 @@ function view(over: Partial<StateView> = {}): StateView {
     signedInAt: null,
     clockInPrompt: false,
     notWorkingOffered: false,
+    breakOverSince: null,
     breakOptions: [
       { id: 'bio', label: 'Bio break', maxMinutes: 10 },
       { id: 'meal', label: 'Meal break', maxMinutes: 60 },
@@ -564,6 +566,43 @@ describe('App home UI', () => {
     expect(mocks.startBreak).toHaveBeenCalledWith('meal', 60);
     expect(statusText()).toBe('On a meal break');
     expect(actionButtons()).toEqual(['End break', 'Clock out']);
+  });
+
+  it('choosing a break scrolls up to it (owner request 2026-10-07)', async () => {
+    mocks.getState.mockResolvedValue(view({ status: 'active' }));
+    mocks.startBreak.mockResolvedValue(view({ status: 'on_break', breakKind: 'bio' }));
+    const scrollTo = vi.fn();
+    window.scrollTo = scrollTo as unknown as typeof window.scrollTo;
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole('button', { name: 'Take a break' }));
+    scrollTo.mockClear();
+    const picker = screen.getByRole('dialog', { name: 'take-a-break' });
+    await user.click(within(picker).getByRole('button', { name: 'Start break' }));
+    expect(scrollTo).toHaveBeenCalledWith({ top: 0, behavior: 'smooth' });
+  });
+
+  it('a break past its plan: the red banner, I’m back, or 5 / 10 more (ADR-0031 §3)', async () => {
+    const since = Date.now() - 3 * 60_000;
+    mocks.getState.mockResolvedValue(
+      view({
+        status: 'on_break',
+        breakKind: 'rest',
+        plannedBreakMinutes: 15,
+        breakOverSince: since,
+      }),
+    );
+    mocks.extendBreak.mockResolvedValue(
+      view({ status: 'on_break', breakKind: 'rest', plannedBreakMinutes: 20 }),
+    );
+    const user = userEvent.setup();
+    render(<App />);
+    const banner = await screen.findByRole('alert', { name: 'break-over' });
+    expect(banner).toHaveTextContent('Your tea break is over');
+    expect(banner).toHaveTextContent('3 min over');
+    await user.click(within(banner).getByRole('button', { name: '5 more min' }));
+    expect(mocks.extendBreak).toHaveBeenCalledWith(5);
+    expect(screen.queryByRole('alert', { name: 'break-over' })).not.toBeInTheDocument();
   });
 
   it('Back in 20 on a Personal break; Not sure sends no plan', async () => {

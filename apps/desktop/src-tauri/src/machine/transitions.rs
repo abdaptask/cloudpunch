@@ -112,6 +112,11 @@ pub fn next_payroll_state(
 
         "USER_START_BREAK" => matches!(current, Active | OnCall).then_some(OnBreak),
         "USER_END_BREAK" => (current == OnBreak).then_some(Active),
+        // ADR-0031 §3: same break, planned 5 or 10 minutes longer.
+        "USER_BREAK_EXTENDED" => {
+            let m = field("extend_minutes")?.as_u64()?;
+            (current == OnBreak && matches!(m, 5 | 10)).then_some(OnBreak)
+        }
         // ADR-0011 §2: a known away_reason is required.
         "USER_MARK_AWAY" => {
             let reason = field("away_reason")?.as_str()?;

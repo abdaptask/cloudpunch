@@ -178,6 +178,8 @@ export interface TeamDaySegment {
   ended_at: string;
   explanation?: { explanation: string; note: string | null };
   planned_minutes?: number;
+  /** Minutes added with "5 / 10 more min" (ADR-0031 §3). */
+  extended_minutes?: number;
   presence_check?: 'continuous' | 'periodic';
   ended_by?: 'input' | 'call';
   /** An approved correction's stretch (ADR-0030 §4). */
@@ -320,6 +322,8 @@ export interface StateView {
   clockInPrompt: boolean;
   /** The popup is for a shift: offer "Not working today" (ADR-0031). */
   notWorkingOffered: boolean;
+  /** When the planned break ran out, while it goes on (ADR-0031 §3). */
+  breakOverSince: number | null;
   /** Break types to offer, in menu order (ADR-0023). */
   breakOptions: BreakOption[];
   /** Offer Training as an Away tag. */
@@ -493,6 +497,9 @@ export const api = {
   startBreak: (kind: BreakId, plannedMinutes: number | null = null): Promise<StateView> =>
     invoke<StateView>('start_break', { kind, plannedMinutes }),
   endBreak: (): Promise<StateView> => invoke<StateView>('end_break'),
+  /** "5 more min" / "10 more min" on a break that ran over (ADR-0031 §3). */
+  extendBreak: (minutes: 5 | 10): Promise<StateView> =>
+    invoke<StateView>('extend_break', { minutes }),
   markBack: (): Promise<StateView> => invoke<StateView>('mark_back'),
   /** Voluntary tag (ADR-0011 §2). */
   markAway: (reason: 'meeting' | 'training'): Promise<StateView> =>

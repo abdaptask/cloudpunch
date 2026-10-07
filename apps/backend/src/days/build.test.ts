@@ -120,6 +120,24 @@ describe('buildSession', () => {
     expect(t.prompt_ms).toBe(1 * MIN);
   });
 
+  it('ADR-0031: "5 / 10 more min" lengthens the plan of the same break', () => {
+    const o = IST;
+    const s = shift('s1', '2026-09-25T09:00:00', '2026-09-25T13:00:00', o, [
+      evt('USER_START_BREAK', local('2026-09-25T10:00:00', o), o, {
+        break_kind: 'rest',
+        planned_minutes: 15,
+      }),
+      evt('USER_BREAK_EXTENDED', local('2026-09-25T10:16:00', o), o, { extend_minutes: 5 }),
+      evt('USER_BREAK_EXTENDED', local('2026-09-25T10:21:00', o), o, { extend_minutes: 10 }),
+      evt('USER_END_BREAK', local('2026-09-25T10:28:00', o), o),
+    ]);
+    const breaks = s.segments.filter((g) => g.kind.endsWith('_break'));
+    expect(breaks.map((g) => [g.kind, g.plannedMinutes, g.extendedMinutes])).toEqual([
+      ['rest_break', 30, 15],
+    ]);
+    expect(breaks[0]?.endedAt.getTime()).toBe(local('2026-09-25T10:28:00', o).getTime());
+  });
+
   it('ADR-0023: tea, personal and training, planned minutes, and paid vs unpaid breaks', () => {
     const o = IST;
     const s = shift('s1', '2026-09-25T09:00:00', '2026-09-25T13:00:00', o, [

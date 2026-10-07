@@ -6,6 +6,7 @@ import { BreakPicker, callName } from './BreakPicker.js';
 import { ClockInPrompt } from './ClockInPrompt.js';
 import { ClockOutDialog } from './ClockOutDialog.js';
 import { ShiftEditor } from './ShiftEditor.js';
+import { BreakOverBanner } from './BreakOverBanner.js';
 import {
   CorrectionForm,
   CorrectionsBanner,
@@ -123,14 +124,28 @@ function statusLabel(v: StateView, now: number): string {
       if (v.presenceCheck) return 'Idle: presence check not answered';
       return v.idleSince !== null ? `Idle since ${formatClock(v.idleSince)}` : 'Idle';
     case 'on_break': {
-      const kind = v.breakKind ?? 'other';
-      const name = v.breakOptions.find((o) => o.id === kind)?.label ?? KIND_LABEL[`${kind}_break`];
+      const name = breakName(v);
       // "Personal · back by 10:45" (ADR-0023 §2).
       const back = backBy(v);
       return back ? `${name} · back by ${back}` : `On a ${name.toLowerCase()}`;
     }
     case 'away':
       return KIND_LABEL[awayKind(v)];
+  }
+}
+
+/** The current break's name as HR set it: "Tea break". */
+function breakName(v: StateView): string {
+  const kind = v.breakKind ?? 'other';
+  return v.breakOptions.find((o) => o.id === kind)?.label ?? KIND_LABEL[`${kind}_break`];
+}
+
+/** Bring the top of the window (the status, the break) into view. */
+function scrollToTop(): void {
+  try {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  } catch {
+    // Nothing to scroll (tests).
   }
 }
 
@@ -232,6 +247,14 @@ export function App(): JSX.Element {
   // "Take a break": type, "Back in?", and a word about a call in
   // progress (ADR-0023; owner request).
   const [breakPicker, setBreakPicker] = useState(false);
+  // The picker and the overrun banner sit at the top: show them.
+  useEffect(() => {
+    if (breakPicker) scrollToTop();
+  }, [breakPicker]);
+  const breakOver = view?.breakOverSince ?? null;
+  useEffect(() => {
+    if (breakOver !== null) scrollToTop();
+  }, [breakOver]);
   // Why "Restart to update" didn't restart, if it didn't.
   const [updateError, setUpdateError] = useState<string | null>(null);
 
@@ -571,8 +594,19 @@ export function App(): JSX.Element {
               onStart={(kind, planned) => {
                 setBreakPicker(false);
                 run(() => api.startBreak(kind, planned));
+                // Show the break that just started, not the button.
+                scrollToTop();
               }}
               onCancel={() => setBreakPicker(false)}
+            />
+          )}
+          {signedIn && view?.status === 'on_break' && view.breakOverSince !== null && (
+            <BreakOverBanner
+              breakName={breakName(view)}
+              since={view.breakOverSince}
+              now={now}
+              onBack={() => run(api.endBreak)}
+              onMore={(m) => run(() => api.extendBreak(m))}
             />
           )}
           {/* The sign-in expired: say so, not "can't reach" (2026-10-07). */}

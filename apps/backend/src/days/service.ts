@@ -38,8 +38,10 @@ export interface DaySessionView {
     ended_at: string;
     /** Idle stretches: the person's account, if they gave one. */
     explanation?: { explanation: string; note: string | null };
-    /** Breaks: the "Back in?" answer (ADR-0023 §2). */
+    /** Breaks: the "Back in?" answer (ADR-0023 §2), extensions included. */
     planned_minutes?: number;
+    /** Minutes added with "5 / 10 more min" (ADR-0031 §3). */
+    extended_minutes?: number;
     /** A presence check's prompt or idle (ADR-0024). */
     presence_check?: 'continuous' | 'periodic';
     /** An Away that ended on its own (ADR-0027). */
@@ -135,6 +137,7 @@ function sessionView(s: BuiltSession): DaySessionView {
       ended_at: isoWithOffset(g.endedAt, g.offsetMinutes),
       ...(g.explanation ? { explanation: g.explanation } : {}),
       ...(g.plannedMinutes !== undefined ? { planned_minutes: g.plannedMinutes } : {}),
+      ...(g.extendedMinutes ? { extended_minutes: g.extendedMinutes } : {}),
       ...(g.presenceCheck ? { presence_check: g.presenceCheck } : {}),
       ...(g.endedBy ? { ended_by: g.endedBy } : {}),
       ...(g.correctionId ? { correction_id: g.correctionId } : {}),
