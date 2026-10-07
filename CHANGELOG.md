@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Desktop 0.1.20: the day comes back even if you clocked in first
+
+- Fix: after an update, someone who clocked in (e.g. from the clock-in
+  popup) before the app finished signing in saw an empty "Sessions
+  today" and a timer at 00:00:00, though their time was safe on the
+  server. Restoring today's history used to give up when already
+  clocked in; now the earlier sessions go back in ahead of the one
+  running, numbered before it, from the saved day or from the server.
+  The workaround until 0.1.20: clock out, sign out, sign back in.
+
 ### Desktop 0.1.19: copy a shift to several people (ADR-0031)
 
 - Settings → People → Shifts: **Copy to…** next to anyone with a shift
