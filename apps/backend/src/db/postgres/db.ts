@@ -183,7 +183,7 @@ export class PostgresDb implements DbRepositories {
       const ds = await this.sql<CorrectionDecision[]>`
         SELECT ${dcols} FROM time_correction_decision
         WHERE correction_id IN ${this.sql(rows.map((r) => r.id))}
-        ORDER BY decided_at, id`;
+        ORDER BY decided_at, (decision <> 'endorsed'), id`;
       return rows.map((r) => ({ ...r, decisions: ds.filter((d) => d.correctionId === r.id) }));
     };
     const isUniqueViolation = (e: unknown): boolean =>
