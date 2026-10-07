@@ -35,12 +35,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (Restart to update while clocked out), or why it couldn't check.
   Every manual check is noted in `update.log`.
 
-### ADR-0031 proposed: shifts, a clock-in popup that keeps asking, loud break overrun
+### ADR-0031 accepted: shifts, a clock-in popup that keeps asking, loud break overrun
 
 - Administrators assign each person a weekly shift. During the shift,
   the clock-in popup returns every 5 minutes until they clock in (or
   say "Not working today"), including after a clock-out. Clock out
   keeps you signed in.
+- Owner's answers: a weekly pattern per person; the popup first shows
+  at the shift's start in the shift's own time zone (12:00 IST, 08:00
+  Eastern), never early; "Not working today" asks no reason.
 - A break past its planned end brings the window forward with a
   blinking red banner, flashes the taskbar/Dock and repeats every 2
   minutes: I'm back, 5 or 10 more minutes, or switch.

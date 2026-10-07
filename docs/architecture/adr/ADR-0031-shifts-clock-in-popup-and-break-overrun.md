@@ -1,14 +1,13 @@
 # ADR-0031 — Shifts, a clock-in popup that keeps asking, and a loud break overrun
 
-- **Status:** Proposed (2026-10-07)
+- **Status:** Accepted (2026-10-07, the owner answered the open questions)
 - **Date:** 2026-10-07
 - **Deciders:** Abdulla Sheikh (project owner), Architecture (Claude)
 - **Builds on:** ADR-0018 §4 (daily clock-in popup from the sign-in
   time), ADR-0023 (break types and planned breaks), ADR-0015 (policy
   overrides), ADR-0025 (team views), ADR-0028 (one active machine).
-- **Confidence:** High for the popup and break-alert behaviour (the
-  owner's answers, 2026-10-07). Medium for the shift model in §1: a
-  weekly pattern is assumed and needs the owner's confirmation.
+- **Confidence:** High. The owner set the behaviour and the shift
+  model (answers of 2026-10-07, see "Decided").
 
 ## Context
 
@@ -57,7 +56,11 @@ A shift is a weekly pattern:
 
 ### 2. The popup keeps asking during the shift
 
-The window is the shift (start to end). It opens at shift start.
+The window is the shift (start to end). The popup first appears **at
+the shift's start time, in the shift's own time zone**: a shift from
+12:00 Asia/Kolkata pops up at 12:00 IST, a shift from 08:00
+America/New_York at 08:00 Eastern (following US daylight saving). It
+never appears early.
 
 - **When it shows:** while the person is signed in, at the computer
   (input within the last 5 minutes, as now) and not clocked in.
@@ -65,9 +68,9 @@ The window is the shift (start to end). It opens at shift start.
   - **Clock in now** (the primary button).
   - **Clock in from HH:MM**, when they signed in (ADR-0018 §4).
   - **Not now.** This snoozes it for **5 minutes** (the owner's answer).
-  - **Not working today.** This silences it until the next shift. The
-    choice is sent to the server and shows on Team as "Said not
-    working", so a manager can follow up.
+  - **Not working today.** This silences it until the next shift. No
+    reason is asked. The choice is sent to the server and shows on
+    Team as "Said not working", so a manager can follow up.
 - **After a clock-out:** if the shift hasn't ended, the popup starts
   again 5 minutes after a clock-out. It always respects a break; there
   is no popup while on a break.
@@ -130,10 +133,9 @@ At the planned end of a break (ADR-0023 §2), while still on that break:
 - **Auto clock-in at shift start:** rejected, as in ADR-0018. A
   clock-in is always the person's own act.
 
-## Open questions for the owner
+## Decided (2026-10-07, the owner)
 
-1. Is a **weekly pattern** (same times on chosen weekdays) enough, or
-   do some people need different times on different days?
-2. Should the popup also appear a few minutes **before** shift start
-   (for example 10 minutes early)?
-3. Should "Not working today" need a reason (leave, sick, holiday)?
+1. **Weekly pattern** (same times on the chosen weekdays) is enough.
+2. The popup starts **at the shift's start time** in the shift's time
+   zone, not before.
+3. **"Not working today" asks no reason.**
