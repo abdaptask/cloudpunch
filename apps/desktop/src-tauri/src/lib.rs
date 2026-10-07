@@ -326,6 +326,7 @@ pub fn run() {
             commands::admin_people_search,
             commands::team_now,
             commands::team_day,
+            commands::team_days,
             commands::team_exceptions,
             commands::admin_employees,
             commands::admin_set_manager,

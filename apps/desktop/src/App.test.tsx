@@ -50,6 +50,7 @@ const mocks = vi.hoisted(() => ({
   adminWelcomeSend: vi.fn(),
   teamNow: vi.fn(),
   teamDay: vi.fn(),
+  teamDays: vi.fn(),
   teamExceptions: vi.fn(),
   adminEmployees: vi.fn(),
   adminSetManager: vi.fn(),
@@ -1938,6 +1939,20 @@ describe('Team tab (ADR-0025)', () => {
   it('is offered to Managers only, lists the team, and opens a day', async () => {
     mocks.myCapabilities.mockResolvedValue(['team.timeline.read']);
     mocks.teamNow.mockResolvedValue({ people: [farheen] });
+    const totals = (worked: number) => ({
+      worked_ms: worked * 60_000,
+      calls_ms: 0,
+      meetings_ms: 0,
+      breaks_ms: 0,
+      prompt_ms: 0,
+    });
+    mocks.teamDays.mockResolvedValue({
+      name: 'Farheen Test',
+      days: [
+        { date: '2026-09-27', sessions: 0, ...totals(0) },
+        { date: '2026-09-28', sessions: 2, ...totals(420) },
+      ],
+    });
     mocks.teamDay.mockResolvedValue({
       name: 'Farheen Test',
       date: '2026-09-29',
@@ -1980,10 +1995,32 @@ describe('Team tab (ADR-0025)', () => {
     expect(list).toHaveTextContent('Farheen Test');
     expect(list).toHaveTextContent('Personal · back by');
     await user.click(within(list).getByRole('button', { name: /Farheen Test/ }));
+    // Summary first: status under the name, today as a card, no tabs or arrows.
+    expect(screen.getByLabelText('person-status')).toHaveTextContent('Personal · back by');
+    expect(await screen.findByLabelText('today-summary')).toHaveTextContent('Breaks 24 min');
+    expect(screen.queryByRole('tablist')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'previous day' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('list', { name: 'team-day' })).not.toBeInTheDocument();
+    expect(mocks.teamDay).toHaveBeenCalledWith(farheen.employee_id, expect.any(String));
+    // Today opens in place.
+    await user.click(screen.getByRole('button', { name: 'today' }));
     const day = await screen.findByRole('list', { name: 'team-day' });
     expect(day).toHaveTextContent('Planned 20 min · took 24 min');
-    expect(mocks.teamDay).toHaveBeenCalledWith(farheen.employee_id, expect.any(String));
     expect(screen.getByLabelText('team-day-totals')).toHaveTextContent('unpaid 24 min');
+    // Earlier: only days with time on them; each opens the same way.
+    expect(mocks.teamDays).toHaveBeenCalledWith(
+      farheen.employee_id,
+      expect.any(String),
+      expect.any(String),
+    );
+    const earlier = screen.getByRole('region', { name: 'earlier' });
+    expect(within(earlier).queryByRole('button', { name: 'day 2026-09-27' })).toBeNull();
+    const sept28 = await within(earlier).findByRole('button', { name: 'day 2026-09-28' });
+    expect(sept28).toHaveTextContent('2 sessions');
+    await user.click(sept28);
+    expect(mocks.teamDay).toHaveBeenCalledWith(farheen.employee_id, '2026-09-28');
+    // Opening one day closes the other.
+    expect(screen.getByRole('button', { name: 'today' })).toHaveAttribute('aria-expanded', 'false');
   });
 
   it('is not offered without the team capability', async () => {
