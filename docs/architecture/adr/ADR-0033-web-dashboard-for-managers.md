@@ -165,7 +165,11 @@ untouched.
 ## Owner's answers (2026-10-08)
 
 1. **Approvals:** view-only in the first release; approving from the
-   browser is a later follow-up.
+   browser is a later follow-up. _Amended 2026-10-08 (owner):_ the
+   corrections queue on the web now endorses, approves and rejects, the
+   same call and server checks as the desktop. Asking for a correction
+   ("Correct this day") stays in the app. No cookies, so no CSRF: the
+   API still takes only the bearer token.
 2. **Who gets it:** Managers and HR, as in the desktop Team tab.
 3. **Cloudflare Access on `/app*`:** yes, as a second gate.
 

@@ -9,8 +9,9 @@ import type { api as DesktopApi } from '../../desktop/src/api.js';
  * screens read `String(e)` as a code (`offline`, `sign_in_again`, or the
  * server's `code`), which `ApiRefusal` gives them.
  *
- * View only for now (ADR-0033, owner's answers): what changes data
- * refuses with `view_only` before sending anything.
+ * Managers decide corrections here too (ADR-0033, amended 2026-10-08);
+ * everything else that changes data refuses with `view_only` before
+ * sending anything.
  */
 
 type Api = typeof DesktopApi;
@@ -59,7 +60,9 @@ export function connectApi(t: Transport | null): void {
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 
-async function get<T>(path: string): Promise<T> {
+const get = <T>(path: string): Promise<T> => send<T>('GET', path);
+
+async function send<T>(method: 'GET' | 'POST', path: string, body?: unknown): Promise<T> {
   if (!transport) throw refuse('sign_in_again');
   let token: string;
   try {
@@ -69,7 +72,16 @@ async function get<T>(path: string): Promise<T> {
   }
   let res: Response;
   try {
-    res = await transport.fetch(path, { headers: { authorization: `Bearer ${token}` } });
+    res = await transport.fetch(
+      path,
+      body === undefined
+        ? { headers: { authorization: `Bearer ${token}` } }
+        : {
+            method,
+            headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+            body: JSON.stringify(body),
+          },
+    );
   } catch {
     throw refuse('offline');
   }
@@ -112,5 +124,14 @@ export const api: WebApi = {
   myConnections: () => get('/v1/me/connections'),
   correctionsQueue: () => get('/v1/corrections/queue'),
   requestCorrection: viewOnly,
-  decideCorrection: viewOnly,
+  // As the Rust core: endorse/approve/reject/withdraw, an optional note.
+  decideCorrection: async (id, decision, note = null) => {
+    check(UUID.test(id) && ['endorse', 'approve', 'reject', 'withdraw'].includes(decision));
+    const text = note?.trim();
+    return send(
+      'POST',
+      `/v1/corrections/${id}/decision`,
+      text ? { decision, note: text } : { decision },
+    );
+  },
 };

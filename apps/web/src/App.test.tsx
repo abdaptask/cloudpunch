@@ -79,6 +79,8 @@ function deps(
     if (url === '/v1/me' && meRes) return meRes;
     if (url === '/v1/team') return json(200, { people: [ROSHNI] });
     if (url === '/v1/corrections/queue') return json(200, QUEUE);
+    if (url === `/v1/corrections/${QUEUE.to_endorse[0]?.correction.id}/decision`)
+      return json(200, { correction: { ...QUEUE.to_endorse[0]?.correction, status: 'endorsed' } });
     return json(404, {});
   });
   return {
@@ -135,15 +137,26 @@ describe('web dashboard shell (ADR-0033)', () => {
     }
   });
 
-  it('a manager sees what waits for them, and decides in the app', async () => {
+  it('a manager endorses a correction from the web', async () => {
     const d = deps(fakeAuth(true), json(200, me(['team.timeline.read', 'team.correction.review'])));
     render(<App deps={d} />);
     await userEvent.click(await screen.findByRole('button', { name: 'Review' }));
     expect(await screen.findByLabelText('correction Roshni K')).toHaveTextContent(
       'Forgot to clock in',
     );
-    expect(screen.queryByRole('button', { name: 'Endorse' })).not.toBeInTheDocument();
-    expect(screen.getByText(/open the CloudPunch app/)).toBeInTheDocument();
+    expect(screen.queryByText(/open the CloudPunch app/)).not.toBeInTheDocument();
+    const queueCalls = (): number =>
+      d.fetch.mock.calls.filter(([u]) => String(u) === '/v1/corrections/queue').length;
+    const before = queueCalls();
+    await userEvent.click(screen.getByRole('button', { name: 'Endorse' }));
+    const post = d.fetch.mock.calls.find(([u]) => String(u).endsWith('/decision'));
+    expect(post?.[1]).toEqual({
+      method: 'POST',
+      headers: { authorization: 'Bearer tok', 'content-type': 'application/json' },
+      body: JSON.stringify({ decision: 'endorse' }),
+    });
+    // The queue reloads after a decision.
+    await vi.waitFor(() => expect(queueCalls()).toBeGreaterThan(before));
     await userEvent.click(screen.getByRole('button', { name: 'Done' }));
     expect(await screen.findByRole('list', { name: 'team-today' })).toBeInTheDocument();
   });

@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Web dashboard: managers endorse corrections in the browser (owner request, ADR-0033)
+
+- The corrections queue on `/app/` now has Endorse, Approve and Reject,
+  as in the desktop app: the same `POST /v1/corrections/:id/decision`,
+  the same server checks (a direct manager endorses; an Administrator
+  approves) and the same audit. The queue reloads after each decision.
+- "Correct this day" (asking for a correction) stays in the app.
+- The desktop queue's `readOnly` mode, used only by the web, is gone.
+
 ### People: removing someone's roles takes them off the lists (owner request, desktop 0.1.23)
 
 - With no Employee, Manager or HR role left, a person's employee
