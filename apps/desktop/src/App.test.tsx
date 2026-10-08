@@ -2093,8 +2093,13 @@ describe('Reporting lines and Versions (ADR-0025)', () => {
 
   it('HR sets who someone reports to', async () => {
     mocks.myCapabilities.mockResolvedValue(['hr.employee.write']);
-    mocks.adminPeople.mockResolvedValue({ people: [] });
-    mocks.adminEmployees.mockResolvedValue({ employees: [mona, farheen] });
+    // Only Managers and HR are offered as managers.
+    mocks.adminPeople.mockResolvedValue({
+      people: [
+        { oid: 'oid-mona', name: 'Mona Test', roles: ['Manager'], has_employee_record: true },
+      ],
+    });
+    mocks.adminEmployees.mockResolvedValue({ employees: [{ ...mona, oid: 'oid-mona' }, farheen] });
     mocks.adminSetManager.mockResolvedValue({ id: 'b2', reporting_manager_id: 'a1' });
     const user = userEvent.setup();
     render(<App />);
