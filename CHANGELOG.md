@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Desktop 0.1.22: the dial's clock shows the whole day (owner request)
+
+- While clocked in, the big digits in the dial show all of today's time
+  on the clock: work, calls, breaks and idle together, from the day's
+  first clock-in ("since clock-in 08:02"). A break or a clock-out and
+  back in no longer restarts it; time clocked out isn't counted.
+- The seconds ring sweeps with the same clock.
+- Unchanged: the stats bar under the dial, the pinned strip, the
+  clocked-out "worked today" and the long-shift warning.
+
 ### Docs: connection location on from the start (ADR-0032); welcome email from cloudpunch@
 
 - **ADR-0032** supersedes ADR-0029 §7: no announcement or waiting

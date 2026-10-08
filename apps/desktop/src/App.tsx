@@ -389,6 +389,10 @@ export function App(): JSX.Element {
     // Only the block starting matters, not later pins.
   }, [isBlocked]);
   const todayTotals = totals(todaySegs, now, todaySince);
+  // The dial's clock (owner request): all of today's time on the clock,
+  // breaks, idle and calls included, from the day's first clock-in.
+  const onTheClock =
+    todayTotals.working + todayTotals.break + todayTotals.prompt + todayTotals.idle;
 
   // End-of-day summary (ADR-0013 §8): on the employee's own clock-out
   // (not the idle auto clock-out, which explains itself) and at sign-out.
@@ -850,9 +854,7 @@ export function App(): JSX.Element {
                         tint={view ? t.tint[tintFor(view.status)] : undefined}
                         glow={view ? t.gauge.glow[tintFor(view.status)] : undefined}
                         worked={todayTotals.working}
-                        elapsed={
-                          view?.sessionStartedAt != null ? now - view.sessionStartedAt : null
-                        }
+                        elapsed={view?.sessionStartedAt != null ? onTheClock : null}
                       >
                         <div
                           style={{
@@ -883,14 +885,14 @@ export function App(): JSX.Element {
                           <>
                             <div aria-label="session-timer" style={{ margin: '4px 0 2px' }}>
                               <SevenSegment
-                                text={formatTimer(now - view.sessionStartedAt)}
+                                text={formatTimer(onTheClock)}
                                 color={t.gauge.text}
                                 unlit={t.gauge.unlit}
                                 height={28}
                               />
                             </div>
                             <div style={{ fontSize: 11, color: t.gauge.dim }}>
-                              since {formatClock(view.sessionStartedAt)}
+                              since clock-in {formatClock(todaySince)}
                             </div>
                           </>
                         ) : (

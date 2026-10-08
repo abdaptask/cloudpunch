@@ -711,11 +711,42 @@ describe('App home UI', () => {
   });
 
   it('shows a live session timer while clocked in', async () => {
+    const start = Date.now() - 3_723_000;
     mocks.getState.mockResolvedValue(
-      view({ status: 'active', sessionStartedAt: Date.now() - 3_723_000 }),
+      view({
+        status: 'active',
+        sessionStartedAt: start,
+        timeline: [{ kind: 'working', startedAt: start, endedAt: null, session: 1 }],
+      }),
     );
     render(<App />);
     expect(await screen.findByLabelText('session-timer')).toHaveTextContent(/^01:02:0[34]$/);
+  });
+
+  it("the dial's clock counts the whole day on the clock, breaks, idle and calls included", async () => {
+    const now = Date.now();
+    const MIN = 60_000;
+    // Clocked in 3h ago; a call, a break and logged idle; out for 30 min
+    // (not counted) and back in 20 min ago.
+    mocks.getState.mockResolvedValue(
+      view({
+        status: 'active',
+        sessionStartedAt: now - 20 * MIN,
+        timeline: [
+          { kind: 'working', startedAt: now - 180 * MIN, endedAt: now - 150 * MIN, session: 1 },
+          { kind: 'call_zoom', startedAt: now - 150 * MIN, endedAt: now - 120 * MIN, session: 1 },
+          { kind: 'meal_break', startedAt: now - 120 * MIN, endedAt: now - 90 * MIN, session: 1 },
+          { kind: 'idle', startedAt: now - 90 * MIN, endedAt: now - 80 * MIN, session: 1 },
+          { kind: 'working', startedAt: now - 80 * MIN, endedAt: now - 50 * MIN, session: 1 },
+          { kind: 'working', startedAt: now - 20 * MIN, endedAt: null, session: 2 },
+        ],
+      }),
+    );
+    render(<App />);
+    const status = await screen.findByRole('region', { name: 'current-status' });
+    // 30 + 30 + 30 + 10 + 30 + 20 min = 2h 30m, not the 20 min since the last clock-in.
+    expect(within(status).getByLabelText('session-timer')).toHaveTextContent(/^02:30:0\d$/);
+    expect(status).toHaveTextContent(`since clock-in ${formatClock(now - 180 * MIN)}`);
   });
 
   it('renders today’s timeline and tracked totals', async () => {
