@@ -16,6 +16,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - "Correct this day" (asking for a correction) stays in the app.
 - The desktop queue's `readOnly` mode, used only by the web, is gone.
 
+### Ops: the Mac build script catches today's slips
+
+- `build-mac.sh` defaults to the Apple ID `admin@aptask.com`; a failed
+  build says where the app-specific password comes from.
+- With `--publish`, it loads the SSH key into the macOS keychain itself
+  when it isn't loaded (one passphrase prompt), and stops if the version
+  is already published for Mac.
+- It stops if the copy is behind `main` ("git checkout main && git
+  pull"), so an old version isn't rebuilt.
+
 ### People: removing someone's roles takes them off the lists (owner request, desktop 0.1.23)
 
 - With no Employee, Manager or HR role left, a person's employee

@@ -1,8 +1,12 @@
 #!/usr/bin/env bash
 # Build the signed, notarized Mac pilot app (ADR-0026) on the owner's Mac.
 #
-#   bash scripts/build-mac.sh you@aptask.com
-#   bash scripts/build-mac.sh you@aptask.com --publish   # and publish it
+#   bash scripts/build-mac.sh --publish                  # build and publish
+#   bash scripts/build-mac.sh                            # build only
+#   bash scripts/build-mac.sh other@aptask.com --publish # another Apple ID
+#
+# The Apple ID is ApTask's developer account, admin@aptask.com, unless
+# another is given; the app-specific password is made under that ID.
 #
 # It finds the Developer ID certificate and Team ID in the keychain, asks
 # for the two passwords (nothing is shown or saved), checks everything,
@@ -27,9 +31,9 @@ for arg in "$@"; do
     *) APPLE_ID="$arg" ;;
   esac
 done
-if [ -z "$APPLE_ID" ]; then
-  read -r -p 'Apple ID email: ' APPLE_ID
-fi
+# ApTask's Apple developer account (a personal Apple ID fails
+# notarization with 401 "Invalid credentials").
+APPLE_ID="${APPLE_ID:-admin@aptask.com}"
 case "$APPLE_ID" in
   *@*.*) ;;
   *) fail "\"$APPLE_ID\" doesn't look like an email address" ;;
@@ -54,13 +58,33 @@ for t in aarch64-apple-darwin x86_64-apple-darwin; do
 done
 [ -d "$ROOT/node_modules" ] || fail "packages not installed. Run: pnpm install (in $ROOT)"
 
+# Build what's on main: an old copy here would rebuild (or re-publish)
+# an old version.
+if git -C "$ROOT" fetch -q origin main 2>/dev/null; then
+  behind="$(git -C "$ROOT" rev-list --count HEAD..origin/main)"
+  [ "$behind" = 0 ] ||
+    fail "this copy is $behind commit(s) behind main. Run: git checkout main && git pull"
+else
+  echo "build-mac: couldn't check GitHub for newer code; building this copy as it is." >&2
+fi
+
 VERSION="$(node -p "require('./src-tauri/tauri.conf.json').version")"
 
 NOTES=()
 if [ "$PUBLISH" = 1 ]; then
   HOST="${PILOT_HOST:-aptask@172.16.46.54}"
-  ssh -o BatchMode=yes -o ConnectTimeout=5 "$HOST" true 2>/dev/null ||
-    fail "can't reach $HOST over SSH to publish. Run once: ssh $HOST true (and answer yes), or build without --publish."
+  if ! ssh -o BatchMode=yes -o ConnectTimeout=5 "$HOST" true 2>/dev/null; then
+    # Usually the SSH key's passphrase isn't loaded: load it into the
+    # macOS keychain once (it asks for the passphrase), then try again.
+    echo "build-mac: loading your SSH key (asks for its passphrase once; the keychain keeps it)."
+    ssh-add --apple-use-keychain "$HOME/.ssh/id_ed25519" ||
+      fail "couldn't load ~/.ssh/id_ed25519. Run: ssh-add --apple-use-keychain ~/.ssh/id_ed25519"
+    ssh -o BatchMode=yes -o ConnectTimeout=5 "$HOST" true 2>/dev/null ||
+      fail "can't reach $HOST over SSH to publish. Run once: ssh $HOST true (and answer yes), or build without --publish."
+  fi
+  ssh -o BatchMode=yes "$HOST" cat /opt/cloudpunch/downloads/macos/releases.json 2>/dev/null |
+    grep -q "\"version\": \"$VERSION\"" &&
+    fail "$VERSION is already published for Mac. Every release needs a new version: is this copy up to date (git pull)?"
   echo "What's new in $VERSION? Type each note and press Enter; press Enter on an empty note when done."
   # A counter, not ${#NOTES[@]}: macOS bash 3.2 with set -u.
   n=0
@@ -93,7 +117,8 @@ export APPLE_SIGNING_IDENTITY="$IDENTITY" APPLE_ID APPLE_TEAM_ID="$TEAM_ID" APPL
 export TAURI_SIGNING_PRIVATE_KEY="$KEY" TAURI_SIGNING_PRIVATE_KEY_PASSWORD
 
 echo "Building $VERSION. This takes a while, then a few more minutes while Apple notarizes it."
-pnpm tauri build --target universal-apple-darwin --config src-tauri/tauri.pilot.macos.conf.json
+pnpm tauri build --target universal-apple-darwin --config src-tauri/tauri.pilot.macos.conf.json ||
+  fail "the build failed (see above). If Apple said 401 or \"Invalid credentials\": the Apple ID is $APPLE_ID, and the app-specific password must be made under that ID at appleid.apple.com."
 unset APPLE_PASSWORD TAURI_SIGNING_PRIVATE_KEY_PASSWORD
 
 BUNDLE="$ROOT/target/universal-apple-darwin/release/bundle"
