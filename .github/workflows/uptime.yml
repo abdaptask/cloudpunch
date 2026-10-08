@@ -1,0 +1,32 @@
+# Is cloudpunch.aptask.com answering? (ADR-0035.) From outside ApTask's
+# network, so it notices what the server's own health check can't: the
+# whole server, its network or the Cloudflare Tunnel being down. A
+# failed run emails whoever last changed this schedule (GitHub's rule
+# for scheduled workflows), i.e. the owner.
+name: uptime
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  livez:
+    if: github.repository == 'abdaptask/cloudpunch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: GET https://cloudpunch.aptask.com/livez
+        run: |
+          # Three tries a minute apart, so one blip doesn't email anyone.
+          for i in 1 2 3; do
+            if curl -fsS --max-time 15 -o /dev/null https://cloudpunch.aptask.com/livez; then
+              echo "up"
+              exit 0
+            fi
+            [ "$i" = 3 ] || sleep 60
+          done
+          echo "::error::cloudpunch.aptask.com/livez didn't answer 3 times in 3 minutes"
+          exit 1

@@ -1,0 +1,13 @@
+[Unit]
+Description=CloudPunch: API, database and disk check (ADR-0035)
+After=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/cloudpunch/api.env
+EnvironmentFile=/etc/cloudpunch/alert.env
+ExecStart=/bin/bash /opt/cloudpunch/app/infra/pilot/health-check.sh
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/cloudpunch-health
