@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### ADR-0034 proposed: one-click desktop releases
+
+- A manual "Release" workflow on GitHub builds and signs Windows and
+  Mac together (Mac notarized), after the owner approves the run. It
+  uploads the files encrypted to the pilot server's key, and a timer on
+  the server pulls and publishes them within about 5 minutes. Nothing
+  readable is left on GitHub (the repository is public). The manual
+  build scripts stay as a fallback.
+- Three questions for the owner: delivery, trigger and approval.
+
 ### Ops: the Mac build script catches today's slips
 
 - `build-mac.sh` defaults to the Apple ID `admin@aptask.com`; a failed
