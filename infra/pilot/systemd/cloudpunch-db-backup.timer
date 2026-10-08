@@ -1,0 +1,10 @@
+[Unit]
+Description=CloudPunch: database backup at 02:00 India time
+
+[Timer]
+OnCalendar=*-*-* 20:30:00 UTC
+Persistent=true
+RandomizedDelaySec=5min
+
+[Install]
+WantedBy=timers.target

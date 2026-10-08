@@ -1,0 +1,12 @@
+[Unit]
+Description=CloudPunch: email the owner that %i failed (ADR-0035)
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/cloudpunch/api.env
+EnvironmentFile=/etc/cloudpunch/alert.env
+WorkingDirectory=/opt/cloudpunch/app/apps/backend
+ExecStart=/bin/bash -c 'journalctl -u "%i" -n 40 --no-pager -o cat | /usr/local/bin/node --import tsx scripts/notify.ts "Failed: %i"'
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
