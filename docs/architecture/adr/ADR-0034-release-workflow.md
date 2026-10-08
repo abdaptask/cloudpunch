@@ -1,6 +1,6 @@
 # ADR-0034 — One-click desktop releases built on GitHub, pulled by the pilot server
 
-- **Status:** Proposed (2026-10-08), three questions for the owner below
+- **Status:** Accepted (2026-10-08, the owner chose the recommended answer to each question)
 - **Date:** 2026-10-08
 - **Deciders:** Abdulla Sheikh (project owner), Architecture (Claude)
 - **Builds on:** ADR-0019 §9 (downloads on the pilot VM, behind
@@ -213,3 +213,15 @@ Two more aren't secrets:
      taken from the CHANGELOG.
 3. **Approval:** you as the required reviewer of the `release`
    environment (_recommended_), or no approval step.
+
+## Owner's answers (2026-10-08)
+
+The recommended answer to each:
+
+1. **Delivery:** encrypted artifacts that the server pulls.
+2. **Trigger:** the owner clicks _Run workflow_ and types the notes.
+3. **Approval:** the owner is the required reviewer of the `release`
+   environment.
+
+Production stays on this server for now (ADR-0035), so the pull timer
+is the delivery route, not S3.
