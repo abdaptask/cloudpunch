@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { App, type AppDeps, type Me } from './App.js';
@@ -27,6 +27,16 @@ function fakeAuth(signedIn: boolean): Auth {
   return auth;
 }
 
+const ROSHNI = {
+  employee_id: '2b9f6c1e-4d1a-4c3e-9a57-0d3c1f2e8a41',
+  name: 'Roshni K',
+  status: 'working',
+  kind: 'working',
+  since: new Date(Date.now() - 3_600_000).toISOString(),
+  back_by: null,
+  worked_ms: 3_600_000,
+};
+
 const json = (status: number, body: unknown): Response =>
   new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 
@@ -45,6 +55,7 @@ function deps(
   const fetchFn = vi.fn(async (url: string) => {
     if (url === '/app/config.json') return json(configStatus, CONFIG);
     if (url === '/v1/me' && meRes) return meRes;
+    if (url === '/v1/team') return json(200, { people: [ROSHNI] });
     return json(404, {});
   });
   return {
@@ -61,7 +72,7 @@ describe('web dashboard shell (ADR-0033)', () => {
     await userEvent.click(await screen.findByRole('button', { name: 'Sign in with Microsoft' }));
     expect(auth.signIn).toHaveBeenCalledOnce();
     expect(d.startAuth).toHaveBeenCalledWith(CONFIG);
-    expect(await screen.findByText('Hello, Nilesh D')).toBeInTheDocument();
+    expect(await screen.findByText('Roshni K')).toBeInTheDocument();
     expect(d.startAuth).toHaveBeenCalledOnce();
   });
 
@@ -83,12 +94,31 @@ describe('web dashboard shell (ADR-0033)', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('popup_window_error');
   });
 
-  it('a manager gets in, and the API call carries the token', async () => {
+  it("a manager sees the desktop's Team screen, each call carrying the token", async () => {
     const d = deps(fakeAuth(true), json(200, me(['team.timeline.read', 'self.timeline.read'])));
     render(<App deps={d} />);
-    expect(await screen.findByText('Hello, Nilesh D')).toBeInTheDocument();
-    const call = d.fetch.mock.calls.find(([u]) => String(u) === '/v1/me');
-    expect((call?.[1] as RequestInit).headers).toEqual({ authorization: 'Bearer tok' });
+    const today = await screen.findByRole('list', { name: 'team-today' });
+    expect(within(today).getByText('Roshni K')).toBeInTheDocument();
+    expect(screen.getByText('Nilesh D')).toBeInTheDocument();
+    // Nothing to go back to on the web: no "Done".
+    expect(screen.queryByRole('button', { name: 'Done' })).not.toBeInTheDocument();
+    for (const path of ['/v1/me', '/v1/team']) {
+      const call = d.fetch.mock.calls.find(([u]) => String(u) === path);
+      expect((call?.[1] as RequestInit).headers).toEqual({ authorization: 'Bearer tok' });
+    }
+    // HR (no team.connection.read): no connections call.
+    expect(d.fetch.mock.calls.some(([u]) => String(u) === '/v1/team/connections')).toBe(false);
+  });
+
+  it('signing out of the dashboard goes back to the sign-in button', async () => {
+    const auth = fakeAuth(true);
+    render(<App deps={deps(auth, json(200, me(['team.timeline.read'])))} />);
+    await screen.findByText('Roshni K');
+    await userEvent.click(screen.getByRole('button', { name: 'Sign out' }));
+    expect(auth.signOut).toHaveBeenCalledOnce();
+    expect(
+      await screen.findByRole('button', { name: 'Sign in with Microsoft' }),
+    ).toBeInTheDocument();
   });
 
   it('an employee without team access is pointed to the app', async () => {
