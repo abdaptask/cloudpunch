@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Backend: a refreshed welcome email (owner request, ADR-0021)
+
+- The CloudPunch logo at the top and the ApTask mark in the footer,
+  sent inside the email (inline attachments), so Outlook shows them
+  without "download pictures".
+- Mac as well as Windows: "Download for Mac", then drag CloudPunch
+  into Applications.
+- The clock-in reminder follows your shift ("depending on your shift,
+  expect a popup…"), with 8 am US Eastern for people without one.
+- "How CloudPunch monitors your working day" replaces "What CloudPunch
+  records, and what it never does": it lists what is monitored,
+  including where you connect from (ADR-0032), and no longer lists what
+  isn't captured. The invariants themselves are unchanged.
+- "Take a break" instead of fixed break names (HR can rename them).
+
 ### Desktop 0.1.22: the dial's clock shows the whole day (owner request)
 
 - While clocked in, the big digits in the dial show all of today's time
