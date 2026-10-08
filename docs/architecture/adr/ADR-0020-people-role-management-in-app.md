@@ -46,6 +46,11 @@ from the directory.
    their employee record from the directory entry (given name, surname,
    email, object id), if they have none. The manual seed step goes
    away.
+   _Amended 2026-10-08 (owner):_ Manager and HR create the record too,
+   because a reporting line (ADR-0025 §1) links two employee records,
+   and a manager may never install the app. Saving someone's roles
+   unchanged adds a missing record, for those given Manager before
+   this. Reporting lines offers only Manager and HR as managers.
 5. **Audit.** Every change writes an `audit_log` row (`entity_type =
    app_role_assignment`, `action = roles_set`) with the roles before and
    after, the actor and the reason.

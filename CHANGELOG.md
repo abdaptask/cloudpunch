@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Reporting lines: managers without the app, and only managers offered (owner request, desktop 0.1.23)
+
+- Giving someone the Manager or HR role now creates their employee
+  record, as Employee already did (ADR-0020 §4, amended). A reporting
+  line links two records, so a manager who never installs the app
+  (e.g. Shaziya Syed) couldn't be picked before.
+- People given Manager before this: Reporting lines shows "… has the
+  Manager role but no CloudPunch record yet" with **Add …'s record**
+  (it saves their roles unchanged; the server adds the record).
+- The manager dropdown offers only people with the Manager or HR role
+  (those who can see others' time), plus whoever someone already
+  reports to. If roles can't load, everyone is offered as before.
+
 ### Web dashboard, part 3: corrections waiting, view only (ADR-0033)
 
 - Managers who endorse corrections (and anyone who approves them) see

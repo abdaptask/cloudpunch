@@ -47,6 +47,8 @@ export interface PeopleRoutesOptions {
 const WELCOME_GAP_MS = 10 * 60_000;
 
 const READ = [Capability.AdminEmployeeAssignRole, Capability.HrEmployeeWrite];
+/** Roles that come with an employee record (ADR-0020, amended 2026-10-08). */
+const RECORD_ROLES: readonly AppRole[] = [AppRole.Employee, AppRole.Manager, AppRole.HR];
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** Signing someone out of a machine (ADR-0028 §4): Administrator only. */
@@ -275,12 +277,12 @@ const peopleRoutesImpl: FastifyPluginAsync<PeopleRoutesOptions> = async (app, op
           };
           return problem(reply, 403, refusal, text[refusal]);
         }
-        if (diff.add.length === 0 && diff.remove.length === 0) {
-          return reply.code(200).send({ oid, roles: current, changed: false });
-        }
-
-        // An employee record for anyone who can clock in.
-        if (wanted.includes(AppRole.Employee)) {
+        // An employee record for anyone who can clock in, and for anyone
+        // who can be in a reporting line as a manager (Manager, HR): the
+        // line links two records, and a manager may never install the
+        // app. Also on a save with no change, which adds a missing one.
+        const needsRecord = wanted.some((r) => RECORD_ROLES.includes(r));
+        if (needsRecord && !(await db.employees.findByEntraObjectId(oid))) {
           const user = await g.getUser(oid);
           if (!user)
             return problem(reply, 404, 'unknown_person', 'no such person in the directory');
@@ -292,6 +294,9 @@ const peopleRoutesImpl: FastifyPluginAsync<PeopleRoutesOptions> = async (app, op
             givenName: given,
             familyName: family,
           });
+        }
+        if (diff.add.length === 0 && diff.remove.length === 0) {
+          return reply.code(200).send({ oid, roles: current, changed: false });
         }
         for (const role of diff.add) await g.assign(oid, role);
         for (const role of diff.remove) {

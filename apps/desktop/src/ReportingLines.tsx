@@ -10,12 +10,19 @@ const ERROR_TEXT: Record<string, string> = {
   self_manager: "Someone can't be their own manager.",
   manager_not_found: 'That manager is no longer active.',
 };
+/** Roles that can see others' time (`team.timeline.read`). */
+const MONITOR_ROLES = ['Manager', 'HR'];
+
 const errorText = (code: string): string => ERROR_TEXT[code] ?? `Something went wrong (${code}).`;
 
 /**
  * Reporting lines (ADR-0025 §1), under People: who each person reports
  * to. A Manager sees their direct reports in the Team tab. The server
  * refuses loops and audits every change. greytHR takes this over later.
+ *
+ * Only people who can see others' time (the Manager or HR role) are
+ * offered as managers. Someone given one of those roles before it came
+ * with an employee record can get the record here (ADR-0020, amended).
  */
 export function ReportingLines(): JSX.Element {
   const t = useTheme();
@@ -45,6 +52,43 @@ export function ReportingLines(): JSX.Element {
       current = false;
     };
   }, []);
+
+  const monitors = (r: EmployeeRow): boolean => {
+    const p = r.oid ? people?.find((x) => x.oid === r.oid) : undefined;
+    return !!p && MONITOR_ROLES.some((role) => p.roles.includes(role));
+  };
+  /** Offered as a manager: a monitoring role, or already this person's manager. */
+  const offered = (row: EmployeeRow, m: EmployeeRow): boolean =>
+    m.id !== row.id && (people === null || monitors(m) || m.id === row.reporting_manager_id);
+  /** Monitoring roles without an employee record yet: can't be picked until they have one. */
+  const noRecord =
+    people?.filter(
+      (p) => !p.has_employee_record && MONITOR_ROLES.some((role) => p.roles.includes(role)),
+    ) ?? [];
+
+  const addRecord = (p: Person): void => {
+    setSaving(p.oid);
+    setStatus(null);
+    // Saving the same roles adds the missing record (the server does it).
+    api
+      .adminPeopleSetRoles(p.oid, p.roles, reason || 'Record for reporting lines')
+      .then(() => api.adminEmployees())
+      .then(
+        (r) => {
+          setSaving(null);
+          setRows(r.employees);
+          setPeople(
+            (ps) =>
+              ps?.map((x) => (x.oid === p.oid ? { ...x, has_employee_record: true } : x)) ?? ps,
+          );
+          setStatus({ kind: 'saved', text: `${p.name} can now be picked as a manager.` });
+        },
+        (e: unknown) => {
+          setSaving(null);
+          setStatus({ kind: 'error', text: errorText(String(e)) });
+        },
+      );
+  };
 
   /** A manager whose Team tab won't show: no Manager (or HR) role. */
   const lacksRole = (managerId: string | null): Person | null => {
@@ -115,8 +159,30 @@ export function ReportingLines(): JSX.Element {
     >
       <h3 style={{ margin: 0, fontSize: 13, fontWeight: 650 }}>Reporting lines</h3>
       <p style={{ margin: 0, fontSize: 12, lineHeight: 1.4, color: t.muted }}>
-        Who each person reports to. Managers see their direct reports in the Team tab.
+        Who each person reports to. Managers see their direct reports in the Team tab. Only people
+        with the Manager or HR role are offered as managers.
       </p>
+      {noRecord.map((p) => (
+        <span key={p.oid} role="note" style={{ fontSize: 12, color: t.warnText }}>
+          {p.name} has the {p.roles.includes('Manager') ? 'Manager' : 'HR'} role but no CloudPunch
+          record yet, so they can&apos;t be picked as a manager.{' '}
+          <button
+            type="button"
+            disabled={saving === p.oid}
+            onClick={() => addRecord(p)}
+            style={{
+              padding: 0,
+              border: 'none',
+              background: 'none',
+              color: t.accent,
+              font: 'inherit',
+              cursor: 'pointer',
+            }}
+          >
+            Add {p.name}&apos;s record
+          </button>
+        </span>
+      ))}
       <label
         style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, color: t.muted }}
       >
@@ -145,7 +211,7 @@ export function ReportingLines(): JSX.Element {
               >
                 <option value="">No manager</option>
                 {rows
-                  .filter((m) => m.id !== row.id)
+                  .filter((m) => offered(row, m))
                   .map((m) => (
                     <option key={m.id} value={m.id}>
                       {m.name}

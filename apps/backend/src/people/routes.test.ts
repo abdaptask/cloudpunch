@@ -204,6 +204,35 @@ describe('People (ADR-0020)', () => {
     expect(db.roleAudit).toHaveLength(1);
   });
 
+  it('giving Manager or HR creates the record too, so they can be in a reporting line', async () => {
+    await call(ADMIN, 'PUT', `/v1/admin/people/${FARHEEN.oid}/roles`, { roles: ['Manager'] });
+    expect(await db.employees.findByEntraObjectId(FARHEEN.oid)).toMatchObject({
+      givenName: 'Farheen',
+    });
+    const list = await call(ADMIN, 'GET', '/v1/admin/people');
+    const { people } = list.res.json<{ people: { oid: string }[] }>();
+    expect(people.find((p) => p.oid === FARHEEN.oid)).toMatchObject({
+      roles: ['Manager'],
+      has_employee_record: true,
+    });
+  });
+
+  it('a save with no change adds a missing record (Manager given before this rule)', async () => {
+    graph.add(FARHEEN.oid, FARHEEN.name, AppRole.Manager);
+    expect(await db.employees.findByEntraObjectId(FARHEEN.oid)).toBeNull();
+    const { res } = await call(ADMIN, 'PUT', `/v1/admin/people/${FARHEEN.oid}/roles`, {
+      roles: ['Manager'],
+    });
+    expect(res.json()).toMatchObject({ changed: false });
+    expect(await db.employees.findByEntraObjectId(FARHEEN.oid)).not.toBeNull();
+    expect(db.roleAudit).toHaveLength(0);
+  });
+
+  it('Auditor or Administrator alone: no record', async () => {
+    await call(ADMIN, 'PUT', `/v1/admin/people/${FARHEEN.oid}/roles`, { roles: ['Auditor'] });
+    expect(await db.employees.findByEntraObjectId(FARHEEN.oid)).toBeNull();
+  });
+
   it('an Administrator can add and remove any role', async () => {
     graph.add(FARHEEN.oid, FARHEEN.name, AppRole.Employee);
     await call(ADMIN, 'PUT', `/v1/admin/people/${FARHEEN.oid}/roles`, {
