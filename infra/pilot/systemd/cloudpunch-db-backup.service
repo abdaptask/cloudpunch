@@ -1,0 +1,13 @@
+[Unit]
+Description=CloudPunch: nightly encrypted database backup to S3 (ADR-0035)
+Wants=network-online.target
+After=network-online.target postgresql.service
+OnFailure=cloudpunch-alert@%n.service
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/cloudpunch/backup.env
+ExecStart=/bin/bash /opt/cloudpunch/app/infra/pilot/db-backup.sh
+PrivateTmp=true
+NoNewPrivileges=true
+ProtectSystem=strict
