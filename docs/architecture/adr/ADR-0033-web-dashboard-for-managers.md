@@ -1,6 +1,6 @@
 # ADR-0033 — A web dashboard at cloudpunch.aptask.com for managers, HR and admins
 
-- **Status:** Proposed (2026-10-08)
+- **Status:** Accepted (2026-10-08, the owner chose the recommended answer to each open question)
 - **Date:** 2026-10-08
 - **Deciders:** Abdulla Sheikh (project owner), Architecture (Claude)
 - **Builds on:** ADR-0002 §4 (the `CloudPunch Web` SPA registration,
@@ -158,12 +158,12 @@ untouched.
   replacement: no drill-down, and it pushes personal data into
   mailboxes.
 
-## Open questions for the owner
+## Owner's answers (2026-10-08)
 
-1. **Approvals on the web:** view-only first (recommended), or can
-   managers approve or reject corrections from the browser in the
-   first release?
-2. **Who gets it:** Managers and HR, as in the desktop Team tab
-   (recommended), or Managers only to start?
-3. **Cloudflare Access on `/app*`:** add it as a second gate
-   (recommended), or rely on the Microsoft sign-in alone?
+1. **Approvals:** view-only in the first release; approving from the
+   browser is a later follow-up.
+2. **Who gets it:** Managers and HR, as in the desktop Team tab.
+3. **Cloudflare Access on `/app*`:** yes, as a second gate.
+
+`CloudPunch Web` client ID: `c0d42233-0f69-4379-9956-f6f7e48a5278`
+(not a secret).

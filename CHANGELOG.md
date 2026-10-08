@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### ADR-0033 proposed: a web dashboard for managers
+### ADR-0033 accepted: a web dashboard for managers
 
 - Managers and HR sign in at cloudpunch.aptask.com/app/ with their
   Microsoft account and see their team (now, a person's days,
