@@ -35,10 +35,21 @@ if [ "$RECONFIGURE" = 1 ] || ! sudo test -f /etc/cloudpunch/backup.env; then
   read -r -s -p "Secret access key (not shown): " secret; echo
   read -r -p "Send alerts to (email, or several with commas): " alert_to
   [ -n "$key_id" ] && [ -n "$secret" ] && [ -n "$alert_to" ] || { echo "install-backup: all three are needed" >&2; exit 1; }
+  # India-only data stays in Mumbai (ADR-0001). S3 says where a bucket
+  # is without any credentials.
+  region="$(curl -sI "https://$bucket.s3.amazonaws.com" | tr -d '\r' | sed -n 's/^x-amz-bucket-region: //Ip')"
+  if [ "$region" != ap-south-1 ]; then
+    echo "install-backup: bucket $bucket is in ${region:-no region (does it exist?)}, not ap-south-1 (Mumbai)." >&2
+    echo "  Delete it and create it again with the region menu set to Asia Pacific (Mumbai)." >&2
+    exit 1
+  fi
 
   recipient="$(sudo sed -n 's/^BACKUP_AGE_RECIPIENT=//p' /etc/cloudpunch/backup.env 2>/dev/null || true)"
   if [ -z "$recipient" ] || [ "$RECONFIGURE" = 1 ]; then
-    keyfile="$(mktemp /dev/shm/cp-age.XXXXXX)"
+    # age-keygen won't write over an existing file, so a fresh private
+    # folder in memory (not a pre-made temp file).
+    keydir="$(mktemp -d /dev/shm/cp-age.XXXXXX)"
+    keyfile="$keydir/key"
     age-keygen -o "$keyfile" 2>/dev/null
     recipient="$(age-keygen -y "$keyfile")"
     echo
@@ -48,7 +59,7 @@ if [ "$RECONFIGURE" = 1 ] || ! sudo test -f /etc/cloudpunch/backup.env; then
     echo
     grep '^AGE-SECRET-KEY-' "$keyfile"
     echo
-    rm -f "$keyfile"
+    rm -rf "$keydir"
     while :; do
       read -r -p 'Type "saved" once it is in the password manager: ' ok
       [ "$ok" = saved ] && break

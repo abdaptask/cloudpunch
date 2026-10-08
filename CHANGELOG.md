@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Ops: install-backup.sh fixes from the first run
+
+- The backup key wasn't made: `age-keygen` won't write over an existing
+  file, and the script had made one. It now writes into a fresh private
+  folder in memory.
+- It checks that the bucket is in `ap-south-1` (Mumbai) and stops if
+  it isn't. The first bucket was made in `us-east-1`.
+
 ### ADR-0034 accepted: one-click desktop releases
 
 - A manual "Release" workflow on GitHub builds and signs Windows and
