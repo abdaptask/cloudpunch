@@ -310,10 +310,13 @@ export function CorrectionsQueue({
   queue,
   onChanged,
   onClose,
+  readOnly = false,
 }: {
   queue: CorrectionQueue | null;
   onChanged: () => void;
   onClose: () => void;
+  /** The web (ADR-0033): see what waits, decide in the app. */
+  readOnly?: boolean;
 }): JSX.Element {
   const t = useTheme();
   const [busy, setBusy] = useState<string | null>(null);
@@ -363,14 +366,16 @@ export function CorrectionsQueue({
               <span style={{ fontSize: 12, color: t.muted }}>
                 Asked by {i.correction.requested_by} · “{i.correction.reason}”
               </span>
-              <div style={{ display: 'flex', gap: 8 }}>
-                <Button variant="primary" disabled={busy !== null} onClick={() => act(i, yes)}>
-                  {yes === 'approve' ? 'Approve' : 'Endorse'}
-                </Button>
-                <Button variant="chip" disabled={busy !== null} onClick={() => act(i, 'reject')}>
-                  Reject
-                </Button>
-              </div>
+              {!readOnly && (
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <Button variant="primary" disabled={busy !== null} onClick={() => act(i, yes)}>
+                    {yes === 'approve' ? 'Approve' : 'Endorse'}
+                  </Button>
+                  <Button variant="chip" disabled={busy !== null} onClick={() => act(i, 'reject')}>
+                    Reject
+                  </Button>
+                </div>
+              )}
             </li>
           ))}
         </ul>
@@ -408,6 +413,11 @@ export function CorrectionsQueue({
       {!queue && <span style={{ fontSize: 13, color: t.muted }}>Loading…</span>}
       {queue && empty && (
         <span style={{ fontSize: 13, color: t.muted }}>Nothing waits for you.</span>
+      )}
+      {queue && !empty && readOnly && (
+        <span style={{ fontSize: 13, color: t.muted }}>
+          To endorse, approve or reject, open the CloudPunch app.
+        </span>
       )}
       {queue && group('To approve', queue.to_approve, 'approve')}
       {queue && group('From your team, to endorse', queue.to_endorse, 'endorse')}

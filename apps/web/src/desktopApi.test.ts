@@ -31,6 +31,7 @@ describe('the browser api for the desktop screens (ADR-0033 §5)', () => {
     await api.teamConnections();
     await api.personConnections(ID);
     await api.myConnections();
+    await api.correctionsQueue();
     expect(f.mock.calls.map(([u]) => u as string)).toEqual([
       '/v1/team',
       `/v1/team/${ID}/days/2026-10-08`,
@@ -40,6 +41,7 @@ describe('the browser api for the desktop screens (ADR-0033 §5)', () => {
       '/v1/team/connections',
       `/v1/team/${ID}/connections`,
       '/v1/me/connections',
+      '/v1/corrections/queue',
     ]);
     expect(f.mock.calls[0]?.[1]).toEqual({ headers: { authorization: 'Bearer tok' } });
   });
@@ -74,7 +76,16 @@ describe('the browser api for the desktop screens (ADR-0033 §5)', () => {
   it('is view only: changes are refused without a request', async () => {
     const f = connect(json(200, {}));
     await expect(api.decideCorrection(ID, 'approve')).rejects.toThrow(code('view_only'));
-    await expect(api.correctionsQueue()).rejects.toThrow(code('view_only'));
+    await expect(
+      api.requestCorrection({
+        employeeId: ID,
+        from: '2026-10-08T09:00:00+05:30',
+        to: '2026-10-08T18:00:00+05:30',
+        tzIana: 'Asia/Kolkata',
+        kind: 'working',
+        reason: 'x',
+      }),
+    ).rejects.toThrow(code('view_only'));
     expect(f).not.toHaveBeenCalled();
   });
 });

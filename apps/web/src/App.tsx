@@ -1,5 +1,11 @@
 import { Capability } from '@cloudpunch/shared';
 import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
+import {
+  CorrectionsBanner,
+  CorrectionsQueue,
+  queueCount,
+  useCorrectionsQueue,
+} from '../../desktop/src/Corrections.js';
 import { TeamScreen } from '../../desktop/src/TeamScreen.js';
 import { ThemeProvider, useTheme } from '../../desktop/src/ui/theme.js';
 import { startAuth, type Auth, type WebConfig } from './auth.js';
@@ -216,6 +222,11 @@ export function App({ deps = realDeps }: { deps?: AppDeps }): JSX.Element {
   );
 }
 
+/** Those who endorse or approve corrections have a queue (ADR-0030 §3). */
+const reviewsCorrections = (me: Me): boolean =>
+  me.capabilities.includes('team.correction.review') ||
+  me.capabilities.includes('admin.correction.approve');
+
 /** Managers and Administrators see where people connect from (ADR-0029 §5); not HR. */
 const canSeeConnections = (me: Me): boolean =>
   me.capabilities.includes('team.connection.read') ||
@@ -238,6 +249,8 @@ function Dashboard({
     connectApi({ fetch: deps.fetch, token: auth.token });
     return true;
   });
+  const corrections = useCorrectionsQueue(connected && reviewsCorrections(me));
+  const [queueOpen, setQueueOpen] = useState(false);
   return (
     <div
       style={{ minHeight: '100vh', background: t.bg, color: t.text, font: `15px/1.5 ${t.font}` }}
@@ -259,7 +272,25 @@ function Dashboard({
         <SignOut auth={auth} onDone={onSignedOut} />
       </header>
       <main style={{ maxWidth: 720, margin: '0 auto', padding: '20px 16px 40px' }}>
-        {connected && <TeamScreen canSeeConnections={canSeeConnections(me)} />}
+        {queueOpen ? (
+          <CorrectionsQueue
+            readOnly
+            queue={corrections.queue}
+            onChanged={corrections.reload}
+            onClose={() => setQueueOpen(false)}
+          />
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <CorrectionsBanner
+              count={queueCount(corrections.queue)}
+              onReview={() => {
+                corrections.reload();
+                setQueueOpen(true);
+              }}
+            />
+            {connected && <TeamScreen canSeeConnections={canSeeConnections(me)} />}
+          </div>
+        )}
       </main>
     </div>
   );
