@@ -1,4 +1,5 @@
 import {
+  BrowserAuthError,
   InteractionRequiredAuthError,
   PublicClientApplication,
   type AccountInfo,
@@ -6,10 +7,11 @@ import {
 
 /**
  * Microsoft sign-in for the web dashboard (ADR-0033 §3): the CloudPunch
- * Web SPA registration, redirect flow with PKCE, tokens in memory only.
- * After a reload, a silent sign-in from the Microsoft session brings
- * the account back; only the sign-in name is kept (sessionStorage) as
- * the hint for that.
+ * Web SPA registration, PKCE, tokens in memory only. MSAL can't do a
+ * full-page redirect with in-memory tokens (`in_mem_redirect_unavailable`),
+ * so sign-in is a popup. After a reload, a silent sign-in from the
+ * Microsoft session brings the account back; only the sign-in name is
+ * kept (sessionStorage) as the hint for that.
  */
 
 /** From `/app/config.json` (the server's env; nothing secret). */
@@ -20,10 +22,12 @@ export interface WebConfig {
 }
 
 export interface Auth {
-  account: AccountInfo | null;
+  readonly account: AccountInfo | null;
+  /** The Microsoft popup; resolves with `account` set, or unset if the person closed it. */
   signIn: () => Promise<void>;
+  /** Forgets the tokens here; the Microsoft session itself stays. */
   signOut: () => Promise<void>;
-  /** An API access token, renewed silently; a redirect if Microsoft insists. */
+  /** An API access token, renewed silently; a popup if Microsoft insists. */
   token: () => Promise<string>;
 }
 
@@ -59,7 +63,6 @@ export async function startAuth(cfg: WebConfig): Promise<Auth> {
       clientId: cfg.clientId,
       authority: `https://login.microsoftonline.com/${cfg.tenantId}`,
       redirectUri: home,
-      postLogoutRedirectUri: home,
     },
     cache: { cacheLocation: 'memoryStorage' },
   });
@@ -76,27 +79,37 @@ export async function startAuth(cfg: WebConfig): Promise<Auth> {
       writeHint(null);
     }
   }
-  if (account) {
-    pca.setActiveAccount(account);
-    writeHint(account.username);
-  }
+  const use = (a: AccountInfo | null): void => {
+    account = a;
+    pca.setActiveAccount(a);
+    writeHint(a?.username ?? null);
+  };
+  if (account) use(account);
 
   return {
-    account,
-    signIn: () => pca.loginRedirect({ scopes, prompt: 'select_account' }),
-    signOut: () => {
-      writeHint(null);
-      return pca.logoutRedirect({ account });
+    get account() {
+      return account;
+    },
+    signIn: async () => {
+      try {
+        use((await pca.loginPopup({ scopes, prompt: 'select_account' })).account);
+      } catch (e) {
+        // Closing the popup isn't an error; the button stays there.
+        if (e instanceof BrowserAuthError && e.errorCode === 'user_cancelled') return;
+        throw e;
+      }
+    },
+    signOut: async () => {
+      await pca.clearCache();
+      use(null);
     },
     token: async () => {
       if (!account) throw new Error('not signed in');
       try {
         return (await pca.acquireTokenSilent({ scopes, account })).accessToken;
       } catch (e) {
-        if (e instanceof InteractionRequiredAuthError) {
-          await pca.acquireTokenRedirect({ scopes, account });
-        }
-        throw e;
+        if (!(e instanceof InteractionRequiredAuthError)) throw e;
+        return (await pca.acquireTokenPopup({ scopes, account })).accessToken;
       }
     },
   };

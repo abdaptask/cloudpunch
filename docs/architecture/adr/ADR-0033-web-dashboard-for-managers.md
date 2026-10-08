@@ -72,7 +72,7 @@ in this ADR. Adding them later is a follow-up, not a redesign.
 
 ### 3. Sign-in and tokens
 
-- MSAL.js (`@azure/msal-browser`), redirect flow, PKCE, the
+- MSAL.js (`@azure/msal-browser`), popup flow, PKCE, the
   `CloudPunch Web` registration from ADR-0002 §4, scope
   `api://63bca00e-…/api.access`.
 - **Redirect URI:** `https://cloudpunch.aptask.com/app/` (and
@@ -81,6 +81,10 @@ in this ADR. Adding them later is a follow-up, not a redesign.
 - The access token is held **in memory only**; MSAL's own short-lived
   redirect state uses `sessionStorage`. A reload renews silently from
   the Entra session.
+- _Amended 2026-10-08:_ the popup flow replaces the redirect flow first
+  chosen here. MSAL v5 refuses a full-page redirect while tokens are in
+  memory (`in_mem_redirect_unavailable`), and in-memory tokens matter
+  more. The redirect URI is unchanged; the popup lands there.
 - **No server session or cookie.** The API stays bearer-token-only, as
   for the desktop. This drops ADR-0002's "session ID in an HttpOnly
   cookie", which assumed a backend-for-frontend that we don't need.
