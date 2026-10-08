@@ -24,6 +24,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `deploy-pilot.sh` and CI build the web app. Runbook: "Web dashboard:
   one-time setup".
 
+### ADR-0033 accepted: a web dashboard for managers
+
+- Managers and HR sign in at cloudpunch.aptask.com/app/ with their
+  Microsoft account and see their team (now, a person's days,
+  corrections, connections) with nothing installed. View only; no
+  clocking in from a browser; no new permissions.
+- Same `/v1` API and role checks as the desktop app; the web reuses the
+  desktop's Team screens; served by the backend from `/app/` (no CORS),
+  with Cloudflare Access as a second gate. Needs the `CloudPunch Web`
+  Entra registration (ADR-0002 §4).
+
 ### Backend: a refreshed welcome email (owner request, ADR-0021)
 
 - The CloudPunch logo at the top and the ApTask mark in the footer,
