@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Web dashboard: managers endorse corrections in the browser (owner request, ADR-0033)
+
+- The corrections queue on `/app/` now has Endorse, Approve and Reject,
+  as in the desktop app: the same `POST /v1/corrections/:id/decision`,
+  the same server checks (a direct manager endorses; an Administrator
+  approves) and the same audit. The queue reloads after each decision.
+- "Correct this day" (asking for a correction) stays in the app.
+- The desktop queue's `readOnly` mode, used only by the web, is gone.
+
 ### ADR-0035 accepted: production on the internal server now, AWS later
 
 - Owner (2026-10-08): no new spending, and go-live on 2026-10-09.
