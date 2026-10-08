@@ -73,6 +73,8 @@ describe('landing page', () => {
     const a = await app(dir);
     const home = (await a.inject({ method: 'GET', url: '/' })).body;
     expect(home).toContain('href="/download/windows">Download for Windows');
+    // ADR-0033: managers and HR can use the browser instead.
+    expect(home).toContain('href="/app/">see your team in the browser');
     // The date is today's locale's short month (Sep or Sept); the day and year are fixed.
     expect(home).toMatch(/Version 0\.1\.1 · 29 Sept? 2026 · /);
     expect(home).toContain("What's new in 0.1.1");

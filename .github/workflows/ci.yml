@@ -52,6 +52,10 @@ jobs:
       - name: Backend build
         run: pnpm -F @cloudpunch/backend build
 
+      # The web dashboard (ADR-0033), as deploy-pilot.sh builds it.
+      - name: Web build
+        run: pnpm -F @cloudpunch/web build
+
   # Real Postgres via Testcontainers (Docker is on ubuntu runners). These
   # exercise the SQL the unit tests' in-memory DB can't: triggers,
   # constraints, jsonb round trips.
