@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Web dashboard, part 3: corrections waiting, view only (ADR-0033)
+
+- Managers who endorse corrections (and anyone who approves them) see
+  the desktop's "N time corrections wait for you" banner above the
+  team; Review opens the queue: who, which day, the times, the reason
+  and who asked. No Endorse/Approve/Reject on the web (owner's answer:
+  view only first); the page says to open the CloudPunch app for that.
+- Desktop: the queue takes `readOnly` (the web's); the desktop app is
+  unchanged. The browser api reads `GET /v1/corrections/queue`;
+  decisions and new corrections still refuse with `view_only`.
+
 ### Web dashboard, part 2: the Team page on the web (ADR-0033)
 
 - Past sign-in, managers and HR get the desktop's own Team screen:

@@ -37,6 +37,28 @@ const ROSHNI = {
   worked_ms: 3_600_000,
 };
 
+const QUEUE = {
+  to_approve: [],
+  to_endorse: [
+    {
+      employee_id: ROSHNI.employee_id,
+      name: 'Roshni K',
+      date: '2026-10-07',
+      correction: {
+        id: '7d2c0b1e-5f3a-4e8b-9c41-2a6d8e0f1b23',
+        from: '2026-10-07T09:00:00.000+05:30',
+        to: '2026-10-07T18:00:00.000+05:30',
+        kind: 'working',
+        reason: 'Forgot to clock in',
+        status: 'requested',
+        requested_by: 'Roshni K',
+        requested_at: '2026-10-07T13:00:00Z',
+        decisions: [],
+      },
+    },
+  ],
+};
+
 const json = (status: number, body: unknown): Response =>
   new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
 
@@ -56,6 +78,7 @@ function deps(
     if (url === '/app/config.json') return json(configStatus, CONFIG);
     if (url === '/v1/me' && meRes) return meRes;
     if (url === '/v1/team') return json(200, { people: [ROSHNI] });
+    if (url === '/v1/corrections/queue') return json(200, QUEUE);
     return json(404, {});
   });
   return {
@@ -106,8 +129,23 @@ describe('web dashboard shell (ADR-0033)', () => {
       const call = d.fetch.mock.calls.find(([u]) => String(u) === path);
       expect((call?.[1] as RequestInit).headers).toEqual({ authorization: 'Bearer tok' });
     }
-    // HR (no team.connection.read): no connections call.
-    expect(d.fetch.mock.calls.some(([u]) => String(u) === '/v1/team/connections')).toBe(false);
+    // HR (no team.connection.read, no team.correction.review): neither call.
+    for (const path of ['/v1/team/connections', '/v1/corrections/queue']) {
+      expect(d.fetch.mock.calls.some(([u]) => String(u) === path)).toBe(false);
+    }
+  });
+
+  it('a manager sees what waits for them, and decides in the app', async () => {
+    const d = deps(fakeAuth(true), json(200, me(['team.timeline.read', 'team.correction.review'])));
+    render(<App deps={d} />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Review' }));
+    expect(await screen.findByLabelText('correction Roshni K')).toHaveTextContent(
+      'Forgot to clock in',
+    );
+    expect(screen.queryByRole('button', { name: 'Endorse' })).not.toBeInTheDocument();
+    expect(screen.getByText(/open the CloudPunch app/)).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Done' }));
+    expect(await screen.findByRole('list', { name: 'team-today' })).toBeInTheDocument();
   });
 
   it('signing out of the dashboard goes back to the sign-in button', async () => {

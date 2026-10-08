@@ -110,7 +110,7 @@ export const api: WebApi = {
     return get(`/v1/team/${employeeId}/connections`);
   },
   myConnections: () => get('/v1/me/connections'),
+  correctionsQueue: () => get('/v1/corrections/queue'),
   requestCorrection: viewOnly,
-  correctionsQueue: viewOnly,
   decideCorrection: viewOnly,
 };
