@@ -10,15 +10,21 @@ const CONFIG = {
   apiScope: 'api://63bca00e-a546-4f0c-a076-e2450e52406e/api.access',
 };
 
+const NILESH = { username: 'nilesh@aptask.com', name: 'Nilesh' } as Auth['account'];
+
+/** Like the real one: the popup sets `account`, sign-out clears it. */
 function fakeAuth(signedIn: boolean): Auth {
-  return {
-    account: signedIn
-      ? ({ username: 'nilesh@aptask.com', name: 'Nilesh' } as Auth['account'])
-      : null,
-    signIn: vi.fn(async () => undefined),
-    signOut: vi.fn(async () => undefined),
+  const auth = {
+    account: signedIn ? NILESH : null,
+    signIn: vi.fn(async () => {
+      auth.account = NILESH;
+    }),
+    signOut: vi.fn(async () => {
+      auth.account = null;
+    }),
     token: vi.fn(async () => 'tok'),
   };
+  return auth;
 }
 
 const json = (status: number, body: unknown): Response =>
@@ -48,13 +54,33 @@ function deps(
 }
 
 describe('web dashboard shell (ADR-0033)', () => {
-  it('signed out: offers Microsoft sign-in', async () => {
+  it('signed out: the Microsoft popup signs a manager in without a reload', async () => {
     const auth = fakeAuth(false);
-    const d = deps(auth, null);
+    const d = deps(auth, json(200, me(['team.timeline.read'])));
     render(<App deps={d} />);
     await userEvent.click(await screen.findByRole('button', { name: 'Sign in with Microsoft' }));
     expect(auth.signIn).toHaveBeenCalledOnce();
     expect(d.startAuth).toHaveBeenCalledWith(CONFIG);
+    expect(await screen.findByText('Hello, Nilesh D')).toBeInTheDocument();
+    expect(d.startAuth).toHaveBeenCalledOnce();
+  });
+
+  it('closing the popup leaves the sign-in button', async () => {
+    const auth = fakeAuth(false);
+    vi.mocked(auth.signIn).mockResolvedValueOnce(undefined);
+    render(<App deps={deps(auth, null)} />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Sign in with Microsoft' }));
+    expect(
+      await screen.findByRole('button', { name: 'Sign in with Microsoft' }),
+    ).toBeInTheDocument();
+  });
+
+  it('a failed sign-in is shown, not swallowed', async () => {
+    const auth = fakeAuth(false);
+    vi.mocked(auth.signIn).mockRejectedValueOnce(new Error('popup_window_error'));
+    render(<App deps={deps(auth, null)} />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Sign in with Microsoft' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('popup_window_error');
   });
 
   it('a manager gets in, and the API call carries the token', async () => {
@@ -74,6 +100,9 @@ describe('web dashboard shell (ADR-0033)', () => {
     expect(screen.queryByText(/Hello/)).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Sign out' }));
     expect(auth.signOut).toHaveBeenCalledOnce();
+    expect(
+      await screen.findByRole('button', { name: 'Sign in with Microsoft' }),
+    ).toBeInTheDocument();
   });
 
   it('someone with no CloudPunch record is told to ask HR', async () => {

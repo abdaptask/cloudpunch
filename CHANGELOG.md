@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fix: web sign-in did nothing (ADR-0033)
+
+- "Sign in with Microsoft" on `/app/` silently failed: MSAL can't do a
+  full-page redirect while tokens stay in memory
+  (`in_mem_redirect_unavailable`). Sign-in is now a Microsoft popup;
+  tokens still stay in memory only. Sign-out forgets the tokens in the
+  page. A failed sign-in now shows on the page instead of nothing.
+
 ### Web dashboard, part 1: sign-in at cloudpunch.aptask.com/app/ (ADR-0033)
 
 - New `apps/web`: React + Vite, Microsoft sign-in with MSAL

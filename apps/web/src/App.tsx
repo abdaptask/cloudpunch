@@ -34,7 +34,10 @@ async function load(deps: AppDeps): Promise<View> {
   const res = await deps.fetch('/app/config.json');
   if (res.status === 503) return { kind: 'not_configured' };
   if (!res.ok) return { kind: 'error', message: `config.json HTTP ${res.status}` };
-  const auth = await deps.startAuth((await res.json()) as WebConfig);
+  return whoAmI(deps, await deps.startAuth((await res.json()) as WebConfig));
+}
+
+async function whoAmI(deps: AppDeps, auth: Auth): Promise<View> {
   if (!auth.account) return { kind: 'signed_out', auth };
   const me = await deps.fetch('/v1/me', {
     headers: { authorization: `Bearer ${await auth.token()}` },
@@ -95,11 +98,21 @@ function Card({ children }: { children: ReactNode }): JSX.Element {
 
 const p: CSSProperties = { margin: '0 0 14px', color: C.muted };
 
-function SignOut({ auth }: { auth: Auth }): JSX.Element {
+const failed = (e: unknown): View => ({
+  kind: 'error',
+  message: e instanceof Error ? e.message : String(e),
+});
+
+function SignOut({ auth, onDone }: { auth: Auth; onDone: (v: View) => void }): JSX.Element {
   return (
     <button
       type="button"
-      onClick={() => void auth.signOut()}
+      onClick={() =>
+        void auth.signOut().then(
+          () => onDone({ kind: 'signed_out', auth }),
+          (e: unknown) => onDone(failed(e)),
+        )
+      }
       style={{ ...button, background: 'transparent', color: C.accent, padding: 0 }}
     >
       Sign out
@@ -111,10 +124,15 @@ export function App({ deps = realDeps }: { deps?: AppDeps }): JSX.Element {
   const [view, setView] = useState<View>({ kind: 'loading' });
 
   useEffect(() => {
-    load(deps).then(setView, (e: unknown) =>
-      setView({ kind: 'error', message: e instanceof Error ? e.message : String(e) }),
-    );
+    load(deps).then(setView, (e: unknown) => setView(failed(e)));
   }, [deps]);
+
+  const signIn = (auth: Auth): void => {
+    auth
+      .signIn()
+      .then(() => whoAmI(deps, auth))
+      .then(setView, (e: unknown) => setView(failed(e)));
+  };
 
   return (
     <div
@@ -143,7 +161,7 @@ export function App({ deps = realDeps }: { deps?: AppDeps }): JSX.Element {
               For managers and HR: see who's working, their days and their corrections, with nothing
               to install.
             </p>
-            <button type="button" style={button} onClick={() => void view.auth.signIn()}>
+            <button type="button" style={button} onClick={() => signIn(view.auth)}>
               Sign in with Microsoft
             </button>
           </>
@@ -151,7 +169,7 @@ export function App({ deps = realDeps }: { deps?: AppDeps }): JSX.Element {
         {view.kind === 'not_set_up' && (
           <>
             <p style={p}>Your account isn't set up in CloudPunch yet. Ask HR to add you.</p>
-            <SignOut auth={view.auth} />
+            <SignOut auth={view.auth} onDone={setView} />
           </>
         )}
         {view.kind === 'not_allowed' && (
@@ -165,7 +183,7 @@ export function App({ deps = realDeps }: { deps?: AppDeps }): JSX.Element {
                 Download CloudPunch
               </a>
             </p>
-            <SignOut auth={view.auth} />
+            <SignOut auth={view.auth} onDone={setView} />
           </>
         )}
         {view.kind === 'ready' && (
@@ -174,7 +192,7 @@ export function App({ deps = realDeps }: { deps?: AppDeps }): JSX.Element {
               Hello, {view.me.user.display_name ?? view.me.user.work_email}
             </h1>
             <p style={p}>You're signed in. Your team view arrives in the next update.</p>
-            <SignOut auth={view.auth} />
+            <SignOut auth={view.auth} onDone={setView} />
           </>
         )}
         {view.kind === 'error' && (
