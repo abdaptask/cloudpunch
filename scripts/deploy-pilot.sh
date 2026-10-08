@@ -27,7 +27,9 @@ sudo rm -rf /opt/cloudpunch/app.new && sudo mkdir -p /opt/cloudpunch/app.new
 sudo tar -x -C /opt/cloudpunch/app.new
 cd /opt/cloudpunch/app.new
 sudo COREPACK_HOME=/opt/corepack pnpm install --frozen-lockfile \
-  --store-dir /opt/cloudpunch/.pnpm-store --filter @cloudpunch/backend... >/dev/null
+  --store-dir /opt/cloudpunch/.pnpm-store --filter @cloudpunch/backend...   --filter @cloudpunch/web... >/dev/null
+# The web dashboard (ADR-0033), served by the API from apps/web/dist.
+sudo COREPACK_HOME=/opt/corepack pnpm --filter @cloudpunch/web build >/dev/null
 echo "$REV" | sudo tee /opt/cloudpunch/app.new/REVISION >/dev/null
 sudo rm -rf /opt/cloudpunch/app.prev
 if [ -d /opt/cloudpunch/app ]; then sudo mv /opt/cloudpunch/app /opt/cloudpunch/app.prev; fi

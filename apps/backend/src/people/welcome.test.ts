@@ -26,7 +26,15 @@ describe('welcome email (ADR-0021)', () => {
     expect(m.html).toContain('More info → Run anyway');
     expect(m.html).toContain('mailto:support@aptask.com');
     expect(m.html).toContain('the team will help you solve it');
-    expect(m.html).toContain('It never takes screenshots');
+    expect(m.html).toContain('Download for Mac');
+    expect(m.html).toContain('drag <b>CloudPunch</b> into <b>Applications</b>');
+    expect(m.html).toContain('depending on your shift, expect a popup reminding you to clock in');
+    expect(m.html).toContain('How CloudPunch monitors your working day');
+    expect(m.html).toContain('where you connect from');
+    // Monitoring is stated plainly, without a list of what isn't captured.
+    expect(m.html).not.toMatch(/never (takes|records)|screenshots|keystrokes/i);
+    expect(m.html).toContain('src="cid:cloudpunch-logo"');
+    expect(m.html).toContain('src="cid:aptask-mark"');
     expect(m.html).not.toMatch(/<script/i);
   });
 
@@ -77,9 +85,31 @@ describe('welcome email (ADR-0021)', () => {
         body: { contentType: 'HTML' },
         toRecipients: [{ emailAddress: { address: 'roshnis@aptask.com' } }],
         ccRecipients: SETTINGS.cc.map((address) => ({ emailAddress: { address } })),
+        attachments: [
+          {
+            '@odata.type': '#microsoft.graph.fileAttachment',
+            name: 'logo.png',
+            contentType: 'image/png',
+            contentId: 'cloudpunch-logo',
+            isInline: true,
+          },
+          {
+            '@odata.type': '#microsoft.graph.fileAttachment',
+            name: 'aptask-mark.png',
+            contentType: 'image/png',
+            contentId: 'aptask-mark',
+            isInline: true,
+          },
+        ],
       },
       saveToSentItems: true,
     });
+    // The logos' real bytes: PNGs.
+    const sentImages = (body as { message: { attachments: { contentBytes: string }[] } }).message
+      .attachments;
+    for (const a of sentImages) {
+      expect(Buffer.from(a.contentBytes, 'base64').subarray(1, 4).toString()).toBe('PNG');
+    }
   });
 
   it('a refusal carries its status', async () => {

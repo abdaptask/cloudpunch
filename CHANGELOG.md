@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Web dashboard, part 1: sign-in at cloudpunch.aptask.com/app/ (ADR-0033)
+
+- New `apps/web`: React + Vite, Microsoft sign-in with MSAL
+  (`@azure/msal-browser` 5.22.0, the CloudPunch Web registration),
+  redirect flow, tokens in memory only. After sign-in the server says
+  who you are: Managers and HR (`team.timeline.read`) get in; anyone
+  else is pointed to the app; someone with no CloudPunch record is told
+  to ask HR. The team pages come in part 2.
+- Backend: serves the built app from `/app/` (same origin as `/v1`, no
+  CORS), with a strict CSP (scripts from self only); `/app/config.json`
+  gives the non-secret sign-in settings from the new
+  `ENTRA_WEB_CLIENT_ID`. A missing file outside the build is never
+  served.
+- The landing page links managers and HR to `/app/`.
+- `deploy-pilot.sh` and CI build the web app. Runbook: "Web dashboard:
+  one-time setup".
+
 ### ADR-0033 accepted: a web dashboard for managers
 
 - Managers and HR sign in at cloudpunch.aptask.com/app/ with their
@@ -17,6 +34,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   desktop's Team screens; served by the backend from `/app/` (no CORS),
   with Cloudflare Access as a second gate. Needs the `CloudPunch Web`
   Entra registration (ADR-0002 §4).
+
+### Backend: a refreshed welcome email (owner request, ADR-0021)
+
+- The CloudPunch logo at the top and the ApTask mark in the footer,
+  sent inside the email (inline attachments), so Outlook shows them
+  without "download pictures".
+- Mac as well as Windows: "Download for Mac", then drag CloudPunch
+  into Applications.
+- The clock-in reminder follows your shift ("depending on your shift,
+  expect a popup…"), with 8 am US Eastern for people without one.
+- "How CloudPunch monitors your working day" replaces "What CloudPunch
+  records, and what it never does": it lists what is monitored,
+  including where you connect from (ADR-0032), and no longer lists what
+  isn't captured. The invariants themselves are unchanged.
+- "Take a break" instead of fixed break names (HR can rename them).
 
 ### Desktop 0.1.22: the dial's clock shows the whole day (owner request)
 
