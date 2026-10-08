@@ -14,6 +14,8 @@ public at **`https://cloudpunch.aptask.com`** through a Cloudflare Tunnel
 | HTTPS | Caddy, `/etc/caddy/Caddyfile`, port 443 | Source: `infra/pilot/Caddyfile`, installed by `scripts/install-caddyfile.sh` (backs up, validates, reloads). Drops client `Cf-*` headers (ADR-0029). `tls internal`. CA root at `/var/lib/caddy/.local/share/caddy/pki/authorities/local/root.crt`; the same file is in `apps/desktop/pilot/pilot-ca.pem` |
 | Database | Postgres 16, localhost only, DB `cloudpunch_dev` | roles `cloudpunch_migrator` (DDL) and `cloudpunch_app` (data) |
 | Backups | cron `/etc/cron.d/cloudpunch-backup`, 02:30 nightly | `/var/backups/cloudpunch/*.dump`, 14 days, **on the same disk** |
+| Off-site backups (ADR-0035) | `cloudpunch-db-backup.timer`, 02:00 India time | S3 `aptask-cloudpunch-backups/db/`, encrypted to the owner's key, 30 days |
+| Alerts (ADR-0035) | `cloudpunch-health.timer` (5 min), `cloudpunch-alert@`, GitHub `uptime` (15 min) | emails from cloudpunch@ to `ALERT_TO` |
 | Public access | `cloudflared.service` (tunnel **cloudpunch**, id `e02aec2a-06b9-4b69-b795-c92e5c7b55a1`) | Cloudflare dashboard → Zero Trust → Networks → Tunnels → cloudpunch → Public Hostname: `cloudpunch.aptask.com` → **HTTP** `localhost:8080` (HTTPS here gives 502) |
 | Firewall | `ufw` | 22 from anywhere (key only); 443 from 10/8, 172.16/12, 192.168/16, 100.64/10 |
 | Node / pnpm | `/opt/node` (v20, SHA-256-verified tarball), pnpm 9.15.0 via corepack (`COREPACK_HOME=/opt/corepack`) | |
@@ -264,13 +266,91 @@ Applications → **cloudpunch-download**. It covers
 `@aptask.com`. Keep it on `/download` only: putting Access in front of
 `/v1` would break the app.
 
+## Backups and alerts: one-time setup (ADR-0035)
+
+**AWS (owner, once).** In `ap-south-1`, make:
+
+- An S3 bucket `aptask-cloudpunch-backups`: public access blocked,
+  versioning on, SSE-S3. Add a lifecycle rule that expires current
+  versions after 30 days and deletes noncurrent versions after 7.
+- An IAM user `cloudpunch-backup`, with no console access and one
+  inline policy: `s3:PutObject` on
+  `arn:aws:s3:::aptask-cloudpunch-backups/db/*` only. The server can
+  add backups but can't read, list or delete them.
+- An access key for that user ("Application running outside AWS").
+
+**Server (once, after a deploy that includes these files),** from Git
+Bash on the PC:
+
+```sh
+bash scripts/install-backup.sh
+```
+
+It:
+
+1. installs `age`;
+2. asks for the bucket, the access key (hidden) and the alert address;
+3. shows the backup **private key** once. **Save it in the password
+   manager** as `cloudpunch/backup-age-key`: it isn't kept on the
+   server, and no backup opens without it;
+4. starts the nightly backup and the 5-minute health check;
+5. runs a backup now, and sends a test alert.
+
+`--reconfigure` changes the settings or makes a new key. Backups made
+with an old key still need that old key.
+
+**What emails you, from cloudpunch@:**
+
+- **"Failed: cloudpunch-db-backup.service"**, with the last log lines.
+- **"Problem: api / database / disk space"**, and **"Fixed: …"** once
+  it's fine again. These are checked on the server every 5 minutes.
+- **GitHub's "Run failed: uptime"**: the site didn't answer from
+  outside 3 times in 3 minutes, checked every 15 minutes. This is the
+  one that notices the whole server, or the tunnel, being down. Check
+  `systemctl status cloudflared cloudpunch-api` on the server.
+
+**Rotate the access key** yearly, or if it leaks: make a new key for
+`cloudpunch-backup`, run `bash scripts/install-backup.sh --reconfigure`
+(it keeps the bucket name; type the new key), then delete the old key in
+IAM.
+
 ## Restore a backup
+
+A restore rewrites history. Get the owner's OK first, and remember that
+`time_event` is append-only by design.
+
+**Check that backups open (monthly, and once after setup).**
+
+1. In the S3 console, download the newest
+   `db/cloudpunch-….dump.age`.
+2. Copy it to the server: `scp FILE aptask@172.16.46.54:/tmp/`
+3. On the server, run this; it asks for the backup private key:
+
+   ```sh
+   sudo bash /opt/cloudpunch/app/infra/pilot/db-restore.sh /tmp/FILE
+   ```
+
+It restores into a scratch database, prints the row counts next to the
+live ones, then drops the scratch database. Live changes nothing.
+
+**Rebuild on a new server** from the S3 backup:
+
+1. Set the server up as in "What runs where": Postgres 16, the
+   database and its roles `cloudpunch_migrator` and `cloudpunch_app`
+   (roles aren't in the dump).
+2. Deploy, copy `/etc/cloudpunch/*.env` and the Graph certificate from
+   the password manager, then restore into the empty database:
+
+   ```sh
+   sudo bash /opt/cloudpunch/app/infra/pilot/db-restore.sh /tmp/FILE --into cloudpunch_dev
+   ```
+
+3. Point the Cloudflare Tunnel at the new server.
+
+**Same server, from last night's local dump:**
 
 ```sh
 sudo systemctl stop cloudpunch-api
 sudo -u postgres pg_restore --clean --if-exists -d cloudpunch_dev /var/backups/cloudpunch/cloudpunch-YYYY-MM-DD.dump
 sudo systemctl start cloudpunch-api
 ```
-
-A restore rewrites history. Get the owner's OK first, and remember that
-`time_event` is append-only by design.
