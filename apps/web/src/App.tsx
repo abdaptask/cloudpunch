@@ -274,7 +274,6 @@ function Dashboard({
       <main style={{ maxWidth: 720, margin: '0 auto', padding: '20px 16px 40px' }}>
         {queueOpen ? (
           <CorrectionsQueue
-            readOnly
             queue={corrections.queue}
             onChanged={corrections.reload}
             onClose={() => setQueueOpen(false)}

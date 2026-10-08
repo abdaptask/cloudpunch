@@ -18,6 +18,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Owner's answers: encrypted delivery pulled by the server, a manual
   Run workflow with the notes, and the owner approves each run.
 
+### Web dashboard: managers endorse corrections in the browser (owner request, ADR-0033)
+
+- The corrections queue on `/app/` now has Endorse, Approve and Reject,
+  as in the desktop app: the same `POST /v1/corrections/:id/decision`,
+  the same server checks (a direct manager endorses; an Administrator
+  approves) and the same audit. The queue reloads after each decision.
+- "Correct this day" (asking for a correction) stays in the app.
+- The desktop queue's `readOnly` mode, used only by the web, is gone.
+
+### ADR-0035 accepted: production on the internal server now, AWS later
+
+- Owner (2026-10-08): no new spending, and go-live on 2026-10-09.
+  Production stays on the current server and address, with off-site
+  encrypted backups to S3 and alert emails (#132). No staging.
+- The AWS plan (ECS Fargate, Aurora, S3, Cloudflare in front, about
+  $165–285 a month) is kept in the ADR for when there's a budget.
+
 ### Ops: off-site backups and alert emails for production on the server (ADR-0035)
 
 - **Nightly backup to S3** (02:00 India time):

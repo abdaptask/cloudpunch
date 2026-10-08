@@ -143,24 +143,6 @@ describe('the review queue', () => {
     expect(onChanged).toHaveBeenCalled();
   });
 
-  it('read only (the web, ADR-0033): shows what waits, no decisions', () => {
-    render(
-      <CorrectionsQueue
-        readOnly
-        queue={queue}
-        onChanged={() => undefined}
-        onClose={() => undefined}
-      />,
-    );
-    expect(screen.getByLabelText('correction Roshni Sahani')).toHaveTextContent(
-      'Asked by Abdulla Sheikh',
-    );
-    for (const name of ['Approve', 'Endorse', 'Reject']) {
-      expect(screen.queryByRole('button', { name })).not.toBeInTheDocument();
-    }
-    expect(screen.getByText(/open the CloudPunch app/)).toBeInTheDocument();
-  });
-
   it('says when nothing waits', () => {
     render(
       <CorrectionsQueue

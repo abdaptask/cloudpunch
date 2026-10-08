@@ -73,9 +73,27 @@ describe('the browser api for the desktop screens (ADR-0033 §5)', () => {
     expect(String(new ApiRefusal('not_found'))).toBe('not_found');
   });
 
-  it('is view only: changes are refused without a request', async () => {
+  it('sends a decision as the desktop core does, note trimmed and optional', async () => {
+    const f = connect(json(200, { correction: {} }));
+    await api.decideCorrection(ID, 'reject', '  wrong day ');
+    await api.decideCorrection(ID, 'approve', '   ');
+    expect(
+      (f.mock.calls as [string, RequestInit][]).map(([u, init]) => [u, init.method, init.body]),
+    ).toEqual([
+      [
+        `/v1/corrections/${ID}/decision`,
+        'POST',
+        JSON.stringify({ decision: 'reject', note: 'wrong day' }),
+      ],
+      [`/v1/corrections/${ID}/decision`, 'POST', JSON.stringify({ decision: 'approve' })],
+    ]);
+    connect(json(409, { code: 'already_decided' }));
+    await expect(api.decideCorrection(ID, 'endorse')).rejects.toThrow(code('already_decided'));
+    await expect(api.decideCorrection('x', 'endorse')).rejects.toThrow(code('invalid_argument'));
+  });
+
+  it('asking for a correction stays in the app: refused without a request', async () => {
     const f = connect(json(200, {}));
-    await expect(api.decideCorrection(ID, 'approve')).rejects.toThrow(code('view_only'));
     await expect(
       api.requestCorrection({
         employeeId: ID,
