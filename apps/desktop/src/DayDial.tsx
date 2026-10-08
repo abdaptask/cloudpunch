@@ -53,7 +53,7 @@ export function DayDial({
   glow?: string | undefined;
   /** Time worked today (ms): the seconds ring's colour. */
   worked?: number;
-  /** Time into the running session (ms), or null: seconds ring dark. */
+  /** Time on the clock today (ms) while clocked in, or null: seconds ring dark. */
   elapsed?: number | null;
   /** Draw the "now" needle (not on past days). */
   hand?: boolean;
