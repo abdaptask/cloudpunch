@@ -37,7 +37,7 @@ if [ "$RECONFIGURE" = 1 ] || ! sudo test -f /etc/cloudpunch/backup.env; then
   [ -n "$key_id" ] && [ -n "$secret" ] && [ -n "$alert_to" ] || { echo "install-backup: all three are needed" >&2; exit 1; }
   # India-only data stays in Mumbai (ADR-0001). S3 says where a bucket
   # is without any credentials.
-  region="$(curl -sI "https://$bucket.s3.amazonaws.com" | tr -d '' | sed -n 's/^x-amz-bucket-region: //Ip')"
+  region="$(curl -sI "https://$bucket.s3.amazonaws.com" | tr -d '\r' | sed -n 's/^x-amz-bucket-region: //Ip')"
   if [ "$region" != ap-south-1 ]; then
     echo "install-backup: bucket $bucket is in ${region:-no region (does it exist?)}, not ap-south-1 (Mumbai)." >&2
     echo "  Delete it and create it again with the region menu set to Asia Pacific (Mumbai)." >&2
