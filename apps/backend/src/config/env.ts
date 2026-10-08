@@ -34,6 +34,11 @@ const envSchema = z.object({
   ENTRA_API_CLIENT_ID: z.string().uuid().optional(),
   ENTRA_API_APPLICATION_ID_URI: z.string().min(1).optional(),
   ENTRA_REQUIRED_SCOPE: z.string().default('api.access'),
+  // The web dashboard's SPA registration (ADR-0033, ADR-0002 §4); unset
+  // means /app/ says the web dashboard isn't set up.
+  ENTRA_WEB_CLIENT_ID: z.string().uuid().optional(),
+  // The built web dashboard (apps/web/dist); unset: next to the backend.
+  WEB_DIST_DIR: z.string().min(1).optional(),
   // People (ADR-0020): the on-behalf-of certificate for Microsoft Graph.
   // The key file stays on the server (root:cloudpunch 0640); the
   // thumbprint is the certificate's SHA-1, base64url (`x5t`).

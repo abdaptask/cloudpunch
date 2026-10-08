@@ -157,6 +157,8 @@ export function page(releases: Release[], mac: Release[] = []): string {
   code { font: 11.5px/1.4 ui-monospace, Consolas, monospace; word-break: break-all; }
   .ok { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); margin-top: 8px; }
   .dot { width: 8px; height: 8px; border-radius: 50%; background: #22c55e; }
+  .manager { margin-top: 6px; padding-top: 10px; border-top: 1px solid var(--line); }
+  .manager a { color: var(--accent); font-weight: 600; }
   footer { margin-top: 16px; font-size: 12px; color: var(--muted); }
 </style>
 </head>
@@ -173,6 +175,7 @@ export function page(releases: Release[], mac: Release[] = []): string {
     <li>Clock in from the app.</li>
   </ol>
   ${download}
+  <p class="meta manager">Managers and HR: <a href="/app/">see your team in the browser</a>, no install needed.</p>
   <span class="ok"><span class="dot" aria-hidden="true"></span>Service is running</span>
   <footer>Questions? Ask your manager or HR.</footer>
 </main>

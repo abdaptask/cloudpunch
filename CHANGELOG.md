@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Web dashboard, part 1: sign-in at cloudpunch.aptask.com/app/ (ADR-0033)
+
+- New `apps/web`: React + Vite, Microsoft sign-in with MSAL
+  (`@azure/msal-browser` 5.22.0, the CloudPunch Web registration),
+  redirect flow, tokens in memory only. After sign-in the server says
+  who you are: Managers and HR (`team.timeline.read`) get in; anyone
+  else is pointed to the app; someone with no CloudPunch record is told
+  to ask HR. The team pages come in part 2.
+- Backend: serves the built app from `/app/` (same origin as `/v1`, no
+  CORS), with a strict CSP (scripts from self only); `/app/config.json`
+  gives the non-secret sign-in settings from the new
+  `ENTRA_WEB_CLIENT_ID`. A missing file outside the build is never
+  served.
+- The landing page links managers and HR to `/app/`.
+- `deploy-pilot.sh` and CI build the web app. Runbook: "Web dashboard:
+  one-time setup".
+
 ### Backend: a refreshed welcome email (owner request, ADR-0021)
 
 - The CloudPunch logo at the top and the ApTask mark in the footer,

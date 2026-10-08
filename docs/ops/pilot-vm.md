@@ -105,6 +105,33 @@ no longer send as noreply@.
 `WELCOME_CC` (comma-separated), and optionally `SUPPORT_EMAIL` and
 `PUBLIC_SITE_URL`. Restart `cloudpunch-api` after changing them.
 
+## Web dashboard: one-time setup (ADR-0033)
+
+Managers and HR use **https://cloudpunch.aptask.com/app/** instead of
+installing the app. `deploy-pilot.sh` builds it (`apps/web/dist`) and
+the API serves it.
+
+1. **Entra → App registrations → CloudPunch Web** (client ID
+   `c0d42233-0f69-4379-9956-f6f7e48a5278`) → Authentication →
+   Single-page application redirect URIs: exactly
+   `https://cloudpunch.aptask.com/app/` and `http://localhost:5173/app/`.
+   API permissions: **CloudPunch API → api.access**, admin consent granted.
+2. **Server setting**, then restart the API:
+   ```sh
+   ssh aptask@172.16.46.54 "echo 'ENTRA_WEB_CLIENT_ID=c0d42233-0f69-4379-9956-f6f7e48a5278' | sudo tee -a /etc/cloudpunch/api.env && sudo systemctl restart cloudpunch-api"
+   ```
+   Until it's set, `/app/` says the web dashboard isn't set up.
+3. **Cloudflare Zero Trust → Access → Applications → Add → Self-hosted**:
+   name `CloudPunch web dashboard`, domain `cloudpunch.aptask.com`, path
+   `app`, the same identity provider and Allow policy as the download
+   app. **Never** put Access on `/v1` or the whole domain: the desktop
+   app calls `/v1` directly.
+
+Who gets in: anyone the API gives `team.timeline.read` (Managers for
+their reporting line, HR). Everyone else is pointed to the app. A
+manager who doesn't track their own time needs an employee record in
+People (that's how their team is found) but no shift.
+
 ## Add a tester (without People)
 
 1. **Entra admin center → Enterprise applications → CloudPunch API →

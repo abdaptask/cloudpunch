@@ -14,6 +14,7 @@ import { devicesRoutes } from './devices/routes.js';
 import { eventsRoutes } from './events/routes.js';
 import { healthPlugin, type HealthProbe } from './health/routes.js';
 import { landingRoutes } from './landing/routes.js';
+import { webRoutes } from './web/routes.js';
 import { meRoutes } from './me/routes.js';
 import { readFileSync } from 'node:fs';
 import { createGraph, type Graph } from './people/graph.js';
@@ -56,6 +57,16 @@ export async function buildApp(opts: BuildAppOptions) {
 
   // A friendly page for anyone opening the address in a browser.
   await app.register(landingRoutes, { downloadsDir: opts.env.DOWNLOADS_DIR });
+
+  // The web dashboard for managers and HR (ADR-0033).
+  await app.register(webRoutes, {
+    distDir: opts.env.WEB_DIST_DIR,
+    tenantId: opts.env.ENTRA_TENANT_ID,
+    webClientId: opts.env.ENTRA_WEB_CLIENT_ID,
+    apiScope: opts.env.ENTRA_API_CLIENT_ID
+      ? `${opts.env.ENTRA_API_APPLICATION_ID_URI ?? `api://${opts.env.ENTRA_API_CLIENT_ID}`}/${opts.env.ENTRA_REQUIRED_SCOPE}`
+      : undefined,
+  });
 
   await app.register(healthPlugin, {
     version: opts.env.APP_VERSION,
