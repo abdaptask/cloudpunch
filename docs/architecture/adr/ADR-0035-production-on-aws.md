@@ -1,6 +1,8 @@
-# ADR-0035 — Moving CloudPunch from the pilot server to production on AWS
+# ADR-0035 — Production on the internal server now; AWS later
 
-- **Status:** Proposed (2026-10-08), five questions for the owner below
+- **Status:** Accepted (2026-10-08) in the owner's form: production stays on
+  the internal server, with off-site backups and alerts; the AWS plan below
+  waits for a budget (see "Owner's answers")
 - **Date:** 2026-10-08
 - **Deciders:** Abdulla Sheikh (project owner), Architecture (Claude)
 - **Builds on:** ADR-0001 (stack: ECS Fargate, Aurora PostgreSQL 16, S3,
@@ -49,7 +51,36 @@ Facts that shape the decision:
   (`infra/terraform`), never applied. Nothing is applied without the
   owner (README rule).
 
-## Decision
+## Decision for now (owner, 2026-10-08)
+
+The owner: no new spending, and go-live on **2026-10-09**. So:
+
+1. **Production stays on the internal server.** It's the same server
+   and the same `cloudpunch.aptask.com`, so nothing changes for anyone
+   using CloudPunch. Rolling out to more people is within its capacity.
+2. **Off-site backups to S3** (PR #132): nightly, encrypted to the
+   owner's key, uploaded by a write-only key, kept 30 days. S3 costs a
+   few cents a month at this size. The local 14-day dumps stay.
+3. **Alerts to the owner** (PR #132):
+   - a failed backup;
+   - the API, database or disk, checked on the server every 5 minutes;
+   - the whole site, checked from GitHub every 15 minutes.
+4. **A tested restore:** a scratch-database check, plus a written
+   rebuild-on-a-new-server procedure (runbook, "Restore a backup").
+5. **No staging** (no spend).
+6. **Cloudflare stays the edge** (Access policies unchanged).
+7. **The owner is the only one who changes the AWS account.**
+
+The risk this accepts: one machine. If it dies, CloudPunch is down
+until it's rebuilt from the backup (about an hour once a server
+exists). The most data that can be lost is the time since the last
+backup, at most a day. Events still on people's computers (the desktop
+outbox) are sent again when the server is back.
+
+## Later: the AWS plan (when there's a budget)
+
+Not started. Kept here so the decision is ready when it's wanted.
+
 
 ### 1. Shape
 
@@ -228,7 +259,18 @@ change them.
   long-running calls and the background jobs fit ECS better. ADR-0001
   chose Fargate.
 
-## Questions for the owner
+## Owner's answers (2026-10-08)
+
+1. **AWS account:** the owner's; only the owner makes changes there.
+2. **Edge:** keep Cloudflare.
+3. **Staging:** no spending, so none.
+4. **Database:** stay on PostgreSQL on the current server. Aurora is
+   AWS's hosted PostgreSQL: it can't be installed on our server, and it
+   isn't free. The database itself doesn't change.
+5. **When:** 2026-10-09, which is too soon for AWS, hence "Decision for
+   now".
+
+## The questions as asked
 
 1. **AWS account:** which ApTask account does production go in, and who
    besides you can approve changes there? (Recommended: a separate

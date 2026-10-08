@@ -7,21 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### ADR-0035 proposed: production on AWS
+### ADR-0035 accepted: production on the internal server now, AWS later
 
-- The plan for moving from the pilot server to AWS `ap-south-1`:
-  - one container on ECS Fargate, in two Availability Zones;
-  - Aurora PostgreSQL 16 Serverless v2, with daily snapshots copied to
-    a second region;
-  - S3 for the downloads, and secrets in Secrets Manager;
-  - Cloudflare kept in front (Access policies unchanged);
-  - deploys from GitHub through OIDC, approved by the owner.
-- The same `cloudpunch.aptask.com`, so no app update for anyone. The
-  cutover is a dump and restore on a quiet night, with the pilot on
-  standby for two weeks.
-- About $165–285 a month for prod and about $90 for staging (list
-  prices). Five questions for the owner; nothing is applied without
-  the owner.
+- Owner (2026-10-08): no new spending, and go-live on 2026-10-09.
+  Production stays on the current server and address, with off-site
+  encrypted backups to S3 and alert emails (#132). No staging.
+- The AWS plan (ECS Fargate, Aurora, S3, Cloudflare in front, about
+  $165–285 a month) is kept in the ADR for when there's a budget.
 
 ### Ops: the Mac build script catches today's slips
 
