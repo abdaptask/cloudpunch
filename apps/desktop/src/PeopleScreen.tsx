@@ -131,11 +131,18 @@ export function PeopleScreen({
     setSaving(true);
     const newEmployee = editing.roles.includes('Employee') && !original.includes('Employee');
     api.adminPeopleSetRoles(editing.oid, editing.roles, reason).then(
-      () => {
+      (r) => {
         setSaving(false);
+        const freed = (r.unassigned_reports ?? []).map((x) => x.name);
         setStatus({
           kind: 'saved',
-          text: `Saved. ${editing.name} gets the new roles at their next sign-in (within an hour).`,
+          text:
+            editing.roles.length === 0
+              ? `Saved. ${editing.name} has no CloudPunch roles now and is off Reporting lines and Team; their history is kept.` +
+                (freed.length > 0
+                  ? ` ${freed.join(', ')} ${freed.length === 1 ? 'has' : 'have'} no manager now: set one in Reporting lines.`
+                  : '')
+              : `Saved. ${editing.name} gets the new roles at their next sign-in (within an hour).`,
         });
         if (newEmployee) setWelcome({ oid: editing.oid, name: editing.name });
         setEditing(null);

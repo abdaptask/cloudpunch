@@ -359,6 +359,16 @@ export interface ProvisionInput {
   familyName: string;
 }
 
+/** Records follow roles (ADR-0020 §4): turn an employee record on or off. */
+export interface RecordStatusInput {
+  employeeId: string;
+  active: boolean;
+  actorUserId: string;
+  reason: string | null;
+  correlationId: string;
+  at: Date;
+}
+
 /** A change to someone's CloudPunch roles, for audit_log. */
 export interface RoleChangeAudit {
   actorUserId: string;
@@ -386,6 +396,14 @@ export interface PeopleRepo {
    * (source `local_admin`). Idempotent: an existing link is left alone.
    */
   provision(input: ProvisionInput): Promise<{ employeeId: string; created: boolean }>;
+  /**
+   * `active` → 'active' from 'inactive', or 'active' → 'inactive' (other
+   * statuses are left alone). Turning a record off also clears the
+   * manager of everyone who reported to it. Each change is audited.
+   */
+  setRecordActive(
+    input: RecordStatusInput,
+  ): Promise<{ changed: boolean; unassigned: { id: string; name: string }[] }>;
   /** Write the audit_log row (action `roles_set`). */
   auditRoleChange(entry: RoleChangeAudit): Promise<void>;
   /** Write the audit_log row (action `welcome_sent`). */

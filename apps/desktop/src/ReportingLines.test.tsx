@@ -1,14 +1,15 @@
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { EmployeeRow, Person } from './api.js';
+import type { EmployeeRow, Person, RolesSaved } from './api.js';
 import { ReportingLines } from './ReportingLines.js';
 
 const mocks = vi.hoisted(() => ({
   adminPeople: vi.fn<() => Promise<{ people: Person[] }>>(),
   adminEmployees: vi.fn<() => Promise<{ employees: EmployeeRow[] }>>(),
   adminSetManager: vi.fn<() => Promise<unknown>>(),
-  adminPeopleSetRoles: vi.fn<(oid: string, roles: string[], reason: string) => Promise<unknown>>(),
+  adminPeopleSetRoles:
+    vi.fn<(oid: string, roles: string[], reason: string) => Promise<RolesSaved>>(),
 }));
 vi.mock('./api.js', () => ({ api: mocks }));
 
@@ -72,7 +73,7 @@ describe('Reporting lines', () => {
   });
 
   it('a Manager without a record gets one, then can be picked', async () => {
-    mocks.adminPeopleSetRoles.mockResolvedValue({ changed: false });
+    mocks.adminPeopleSetRoles.mockResolvedValue({ roles: ['Manager'], changed: false });
     render(<ReportingLines />);
     const note = await screen.findByText(/Shaziya Syed has the Manager role but no CloudPunch/);
     expect(options('Roshni Sahani')).not.toContain('Shaziya Syed');
@@ -90,6 +91,37 @@ describe('Reporting lines', () => {
     ).toBeInTheDocument();
     expect(options('Roshni Sahani')).toContain('Shaziya Syed');
     expect(screen.queryByText(/has the Manager role but no CloudPunch/)).not.toBeInTheDocument();
+  });
+
+  it('someone left without a role can be taken off the list; their reports are named', async () => {
+    const GONE = row('e-gone', 'Gone Person');
+    const LEFT = row('e-left', 'Left Behind', 'e-gone');
+    mocks.adminEmployees.mockResolvedValue({ employees: [GONE, LEFT, NILESH] });
+    mocks.adminPeople.mockResolvedValue({
+      people: [
+        person('e-nilesh', 'Nilesh D', ['Employee', 'Manager']),
+        person('e-left', 'Left Behind', ['Employee']),
+      ],
+    });
+    mocks.adminPeopleSetRoles.mockResolvedValue({
+      roles: [],
+      changed: false,
+      unassigned_reports: [{ id: 'e-left', name: 'Left Behind' }],
+    });
+    render(<ReportingLines />);
+    const remove = await screen.findByRole('button', { name: 'Remove Gone Person from this list' });
+    expect(screen.queryByRole('button', { name: /Remove Nilesh D/ })).not.toBeInTheDocument();
+    mocks.adminEmployees.mockResolvedValue({
+      employees: [{ ...LEFT, reporting_manager_id: null }, NILESH],
+    });
+    await userEvent.click(remove);
+    expect(mocks.adminPeopleSetRoles).toHaveBeenCalledWith('oid-e-gone', [], 'No CloudPunch role');
+    expect(
+      await screen.findByText(
+        'Gone Person is off the list; their history is kept. Left Behind has no manager now.',
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByLabelText('manager of Gone Person')).not.toBeInTheDocument();
   });
 
   it("if roles can't load, everyone is offered as before", async () => {

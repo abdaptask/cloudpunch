@@ -21,8 +21,10 @@ const errorText = (code: string): string => ERROR_TEXT[code] ?? `Something went 
  * refuses loops and audits every change. greytHR takes this over later.
  *
  * Only people who can see others' time (the Manager or HR role) are
- * offered as managers. Someone given one of those roles before it came
- * with an employee record can get the record here (ADR-0020, amended).
+ * offered as managers. Records follow roles (ADR-0020 §4, amended):
+ * someone given Manager before that came with a record gets one here,
+ * and someone whose roles were removed before it turned the record off
+ * can be taken off the list here.
  */
 export function ReportingLines(): JSX.Element {
   const t = useTheme();
@@ -65,6 +67,43 @@ export function ReportingLines(): JSX.Element {
     people?.filter(
       (p) => !p.has_employee_record && MONITOR_ROLES.some((role) => p.roles.includes(role)),
     ) ?? [];
+
+  /** Listed, but no CloudPunch role left: their record outlived the roles. */
+  const roleless = (r: EmployeeRow): boolean =>
+    people !== null && !!r.oid && !people.some((p) => p.oid === r.oid);
+
+  const remove = (row: EmployeeRow): void => {
+    if (!row.oid) return;
+    setSaving(row.id);
+    setStatus(null);
+    // Saving no roles turns the record off (the server does it).
+    api
+      .adminPeopleSetRoles(row.oid, [], reason || 'No CloudPunch role')
+      .then((r) =>
+        api
+          .adminEmployees()
+          .then((e) => ({ freed: r.unassigned_reports ?? [], rows: e.employees })),
+      )
+      .then(
+        ({ freed, rows: next }) => {
+          setSaving(null);
+          setRows(next);
+          const names = freed.map((x) => x.name);
+          setStatus({
+            kind: 'saved',
+            text:
+              `${row.name} is off the list; their history is kept.` +
+              (names.length > 0
+                ? ` ${names.join(', ')} ${names.length === 1 ? 'has' : 'have'} no manager now.`
+                : ''),
+          });
+        },
+        (e: unknown) => {
+          setSaving(null);
+          setStatus({ kind: 'error', text: errorText(String(e)) });
+        },
+      );
+  };
 
   const addRecord = (p: Person): void => {
     setSaving(p.oid);
@@ -219,6 +258,26 @@ export function ReportingLines(): JSX.Element {
                   ))}
               </select>
             </label>
+            {roleless(row) && (
+              <span role="note" style={{ fontSize: 12, color: t.muted }}>
+                {row.name} has no CloudPunch role.{' '}
+                <button
+                  type="button"
+                  disabled={saving === row.id}
+                  onClick={() => remove(row)}
+                  style={{
+                    padding: 0,
+                    border: 'none',
+                    background: 'none',
+                    color: t.accent,
+                    font: 'inherit',
+                    cursor: 'pointer',
+                  }}
+                >
+                  Remove {row.name} from this list
+                </button>
+              </span>
+            )}
             {missing && (
               <span role="note" style={{ fontSize: 12, color: t.warnText }}>
                 {missing.name} doesn&apos;t have the Manager role yet, so they won&apos;t see the

@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### People: removing someone's roles takes them off the lists (owner request, desktop 0.1.23)
+
+- With no Employee, Manager or HR role left, a person's employee
+  record is turned off (ADR-0020 §4, amended): they drop out of
+  Reporting lines, Team and the manager dropdown. Their time history is
+  kept, and a role again brings the same record back.
+- Anyone who reported to them has no manager now; People says who
+  ("Roshni Sahani has no manager now: set one in Reporting lines").
+  Every change is in the audit log.
+- People whose roles were removed before this: Reporting lines shows
+  "… has no CloudPunch role" with **Remove … from this list**.
+- No migration (`employee.status` already allows `inactive`).
+
 ### Reporting lines: managers without the app, and only managers offered (owner request, desktop 0.1.23)
 
 - Giving someone the Manager or HR role now creates their employee

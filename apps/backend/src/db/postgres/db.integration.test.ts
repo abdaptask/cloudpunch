@@ -144,6 +144,62 @@ describe('PostgresDb — employees + users', () => {
     expect(rows[0]?.after).toEqual({ manager_employee_id: mgr });
     expect(rows[1]?.after).toEqual({ date: '2026-09-29' });
   });
+
+  it('ADR-0020 §4: a record turned off frees its reports (audited); turned on again', async () => {
+    const mgr = await seedEmployee();
+    const a = await seedEmployee();
+    const { userId } = await seedUser({ employeeId: mgr });
+    const base = {
+      actorUserId: userId,
+      reason: 'left',
+      correlationId: randomUUID(),
+      at: new Date(),
+    };
+    await db.employees.setReportingManager({ ...base, employeeId: a, managerId: mgr });
+
+    const off = await db.people.setRecordActive({ ...base, employeeId: mgr, active: false });
+    expect(off).toEqual({ changed: true, unassigned: [{ id: a, name: 'Alice Test' }] });
+    expect((await db.employees.findById(mgr))?.status).toBe('inactive');
+    expect((await db.employees.findById(a))?.reportingManagerId).toBeNull();
+    expect((await db.employees.listActive()).map((e) => e.id)).toEqual([a]);
+    // Already off: nothing more.
+    expect(await db.people.setRecordActive({ ...base, employeeId: mgr, active: false })).toEqual({
+      changed: false,
+      unassigned: [],
+    });
+
+    expect(await db.people.setRecordActive({ ...base, employeeId: mgr, active: true })).toEqual({
+      changed: true,
+      unassigned: [],
+    });
+    expect((await db.employees.findById(mgr))?.status).toBe('active');
+
+    const rows = await sql<{ entityId: string; action: string; after: unknown }[]>`
+      SELECT entity_id, action, new_value AS after FROM audit_log
+      WHERE entity_type = 'employee'`;
+    // One timestamp for all four, so compared as a set.
+    expect(rows).toHaveLength(4);
+    expect(rows.map((r) => [r.entityId, r.action, r.after])).toEqual(
+      expect.arrayContaining([
+        [a, 'reporting_manager_set', { manager_employee_id: mgr }],
+        [mgr, 'status_set', { status: 'inactive' }],
+        [a, 'reporting_manager_set', { manager_employee_id: null }],
+        [mgr, 'status_set', { status: 'active' }],
+      ]),
+    );
+  });
+
+  it('a terminated record is left alone', async () => {
+    const gone = await seedEmployee({ status: 'terminated' });
+    const { userId } = await seedUser({ employeeId: gone });
+    const base = { actorUserId: userId, reason: null, correlationId: randomUUID(), at: new Date() };
+    for (const active of [true, false]) {
+      expect(await db.people.setRecordActive({ ...base, employeeId: gone, active })).toMatchObject({
+        changed: false,
+      });
+    }
+    expect((await db.employees.findById(gone))?.status).toBe('terminated');
+  });
 });
 
 // ---------------------------------------------------------------------

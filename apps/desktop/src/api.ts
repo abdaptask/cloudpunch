@@ -34,6 +34,15 @@ export interface Person {
   has_employee_record: boolean;
 }
 
+/** A roles save (ADR-0020). With no Employee, Manager or HR left, the
+ * person's record is turned off and those who reported to them have no
+ * manager now (`unassigned_reports`). */
+export interface RolesSaved {
+  roles: string[];
+  changed: boolean;
+  unassigned_reports?: { id: string; name: string }[];
+}
+
 /** Welcome email preview (ADR-0021). */
 export interface WelcomePreview {
   from: string;
@@ -400,7 +409,7 @@ export const api = {
   adminPeople: (): Promise<{ people: Person[] }> => invoke('admin_people'),
   adminPeopleSearch: (q: string): Promise<{ users: DirectoryUser[] }> =>
     invoke('admin_people_search', { q }),
-  adminPeopleSetRoles: (oid: string, roles: string[], reason: string): Promise<unknown> =>
+  adminPeopleSetRoles: (oid: string, roles: string[], reason: string): Promise<RolesSaved> =>
     invoke('admin_people_set_roles', { oid, roles, reason: reason || null }),
   adminWelcomePreview: (oid: string): Promise<WelcomePreview> =>
     invoke<WelcomePreview>('admin_welcome_preview', { oid }),

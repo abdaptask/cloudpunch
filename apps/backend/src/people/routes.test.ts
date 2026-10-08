@@ -228,6 +228,64 @@ describe('People (ADR-0020)', () => {
     expect(db.roleAudit).toHaveLength(0);
   });
 
+  it('removing all roles turns the record off; reports lose their manager; a role brings it back', async () => {
+    await call(ADMIN, 'PUT', `/v1/admin/people/${FARHEEN.oid}/roles`, { roles: ['Manager'] });
+    const manager = (await db.employees.findByEntraObjectId(FARHEEN.oid))!;
+    const report = randomUUID();
+    db.seedEmployee({
+      id: report,
+      source: 'local_admin',
+      greythrEmployeeId: null,
+      employeeNumber: null,
+      givenName: 'Roshni',
+      familyName: 'Sahani',
+      displayName: 'Roshni Sahani',
+      workEmail: '',
+      status: 'active',
+    });
+    await db.employees.setReportingManager({
+      employeeId: report,
+      managerId: manager.id,
+      actorUserId: 'u',
+      reason: null,
+      correlationId: randomUUID(),
+      at: new Date(),
+    });
+
+    const off = await call(ADMIN, 'PUT', `/v1/admin/people/${FARHEEN.oid}/roles`, {
+      roles: [],
+      reason: 'left ApTask',
+    });
+    expect(off.res.json()).toEqual({
+      oid: FARHEEN.oid,
+      roles: [],
+      changed: true,
+      unassigned_reports: [{ id: report, name: 'Roshni Sahani' }],
+    });
+    expect(roles(FARHEEN.oid)).toEqual([]);
+    expect((await db.employees.findById(manager.id))?.status).toBe('inactive');
+    expect((await db.employees.listActive()).map((e) => e.id)).not.toContain(manager.id);
+    expect((await db.employees.findById(report))?.reportingManagerId).toBeNull();
+    expect(db.statusAudit).toMatchObject([
+      { employeeId: manager.id, active: false, reason: 'left ApTask' },
+    ]);
+
+    // Back again: the same record, history and all.
+    await call(ADMIN, 'PUT', `/v1/admin/people/${FARHEEN.oid}/roles`, { roles: ['Employee'] });
+    expect((await db.employees.findById(manager.id))?.status).toBe('active');
+    expect((await db.employees.findByEntraObjectId(FARHEEN.oid))?.id).toBe(manager.id);
+  });
+
+  it('saving no roles for someone whose roles went earlier turns their record off', async () => {
+    await call(ADMIN, 'PUT', `/v1/admin/people/${FARHEEN.oid}/roles`, { roles: ['Employee'] });
+    graph.assignments = graph.assignments.filter((a) => a.oid !== FARHEEN.oid);
+    const { res } = await call(ADMIN, 'PUT', `/v1/admin/people/${FARHEEN.oid}/roles`, {
+      roles: [],
+    });
+    expect(res.json()).toMatchObject({ changed: false });
+    expect((await db.employees.findByEntraObjectId(FARHEEN.oid))?.status).toBe('inactive');
+  });
+
   it('Auditor or Administrator alone: no record', async () => {
     await call(ADMIN, 'PUT', `/v1/admin/people/${FARHEEN.oid}/roles`, { roles: ['Auditor'] });
     expect(await db.employees.findByEntraObjectId(FARHEEN.oid)).toBeNull();
