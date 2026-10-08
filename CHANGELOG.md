@@ -18,6 +18,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Owner's answers: encrypted delivery pulled by the server, a manual
   Run workflow with the notes, and the owner approves each run.
 
+### Ops: off-site backups and alert emails for production on the server (ADR-0035)
+
+- **Nightly backup to S3** (02:00 India time):
+  - `pg_dump`, checked with `pg_restore --list`, then encrypted with
+    `age` to the owner's key;
+  - uploaded with curl's AWS signing, so no AWS tools on the server;
+  - the server's key can only add files, so it can't read, list or
+    delete backups;
+  - kept 30 days by a lifecycle rule. The local 14-day dumps stay too.
+- **Alerts by email from cloudpunch@**:
+  - a failed backup, with the last log lines;
+  - the API, database or disk (over 90%) needing attention, checked
+    every 5 minutes, with one email when it's wrong and one when it's
+    fixed;
+  - a GitHub `uptime` workflow, every 15 minutes from outside, for the
+    whole server being down.
+- **Restore:**
+  - `infra/pilot/db-restore.sh` checks a backup by restoring it into a
+    scratch database and comparing row counts, or restores into an empty
+    database on a rebuilt server;
+  - the runbook covers both.
+- **Setup:** `scripts/install-backup.sh`, once. The backup private key
+  is shown once for the password manager and never kept on the server.
+
 ### Ops: the Mac build script catches today's slips
 
 - `build-mac.sh` defaults to the Apple ID `admin@aptask.com`; a failed
