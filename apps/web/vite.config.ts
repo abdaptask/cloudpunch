@@ -1,5 +1,6 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import { desktopScreens } from './desktopScreens.js';
 
 /**
  * The web dashboard (ADR-0033), served by the backend from /app/. In
@@ -9,7 +10,9 @@ import react from '@vitejs/plugin-react';
  */
 export default defineConfig({
   base: '/app/',
-  plugins: [react()],
+  plugins: [desktopScreens(), react()],
+  // The desktop screens built in here share the web's one React.
+  resolve: { dedupe: ['react', 'react-dom'] },
   server: {
     port: 5173,
     strictPort: true,

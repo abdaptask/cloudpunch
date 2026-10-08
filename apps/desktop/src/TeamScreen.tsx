@@ -33,7 +33,8 @@ export function TeamScreen({
   canSeeConnections = false,
   canCorrect = false,
 }: {
-  onClose: () => void;
+  /** "Done" back to the dashboard; the web has nothing to go back to (ADR-0033). */
+  onClose?: () => void;
   /** Managers and Administrators (ADR-0029 §5); not HR. The server checks again. */
   canSeeConnections?: boolean;
   /** Offer "Correct this day" (ADR-0030; only a direct manager succeeds). */
@@ -52,9 +53,11 @@ export function TeamScreen({
         <h2 style={{ margin: 0, fontSize: 16, fontWeight: 650 }}>
           {person ? person.name : 'Team'}
         </h2>
-        <button type="button" onClick={person ? () => setPerson(null) : onClose} style={link(t)}>
-          {person ? 'Back' : 'Done'}
-        </button>
+        {(person || onClose) && (
+          <button type="button" onClick={person ? () => setPerson(null) : onClose} style={link(t)}>
+            {person ? 'Back' : 'Done'}
+          </button>
+        )}
       </div>
       {person ? (
         <Person

@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Web dashboard, part 2: the Team page on the web (ADR-0033)
+
+- Past sign-in, managers and HR get the desktop's own Team screen:
+  who's working now (refreshing every 30 s), exceptions over the last
+  week, and a person's today and earlier days with their corrections.
+  Managers also see where people connect from (ADR-0029 §5); HR
+  doesn't. View only: no "Correct this day" on the web yet.
+- How: the web builds the desktop's screens from their source and
+  swaps their one Tauri file (`api.ts`) for a browser version
+  (`apps/web/src/desktopApi.ts`) that makes the same `/v1` requests
+  with the Microsoft token and the same error codes. A desktop screen
+  needing a call the web lacks fails the web build. A build test checks
+  the swap in the production bundle.
+- Desktop: TeamScreen's "Done" is hidden when there's nothing to go
+  back to (the web). No desktop release needed.
+
 ### Fix: web sign-in did nothing (ADR-0033)
 
 - "Sign in with Microsoft" on `/app/` silently failed: MSAL can't do a

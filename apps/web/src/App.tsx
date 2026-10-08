@@ -1,12 +1,16 @@
 import { Capability } from '@cloudpunch/shared';
 import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
+import { TeamScreen } from '../../desktop/src/TeamScreen.js';
+import { ThemeProvider, useTheme } from '../../desktop/src/ui/theme.js';
 import { startAuth, type Auth, type WebConfig } from './auth.js';
+import { connectApi } from './desktopApi.js';
 
 /**
  * The web dashboard shell (ADR-0033): sign in with Microsoft, then the
  * server says who you are. Only people who can already see others' time
  * (`team.timeline.read`: Managers and HR) get past the gate; the server
- * still checks every request.
+ * still checks every request. Past the gate: the desktop's own Team
+ * screen (ADR-0033 §5), view only.
  */
 
 export interface Me {
@@ -127,6 +131,22 @@ export function App({ deps = realDeps }: { deps?: AppDeps }): JSX.Element {
     load(deps).then(setView, (e: unknown) => setView(failed(e)));
   }, [deps]);
 
+  if (view.kind === 'ready') {
+    return (
+      <ThemeProvider>
+        <Dashboard
+          deps={deps}
+          auth={view.auth}
+          me={view.me}
+          onSignedOut={(v) => {
+            connectApi(null);
+            setView(v);
+          }}
+        />
+      </ThemeProvider>
+    );
+  }
+
   const signIn = (auth: Auth): void => {
     auth
       .signIn()
@@ -186,21 +206,61 @@ export function App({ deps = realDeps }: { deps?: AppDeps }): JSX.Element {
             <SignOut auth={view.auth} onDone={setView} />
           </>
         )}
-        {view.kind === 'ready' && (
-          <>
-            <h1 style={{ margin: '0 0 8px', fontSize: 20, color: C.navy }}>
-              Hello, {view.me.user.display_name ?? view.me.user.work_email}
-            </h1>
-            <p style={p}>You're signed in. Your team view arrives in the next update.</p>
-            <SignOut auth={view.auth} onDone={setView} />
-          </>
-        )}
         {view.kind === 'error' && (
           <p role="alert" style={p}>
             Something went wrong ({view.message}). Reload the page, or write to support@aptask.com.
           </p>
         )}
       </Card>
+    </div>
+  );
+}
+
+/** Managers and Administrators see where people connect from (ADR-0029 §5); not HR. */
+const canSeeConnections = (me: Me): boolean =>
+  me.capabilities.includes('team.connection.read') ||
+  me.capabilities.includes('admin.connection.read');
+
+function Dashboard({
+  deps,
+  auth,
+  me,
+  onSignedOut,
+}: {
+  deps: AppDeps;
+  auth: Auth;
+  me: Me;
+  onSignedOut: (v: View) => void;
+}): JSX.Element {
+  const t = useTheme();
+  // Set before the first render of the Team screen, which loads at once.
+  const [connected] = useState(() => {
+    connectApi({ fetch: deps.fetch, token: auth.token });
+    return true;
+  });
+  return (
+    <div
+      style={{ minHeight: '100vh', background: t.bg, color: t.text, font: `15px/1.5 ${t.font}` }}
+    >
+      <header
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 12,
+          padding: '12px 16px',
+          borderBottom: `1px solid ${t.border}`,
+          background: t.surface,
+        }}
+      >
+        <img src="/brand/logo.png" alt="CloudPunch" width={60} height={32} />
+        <span style={{ flex: 1, color: t.muted, fontSize: 14 }}>
+          {me.user.display_name ?? me.user.work_email}
+        </span>
+        <SignOut auth={auth} onDone={onSignedOut} />
+      </header>
+      <main style={{ maxWidth: 720, margin: '0 auto', padding: '20px 16px 40px' }}>
+        {connected && <TeamScreen canSeeConnections={canSeeConnections(me)} />}
+      </main>
     </div>
   );
 }
