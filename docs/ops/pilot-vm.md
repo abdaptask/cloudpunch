@@ -201,9 +201,15 @@ notarize it, and signs the update for auto-update.
 (not over SSH to the VM), from the repo root:
 
 ```sh
-git pull
-bash scripts/build-mac.sh admin@aptask.com --publish
+git checkout main && git pull
+bash scripts/build-mac.sh --publish
 ```
+
+The Apple ID is ApTask's developer account, `admin@aptask.com` (the
+default; a personal Apple ID fails notarization with 401), and the
+app-specific password is made under it. The script stops if this copy
+is behind `main` or the version is already published for Mac, and loads
+the SSH key into the keychain if it isn't (one passphrase prompt).
 
 It finds the certificate and Team ID itself, checks the setup above,
 asks for the "what's new" notes, then the app-specific password and the
