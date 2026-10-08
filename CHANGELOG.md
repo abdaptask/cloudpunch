@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Ops: the 5-minute health check starts
+
+- `cloudpunch-health.service` failed with `226/NAMESPACE`: its writable
+  folder didn't exist yet. It now uses `StateDirectory=`, so systemd
+  makes the folder. The backup and alert email were already working.
+
 ### Ops: install-backup.sh fixes from the first run
 
 - The backup key wasn't made: `age-keygen` won't write over an existing
