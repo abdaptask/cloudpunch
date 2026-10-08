@@ -51,6 +51,13 @@ from the directory.
    and a manager may never install the app. Saving someone's roles
    unchanged adds a missing record, for those given Manager before
    this. Reporting lines offers only Manager and HR as managers.
+   With none of Employee, Manager or HR left, the record is turned
+   `inactive` (audited, `status_set`): it drops out of Reporting lines
+   and Team, its time history is kept, and anyone who reported to it
+   has no manager now (each audited, `reporting_manager_set`). One of
+   those roles again turns the same record back on. Records with
+   another status (e.g. `terminated`, from greytHR later) are left
+   alone.
 5. **Audit.** Every change writes an `audit_log` row (`entity_type =
    app_role_assignment`, `action = roles_set`) with the roles before and
    after, the actor and the reason.

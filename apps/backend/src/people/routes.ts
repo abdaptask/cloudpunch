@@ -277,12 +277,18 @@ const peopleRoutesImpl: FastifyPluginAsync<PeopleRoutesOptions> = async (app, op
           };
           return problem(reply, 403, refusal, text[refusal]);
         }
-        // An employee record for anyone who can clock in, and for anyone
-        // who can be in a reporting line as a manager (Manager, HR): the
-        // line links two records, and a manager may never install the
-        // app. Also on a save with no change, which adds a missing one.
+        // Records follow roles (ADR-0020 §4, amended): Employee, Manager
+        // or HR come with an employee record (a reporting line links two,
+        // and a manager may never install the app); with none of them
+        // left, the record is turned off and drops out of Reporting
+        // lines and Team, its history kept. Also on a save with no role
+        // change, which fixes a record from before this rule.
+        const reason = body.data.reason?.trim() || null;
+        const correlationId = randomUUID();
+        const at = new Date();
         const needsRecord = wanted.some((r) => RECORD_ROLES.includes(r));
-        if (needsRecord && !(await db.employees.findByEntraObjectId(oid))) {
+        const record = await db.employees.findByEntraObjectId(oid);
+        if (needsRecord && !record) {
           const user = await g.getUser(oid);
           if (!user)
             return problem(reply, 404, 'unknown_person', 'no such person in the directory');
@@ -295,23 +301,45 @@ const peopleRoutesImpl: FastifyPluginAsync<PeopleRoutesOptions> = async (app, op
             familyName: family,
           });
         }
-        if (diff.add.length === 0 && diff.remove.length === 0) {
-          return reply.code(200).send({ oid, roles: current, changed: false });
+        const setRecord = async (active: boolean): Promise<{ id: string; name: string }[]> =>
+          record
+            ? (
+                await db.people.setRecordActive({
+                  employeeId: record.id,
+                  active,
+                  actorUserId: actor.id,
+                  reason,
+                  correlationId,
+                  at,
+                })
+              ).unassigned
+            : [];
+        if (needsRecord) await setRecord(true);
+
+        const changed = diff.add.length > 0 || diff.remove.length > 0;
+        if (changed) {
+          for (const role of diff.add) await g.assign(oid, role);
+          for (const role of diff.remove) {
+            for (const a of mine.filter((x) => x.role === role)) await g.unassign(a.id);
+          }
+          await db.people.auditRoleChange({
+            actorUserId: actor.id,
+            targetOid: oid,
+            previousRoles: current,
+            newRoles: wanted,
+            reason,
+            correlationId,
+            at,
+          });
         }
-        for (const role of diff.add) await g.assign(oid, role);
-        for (const role of diff.remove) {
-          for (const a of mine.filter((x) => x.role === role)) await g.unassign(a.id);
-        }
-        await db.people.auditRoleChange({
-          actorUserId: actor.id,
-          targetOid: oid,
-          previousRoles: current,
-          newRoles: wanted,
-          reason: body.data.reason?.trim() || null,
-          correlationId: randomUUID(),
-          at: new Date(),
+        // Turned off only once Entra has the roles removed.
+        const unassigned = needsRecord ? [] : await setRecord(false);
+        return reply.code(200).send({
+          oid,
+          roles: changed ? wanted : current,
+          changed,
+          ...(unassigned.length > 0 ? { unassigned_reports: unassigned } : {}),
         });
-        return reply.code(200).send({ oid, roles: wanted, changed: true });
       });
     },
   );

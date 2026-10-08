@@ -89,6 +89,41 @@ export class PostgresDb implements DbRepositories {
               DO UPDATE SET employee_id = EXCLUDED.employee_id, updated_at = now()`;
           return { employeeId: employee.id, created: true };
         }),
+      setRecordActive: (i) =>
+        this.sql.begin(async (tx) => {
+          const [row] = await tx<{ status: string }[]>`
+            SELECT status FROM employee WHERE id = ${i.employeeId} FOR UPDATE`;
+          const from = i.active ? 'inactive' : 'active';
+          const to = i.active ? 'active' : 'inactive';
+          if (row?.status !== from) return { changed: false, unassigned: [] };
+          await tx`UPDATE employee SET status = ${to}, updated_at = now() WHERE id = ${i.employeeId}`;
+          await tx`
+            INSERT INTO audit_log (actor_type, actor_user_id, entity_type, entity_id, action,
+                                   previous_value, new_value, reason, correlation_id, occurred_at)
+            VALUES ('user', ${i.actorUserId}, 'employee', ${i.employeeId}, 'status_set',
+                    ${tx.json({ status: from })}, ${tx.json({ status: to })},
+                    ${i.reason}, ${i.correlationId}, ${i.at})`;
+          if (i.active) return { changed: true, unassigned: [] };
+          const reports = await tx<{ id: string; name: string }[]>`
+            UPDATE employee SET reporting_manager_id = NULL, updated_at = now()
+            WHERE reporting_manager_id = ${i.employeeId} AND status = 'active'
+            RETURNING id, coalesce(display_name, given_name || ' ' || family_name) AS name`;
+          for (const r of reports) {
+            await tx`
+              INSERT INTO audit_log (actor_type, actor_user_id, entity_type, entity_id, action,
+                                     previous_value, new_value, reason, correlation_id, occurred_at)
+              VALUES ('user', ${i.actorUserId}, 'employee', ${r.id}, 'reporting_manager_set',
+                      ${tx.json({ manager_employee_id: i.employeeId })},
+                      ${tx.json({ manager_employee_id: null })},
+                      ${i.reason}, ${i.correlationId}, ${i.at})`;
+          }
+          return {
+            changed: true,
+            unassigned: [...reports]
+              .map((r) => ({ id: r.id, name: r.name }))
+              .sort((a, b) => a.name.localeCompare(b.name)),
+          };
+        }),
       auditRoleChange: async (e) => {
         await this.sql`
           INSERT INTO audit_log (actor_type, actor_user_id, entity_type, entity_id, action,

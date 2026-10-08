@@ -1903,6 +1903,32 @@ describe('welcome email (ADR-0021)', () => {
     subject: 'Welcome to CloudPunch: how to get started',
   };
 
+  it('removing all roles says the person is off the lists and who has no manager now', async () => {
+    mocks.myCapabilities.mockResolvedValue(['admin.role.assign']);
+    mocks.adminPeople.mockResolvedValue({
+      people: [
+        { oid: FARHEEN, name: 'Shaziya Syed', roles: ['Manager'], has_employee_record: true },
+      ],
+    });
+    mocks.adminPeopleSetRoles.mockResolvedValue({
+      roles: [],
+      changed: true,
+      unassigned_reports: [{ id: 'e1', name: 'Roshni Sahani' }],
+    });
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole('button', { name: 'Settings' }));
+    const people = screen.getByRole('region', { name: 'people' });
+    await user.click(await within(people).findByRole('button', { name: /Shaziya Syed/ }));
+    const roles = within(people).getByRole('group', { name: 'edit-roles' });
+    await user.click(within(roles).getByLabelText('role-Manager'));
+    await user.click(within(roles).getByRole('button', { name: 'Save' }));
+    expect(mocks.adminPeopleSetRoles).toHaveBeenCalledWith(FARHEEN, [], '');
+    expect(await within(people).findByRole('status')).toHaveTextContent(
+      'Shaziya Syed has no CloudPunch roles now and is off Reporting lines and Team; their history is kept. Roshni Sahani has no manager now: set one in Reporting lines.',
+    );
+  });
+
   it('giving someone Employee offers the welcome email, with a preview and a note', async () => {
     mocks.myCapabilities.mockResolvedValue(['admin.role.assign']);
     mocks.adminPeople.mockResolvedValue({ people: [] });

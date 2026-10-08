@@ -33,6 +33,7 @@ import type {
   TimeEventRepo,
   TimeSession,
   TimeSessionRepo,
+  RecordStatusInput,
   SetManagerInput,
   ViewAudit,
 } from './types.js';
@@ -78,6 +79,7 @@ export class InMemoryDb implements DbRepositories {
   readonly welcomeAudit: WelcomeAudit[] = [];
   /** Reporting-line changes (ADR-0025 §1), for tests. */
   readonly managerAudit: SetManagerInput[] = [];
+  readonly statusAudit: RecordStatusInput[] = [];
   /** Read-audit rows (ADR-0025 §4), for tests. */
   readonly viewAudit: ViewAudit[] = [];
   /** Admin machine sign-outs (ADR-0028 §4) and when each closed, for tests. */
@@ -308,6 +310,22 @@ export class InMemoryDb implements DbRepositories {
         this.userByOid.set(input.oid, userId);
         this.employeeByOid.set(input.oid, employeeId);
         return { employeeId, created: true };
+      },
+      setRecordActive: async (i) => {
+        const e = this.employeeById.get(i.employeeId);
+        const from = i.active ? 'inactive' : 'active';
+        if (e?.status !== from) return { changed: false, unassigned: [] };
+        this.employeeById.set(e.id, { ...e, status: i.active ? 'active' : 'inactive' });
+        this.statusAudit.push(i);
+        if (i.active) return { changed: true, unassigned: [] };
+        const unassigned = this.activeByName()
+          .filter((r) => r.reportingManagerId === e.id)
+          .map((r) => {
+            this.employeeById.set(r.id, { ...r, reportingManagerId: null });
+            this.managerAudit.push({ ...i, employeeId: r.id, managerId: null });
+            return { id: r.id, name: r.displayName ?? `${r.givenName} ${r.familyName}` };
+          });
+        return { changed: true, unassigned };
       },
       auditRoleChange: async (entry) => {
         this.roleAudit.push(entry);
