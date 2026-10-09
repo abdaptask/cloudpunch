@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Regular late starters (ADR-0037 step 5; migration 0012)
+
+- `GET /v1/team` adds `starts` per person: missed starts and "Not
+  working today" in the last 30 days, and `regular` at 3 or more
+  (global policy `alerts.regular_late_count` / `regular_late_days`).
+  Counted from the shift-start emails, so from when they're switched on.
+- **Monday 09:00 ET email** from cloudpunch@: each manager gets their
+  direct reports at or over the line; Administrators and HR get
+  everyone. No email when nobody is. Once per recipient per week
+  (migration **0012**, `weekly_report_sent`); a failed send is tried
+  again the next minute.
+- Alert settings are read in one place (`alerts/settings.ts`).
+
 ### Shift-start emails on the server (ADR-0037 step 4; migration 0011)
 
 - Once a minute the API checks every shift in progress and emails,

@@ -4,6 +4,7 @@ import { MAX_GAP_MS, totals, type DaySegment, type WorkingDay } from '../days/bu
 import { daysAround, rulesFor } from '../days/service.js';
 import { effectivePolicyFor } from '../policy/service.js';
 import { activeWindow, shiftDate, type ShiftWindow } from '../shifts/model.js';
+import { alertSettings } from '../alerts/settings.js';
 
 /**
  * Manager and HR team views (ADR-0025). Pure helpers plus the reads
@@ -73,6 +74,12 @@ export interface PersonNow {
   worked_ms: number;
   /** The holiday's name, when `status` is `holiday` (ADR-0037 §2). */
   holiday?: string;
+  /**
+   * Missed starts and "not working" days in the last `days` days
+   * (ADR-0037 §4), when there are any; `regular` at or over the
+   * threshold. Counted from when the shift emails were switched on.
+   */
+  starts?: { missed: number; not_working: number; days: number; regular: boolean };
 }
 
 function statusOf(kind: string): LiveStatus {
@@ -175,7 +182,30 @@ export async function teamNow(
     const said = window ? (await db.shifts.notWorking([e.id], [window.date])).size > 0 : false;
     out.push(withShift(p, window, days, said, window ? (holidays.get(window.date) ?? null) : null));
   }
-  return out;
+  return withStarts(db, out, today);
+}
+
+/** ADR-0037 §4: each person's missed starts and "not working" days. */
+async function withStarts(
+  db: DbRepositories,
+  people: PersonNow[],
+  today: string,
+): Promise<PersonNow[]> {
+  const s = await alertSettings(db);
+  const counts = await db.shiftAlerts.countsSince(shiftDate(today, -s.regularDays));
+  return people.map((p) => {
+    const c = counts.get(p.employee_id);
+    if (!c || (c.missed === 0 && c.notWorking === 0)) return p;
+    return {
+      ...p,
+      starts: {
+        missed: c.missed,
+        not_working: c.notWorking,
+        days: s.regularDays,
+        regular: c.missed >= s.regularCount,
+      },
+    };
+  });
 }
 
 export type ExceptionKind =

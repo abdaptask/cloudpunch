@@ -16,6 +16,8 @@ import type {
   RoleDirectoryRepo,
   ShiftAlertClaim,
   ShiftAlertRepo,
+  StartCounts,
+  WeeklyReportRepo,
   ShiftAssignment,
   ShiftRepo,
   Device,
@@ -69,6 +71,9 @@ export class InMemoryDb implements DbRepositories {
   readonly holidays: HolidayRepo;
   readonly shiftAlerts: ShiftAlertRepo;
   readonly roles: RoleDirectoryRepo;
+  readonly weeklyReports: WeeklyReportRepo;
+  /** weekly_report_sent (ADR-0037 §4) as `${weekStart}:${recipient}`, for tests. */
+  readonly weeklyReportRows: string[] = [];
   /** shift_alert rows (ADR-0037 §3), for tests. */
   readonly shiftAlertRows: ShiftAlertClaim[] = [];
   /** role_seen (ADR-0037), oid -> roles, for tests. */
@@ -168,14 +173,30 @@ export class InMemoryDb implements DbRepositories {
         }
         return true;
       },
-      missedSince: async (since) => {
-        const out = new Map<string, number>();
+      countsSince: async (since) => {
+        const out = new Map<string, StartCounts>();
         for (const r of this.shiftAlertRows) {
-          if (r.kind === 'missed' && r.shiftDate >= since) {
-            out.set(r.employeeId, (out.get(r.employeeId) ?? 0) + 1);
-          }
+          if (r.shiftDate < since || r.kind === 'late_clock_in') continue;
+          const c = out.get(r.employeeId) ?? { missed: 0, notWorking: 0 };
+          if (r.kind === 'missed') c.missed += 1;
+          else c.notWorking += 1;
+          out.set(r.employeeId, c);
         }
         return out;
+      },
+    };
+    this.weeklyReports = {
+      claimAndSend: async (week, recipient, _people, _at, send) => {
+        const key = `${week}:${recipient.toLowerCase()}`;
+        if (this.weeklyReportRows.includes(key)) return false;
+        this.weeklyReportRows.push(key);
+        try {
+          await send();
+        } catch (err) {
+          this.weeklyReportRows.splice(this.weeklyReportRows.indexOf(key), 1);
+          throw err;
+        }
+        return true;
       },
     };
     this.roles = {

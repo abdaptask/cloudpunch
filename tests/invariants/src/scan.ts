@@ -159,6 +159,6 @@ export function cargoDependencies(toml: string): string[] {
  */
 export function appendOnlyViolations(source: string): string[] {
   const re =
-    /\b(UPDATE\s+(?:ONLY\s+)?"?(time_event|audit_log|time_correction_decision|time_correction|shift_assignment|not_working_day|holiday|shift_alert)"?\s+SET\b|DELETE\s+FROM\s+(?:ONLY\s+)?"?(time_event|audit_log|time_correction_decision|time_correction|shift_assignment|not_working_day|holiday|shift_alert)"?\b|TRUNCATE\s+(?:TABLE\s+)?"?(time_event|audit_log|time_correction_decision|time_correction|shift_assignment|not_working_day|holiday|shift_alert)"?\b)/gi;
+    /\b(UPDATE\s+(?:ONLY\s+)?"?(time_event|audit_log|time_correction_decision|time_correction|shift_assignment|not_working_day|holiday|shift_alert|weekly_report_sent)"?\s+SET\b|DELETE\s+FROM\s+(?:ONLY\s+)?"?(time_event|audit_log|time_correction_decision|time_correction|shift_assignment|not_working_day|holiday|shift_alert|weekly_report_sent)"?\b|TRUNCATE\s+(?:TABLE\s+)?"?(time_event|audit_log|time_correction_decision|time_correction|shift_assignment|not_working_day|holiday|shift_alert|weekly_report_sent)"?\b)/gi;
   return [...source.matchAll(re)].map((m) => m[0]);
 }

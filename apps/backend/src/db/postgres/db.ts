@@ -14,6 +14,8 @@ import type {
   RoleDirectoryRepo,
   RoleHolder,
   ShiftAlertRepo,
+  StartCounts,
+  WeeklyReportRepo,
   ShiftAssignment,
   ShiftRepo,
   DeviceConnection,
@@ -66,12 +68,26 @@ export class PostgresDb implements DbRepositories {
   readonly holidays: HolidayRepo;
   readonly shiftAlerts: ShiftAlertRepo;
   readonly roles: RoleDirectoryRepo;
+  readonly weeklyReports: WeeklyReportRepo;
 
   constructor(private readonly sql: postgres.Sql) {
     this.shifts = this.buildShiftRepo();
     this.holidays = this.buildHolidayRepo();
     this.shiftAlerts = this.buildShiftAlertRepo();
     this.roles = this.buildRoleDirectoryRepo();
+    this.weeklyReports = {
+      claimAndSend: async (week, recipient, people, at, send) =>
+        this.sql.begin(async (tx) => {
+          const rows = await tx`
+            INSERT INTO weekly_report_sent (week_start, recipient, people, sent_at)
+            VALUES (${week}::date, ${recipient}, ${people}, ${at})
+            ON CONFLICT (week_start, recipient) DO NOTHING
+            RETURNING week_start`;
+          if (rows.length === 0) return false;
+          await send();
+          return true;
+        }),
+    };
     this.connections = this.buildConnectionRepo();
     this.corrections = this.buildCorrectionRepo();
     this.employees = this.buildEmployeeRepo();
@@ -351,12 +367,17 @@ export class PostgresDb implements DbRepositories {
           await send();
           return true;
         }),
-      missedSince: async (since) => {
-        const rows = await this.sql<{ employeeId: string; n: number }[]>`
-          SELECT employee_id, count(*)::int AS n FROM shift_alert
-          WHERE kind = 'missed' AND shift_date >= ${since}::date
+      countsSince: async (since) => {
+        const rows = await this.sql<({ employeeId: string } & StartCounts)[]>`
+          SELECT employee_id,
+                 count(*) FILTER (WHERE kind = 'missed')::int AS missed,
+                 count(*) FILTER (WHERE kind = 'not_working')::int AS not_working
+          FROM shift_alert
+          WHERE shift_date >= ${since}::date AND kind IN ('missed', 'not_working')
           GROUP BY employee_id`;
-        return new Map(rows.map((r) => [r.employeeId, r.n]));
+        return new Map(
+          rows.map((r) => [r.employeeId, { missed: r.missed, notWorking: r.notWorking }]),
+        );
       },
     };
   }
