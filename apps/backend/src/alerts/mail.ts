@@ -97,6 +97,32 @@ export function shiftMailText(i: ShiftMailInput): { subject: string; text: strin
   }
 }
 
+export interface WeeklyMailInput {
+  people: readonly { name: string; missed: number; notWorking: number }[];
+  count: number;
+  days: number;
+  siteUrl: string;
+}
+
+/** The Monday regular-late-starters email (ADR-0037 §4). */
+export function weeklyMailText(i: WeeklyMailInput): { subject: string; text: string } {
+  const n = i.people.length;
+  const lines = i.people.map((p) => {
+    const nw = p.notWorking > 0 ? `, ${p.notWorking} "not working today"` : '';
+    return `- ${p.name}: ${p.missed} missed start${p.missed === 1 ? '' : 's'}${nw}`;
+  });
+  return {
+    subject: `Regular late starters: ${n} ${n === 1 ? 'person' : 'people'}`,
+    text: [
+      `People with ${i.count} or more missed starts in the last ${i.days} days. A missed start is no clock-in by the time the shift-start email went; holidays don't count.`,
+      '',
+      ...lines,
+      '',
+      `See Team in CloudPunch: ${i.siteUrl.replace(/\/$/, '')}/app/`,
+    ].join('\n'),
+  };
+}
+
 /** Send `m` as `from` with CloudPunch's app token (Graph `sendMail`). */
 export async function sendShiftMail(
   token: string,

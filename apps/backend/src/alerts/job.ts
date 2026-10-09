@@ -1,11 +1,11 @@
 import type { FastifyBaseLogger } from 'fastify';
 import type { DbRepositories, Employee, ShiftAlertKind } from '../db/index.js';
 import { daysAround } from '../days/service.js';
-import { effectivePolicyForScope } from '../policy/service.js';
-import { activeWindow, shiftDate, type ShiftWindow } from '../shifts/model.js';
+import { activeWindow, dateIn, isoWeekday, shiftDate, type ShiftWindow } from '../shifts/model.js';
 import { nameOf } from '../team/service.js';
-import { shiftMailText, type ShiftMail } from './mail.js';
+import { clockIn as clockAt, shiftMailText, weeklyMailText, type ShiftMail } from './mail.js';
 import { dueAlerts, firstClockInFor, needsClockIn } from './rules.js';
+import { alertSettings, type AlertSettings } from './settings.js';
 
 /**
  * ADR-0037 §3: once a minute, send the shift-start emails that are due.
@@ -20,7 +20,9 @@ import { dueAlerts, firstClockInFor, needsClockIn } from './rules.js';
  */
 
 export const CHECK_EVERY_MS = 60_000;
-export const DEFAULT_GRACE_MINUTES = 15;
+/** The Monday email (ADR-0037 §4): from 09:00 in this zone. */
+const WEEKLY_TZ = 'America/New_York';
+const WEEKLY_AT = '09:00';
 /** Who hears about people with no manager (the owner's answer 5). */
 const NO_MANAGER_ROLES = ['Administrator', 'HR'];
 
@@ -32,33 +34,13 @@ export interface ShiftAlertJobOptions {
   now?: () => Date;
 }
 
-interface Settings {
-  on: boolean;
-  graceMinutes: number;
-}
-
-export async function alertSettings(db: DbRepositories): Promise<Settings> {
-  // Global only, like connections.record: one switch for everyone.
-  const { policy } = await effectivePolicyForScope(db, 'global', null);
-  const a = (policy['alerts'] ?? {}) as {
-    shift_emails?: unknown;
-    missed_clock_in_minutes?: unknown;
-  };
-  const grace = a.missed_clock_in_minutes;
-  return {
-    on: a.shift_emails === true,
-    graceMinutes:
-      typeof grace === 'number' && Number.isInteger(grace) && grace >= 5 && grace <= 120
-        ? grace
-        : DEFAULT_GRACE_MINUTES,
-  };
-}
-
 export class ShiftAlertJob {
   private timer: NodeJS.Timeout | null = null;
   private running = false;
   /** `${employeeId}:${date}` -> first clock-in, once known: no need to look again. */
   private readonly clockIns = new Map<string, Date>();
+  /** The Monday whose late-starters emails all went out. */
+  private weeklyDone: string | null = null;
   private readonly now: () => Date;
 
   constructor(private readonly opts: ShiftAlertJobOptions) {
@@ -95,6 +77,7 @@ export class ShiftAlertJob {
     const settings = await alertSettings(db);
     if (!settings.on) return [];
     const now = this.now();
+    const weekly = await this.weekly(now, settings);
     const people = await db.employees.listActive();
     const rows = await db.shifts.history(people.map((p) => p.id));
     const inShift: { person: Employee; window: ShiftWindow }[] = [];
@@ -105,7 +88,7 @@ export class ShiftAlertJob {
       );
       if (window) inShift.push({ person, window });
     }
-    if (inShift.length === 0) return [];
+    if (inShift.length === 0) return weekly;
 
     const ids = inShift.map((x) => x.person.id);
     const dates = [...new Set(inShift.map((x) => x.window.date))].sort();
@@ -115,7 +98,7 @@ export class ShiftAlertJob {
     const notWorking = await db.shifts.notWorking(ids, dates);
     const sent = await db.shiftAlerts.sent(ids, dates);
 
-    const done: string[] = [];
+    const done: string[] = [...weekly];
     for (const { person, window } of inShift) {
       const key = `${person.id}:${window.date}`;
       const mine = new Set(
@@ -150,6 +133,71 @@ export class ShiftAlertJob {
       if (!running.has(k)) this.clockIns.delete(k);
     }
     return done;
+  }
+
+  /**
+   * ADR-0037 §4: on Monday from 09:00 ET, each manager gets their direct
+   * reports with `regularCount` or more missed starts in the last
+   * `regularDays` days; Administrators and HR get everyone. Once per
+   * recipient per week (`weekly_report_sent`). Returns `weekly:<address>`.
+   */
+  private async weekly(now: Date, s: AlertSettings): Promise<string[]> {
+    const { db, log } = this.opts;
+    const monday = dateIn(now.getTime(), WEEKLY_TZ);
+    if (isoWeekday(monday) !== 1 || clockAt(WEEKLY_TZ, now) < WEEKLY_AT) return [];
+    if (this.weeklyDone === monday) return [];
+    const counts = await db.shiftAlerts.countsSince(shiftDate(monday, -s.regularDays));
+    const people = await db.employees.listActive();
+    const regular = people
+      .filter((p) => (counts.get(p.id)?.missed ?? 0) >= s.regularCount)
+      .map((p) => ({
+        person: p,
+        name: nameOf(p),
+        missed: counts.get(p.id)?.missed ?? 0,
+        notWorking: counts.get(p.id)?.notWorking ?? 0,
+      }))
+      .sort((a, b) => b.missed - a.missed || a.name.localeCompare(b.name));
+
+    // Who gets which list: Administrators and HR everyone; managers their reports.
+    const lists = new Map<string, typeof regular>();
+    if (regular.length > 0) {
+      const everyone = (await db.roles.holders(['Administrator', 'HR'])).map((h) =>
+        h.email.toLowerCase(),
+      );
+      for (const address of everyone) lists.set(address, regular);
+      const byId = new Map(people.map((p) => [p.id, p]));
+      for (const r of regular) {
+        const manager = r.person.reportingManagerId
+          ? byId.get(r.person.reportingManagerId)
+          : undefined;
+        const address = manager?.workEmail.toLowerCase();
+        if (!address || everyone.includes(address)) continue;
+        lists.set(address, [...(lists.get(address) ?? []), r]);
+      }
+    }
+
+    const sent: string[] = [];
+    let failed = false;
+    for (const [address, list] of lists) {
+      const { subject, text } = weeklyMailText({
+        people: list,
+        count: s.regularCount,
+        days: s.regularDays,
+        siteUrl: this.opts.siteUrl,
+      });
+      try {
+        const claimed = await db.weeklyReports.claimAndSend(monday, address, list.length, now, () =>
+          this.opts.send({ to: [address], cc: [], subject, text }),
+        );
+        if (claimed) sent.push(`weekly:${address}`);
+      } catch (err) {
+        failed = true;
+        log.warn({ err }, 'shift alerts: Monday email failed; will retry');
+      }
+    }
+    if (!failed) this.weeklyDone = monday;
+    if (sent.length > 0) log.info({ recipients: sent.length }, 'shift alerts: Monday email sent');
+    return sent;
   }
 
   private async sendOne(

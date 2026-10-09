@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { InMemoryDb } from '../db/in-memory.js';
 import type { Employee } from '../db/index.js';
 import { activeWindow, wallToUtc } from '../shifts/model.js';
+import { teamNow } from '../team/service.js';
 import { ShiftAlertJob } from './job.js';
 import { clockIn, shiftMailText, zoneName, type ShiftMail } from './mail.js';
 import { dueAlerts, firstClockInFor } from './rules.js';
@@ -294,5 +295,88 @@ describe('the job (ADR-0037 §3)', () => {
     // Never a missed clock-in for them.
     clock = at(30);
     expect(await j.runOnce()).toEqual([`${farheen}:missed`]);
+  });
+});
+
+describe('regular late starters (ADR-0037 §4)', () => {
+  /** Record `n` missed starts for `id` on the days before Monday 12 Oct. */
+  async function missed(id: string, n: number, kind: 'missed' | 'not_working' = 'missed') {
+    for (let i = 1; i <= n; i += 1) {
+      await db.shiftAlerts.claimAndSend(
+        {
+          employeeId: id,
+          shiftDate: `2026-10-0${i}`,
+          kind,
+          sentTo: [],
+          at: clock,
+        },
+        async () => {},
+      );
+    }
+  }
+  const monday = (h: number, m = 0) =>
+    wallToUtc(
+      '2026-10-12',
+      `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`,
+      'America/New_York',
+    );
+
+  it('Monday from 09:00 ET: managers get their reports, Administrators and HR everyone; once', async () => {
+    await setting(true);
+    await missed(roshni, 3);
+    await missed(roshni, 1, 'not_working');
+    await missed(farheen, 2);
+    const j = job();
+    clock = monday(8, 59);
+    expect((await j.runOnce()).filter((x) => x.startsWith('weekly:'))).toEqual([]);
+    clock = monday(9, 0);
+    // Shift emails for 08:00 shifts are due as well; look at the Monday ones.
+    const weekly = (await j.runOnce()).filter((x) => x.startsWith('weekly:')).sort();
+    expect(weekly).toEqual(['weekly:abdulla@aptask.com', 'weekly:nilesh@aptask.com']);
+    const toNilesh = outbox.find((m) => m.to.includes('nilesh@aptask.com'));
+    expect(toNilesh?.subject).toBe('Regular late starters: 1 person');
+    // Today's 08:00 start, missed at 08:15, counts too.
+    expect(toNilesh?.text).toContain('- Roshni Test: 4 missed starts, 1 "not working today"');
+    expect(toNilesh?.text).not.toContain('Farheen');
+    clock = monday(10, 0);
+    expect((await j.runOnce()).filter((x) => x.startsWith('weekly:'))).toEqual([]);
+    expect((await job().runOnce()).filter((x) => x.startsWith('weekly:'))).toEqual([]);
+  });
+
+  it('nobody over the line: no Monday email; a failed one is tried again', async () => {
+    await setting(true);
+    await missed(farheen, 2);
+    clock = monday(9, 30);
+    expect((await job().runOnce()).filter((x) => x.startsWith('weekly:'))).toEqual([]);
+    await missed(roshni, 3);
+    failNext = true;
+    const j = job();
+    // The first send fails (it may be a shift email or the Monday one);
+    // the next check sends whatever is left.
+    await j.runOnce();
+    clock = monday(9, 31);
+    await j.runOnce();
+    expect(db.weeklyReportRows.sort()).toEqual([
+      '2026-10-12:abdulla@aptask.com',
+      '2026-10-12:nilesh@aptask.com',
+    ]);
+  });
+
+  it('Team shows the counts, and who is over the line', async () => {
+    await setting(true);
+    await missed(roshni, 3);
+    await missed(farheen, 1, 'not_working');
+    const [r, f, n] = await teamNow(
+      db,
+      [
+        person(roshni, 'Roshni', nilesh),
+        person(farheen, 'Farheen', null),
+        person(nilesh, 'Nilesh', null),
+      ],
+      monday(12, 0),
+    );
+    expect(r?.starts).toEqual({ missed: 3, not_working: 0, days: 30, regular: true });
+    expect(f?.starts).toEqual({ missed: 0, not_working: 1, days: 30, regular: false });
+    expect(n?.starts).toBeUndefined();
   });
 });

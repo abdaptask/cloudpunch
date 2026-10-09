@@ -52,7 +52,7 @@ beforeEach(async () => {
   // dependencies: event → session → device/employee → user.
   // time_event and audit_log are append-only (row triggers reject
   // DELETE); TRUNCATE is DDL and resets them between tests.
-  await sql`TRUNCATE audit_log, policy_override, time_event, time_session, device, employee_override, time_correction_decision, time_correction, shift_assignment, not_working_day, holiday, shift_alert, role_seen RESTART IDENTITY CASCADE`;
+  await sql`TRUNCATE audit_log, policy_override, time_event, time_session, device, employee_override, time_correction_decision, time_correction, shift_assignment, not_working_day, holiday, shift_alert, role_seen, weekly_report_sent RESTART IDENTITY CASCADE`;
   await sql`DELETE FROM admin_review_case`;
   await sql`UPDATE app_user SET employee_id = NULL`;
   await sql`DELETE FROM employee`;
@@ -1071,8 +1071,33 @@ describe('PostgresDb — shift alerts and roles', () => {
     );
 
     await db.shiftAlerts.claimAndSend(claim('missed', '2026-09-01'), send);
-    expect(await db.shiftAlerts.missedSince('2026-09-10')).toEqual(new Map([[employeeId, 1]]));
+    expect(await db.shiftAlerts.countsSince('2026-09-10')).toEqual(
+      new Map([[employeeId, { missed: 1, notWorking: 0 }]]),
+    );
+    expect(await db.shiftAlerts.countsSince('2026-08-01')).toEqual(
+      new Map([[employeeId, { missed: 2, notWorking: 0 }]]),
+    );
     await expect(sql`DELETE FROM shift_alert`).rejects.toThrow(/append-only/);
+  });
+
+  it('sends the Monday email once per recipient per week', async () => {
+    let sends = 0;
+    const send = async () => {
+      sends += 1;
+    };
+    const claim = (who: string) =>
+      db.weeklyReports.claimAndSend('2026-10-12', who, 2, new Date(), send);
+    await expect(
+      db.weeklyReports.claimAndSend('2026-10-12', 'boss@aptask.com', 2, new Date(), async () => {
+        throw new Error('Graph down');
+      }),
+    ).rejects.toThrow('Graph down');
+    expect(await claim('boss@aptask.com')).toBe(true);
+    // citext: the same address in other case is the same recipient.
+    expect(await claim('Boss@ApTask.com')).toBe(false);
+    expect(await claim('hr@aptask.com')).toBe(true);
+    expect(sends).toBe(2);
+    await expect(sql`DELETE FROM weekly_report_sent`).rejects.toThrow(/append-only/);
   });
 
   it('remembers the latest roles per person and finds the holders with an email', async () => {

@@ -213,3 +213,11 @@ These change _how_, not _what_, the owner decided:
    the global policy, read from the global settings only.
 9. **The email check only looks at shifts in progress.** A clock-in
    after the shift has ended sends no follow-up.
+10. **The Monday email goes once per recipient per week** (migration
+    0012, `weekly_report_sent`, keyed on the Monday's date and the
+    address), from the same once-a-minute check, at or after 09:00
+    America/New_York. Someone who is both a manager and an
+    Administrator or HR gets the full list only.
+11. **"The last 30 days" counts shift dates from 30 days before today
+    through today**, so a start missed this morning is already in
+    Monday's email.

@@ -640,8 +640,28 @@ export interface ShiftAlertRepo {
    * rolled back so the next check tries again.
    */
   claimAndSend(claim: ShiftAlertClaim, send: () => Promise<void>): Promise<boolean>;
-  /** Missed starts per person since `since` (ADR-0037 §4). */
-  missedSince(since: string): Promise<Map<string, number>>;
+  /** Missed starts and "not working" days per person, shift dates from `since` (ADR-0037 §4). */
+  countsSince(since: string): Promise<Map<string, StartCounts>>;
+}
+
+export interface StartCounts {
+  missed: number;
+  notWorking: number;
+}
+
+export interface WeeklyReportRepo {
+  /**
+   * Claim the Monday email for `recipient` this week and run `send` in
+   * one transaction: false (and no send) if it already went; a failed
+   * send rolls the claim back.
+   */
+  claimAndSend(
+    weekStart: string,
+    recipient: string,
+    people: number,
+    at: Date,
+    send: () => Promise<void>,
+  ): Promise<boolean>;
 }
 
 /** Someone the server has seen with these roles, and where to email them. */
@@ -672,4 +692,5 @@ export interface DbRepositories {
   holidays: HolidayRepo;
   shiftAlerts: ShiftAlertRepo;
   roles: RoleDirectoryRepo;
+  weeklyReports: WeeklyReportRepo;
 }
