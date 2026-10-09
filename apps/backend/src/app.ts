@@ -26,12 +26,17 @@ import { policyAdminRoutes } from './policy/admin-routes.js';
 import { policyRoutes } from './policy/routes.js';
 import { updateRoutes } from './updates/routes.js';
 import { teamRoutes } from './team/routes.js';
+import { RoleNotes } from './alerts/roles.js';
+import { ShiftAlertJob } from './alerts/job.js';
+import { sendShiftMail, type ShiftMail } from './alerts/mail.js';
 
 export interface BuildAppOptions {
   /** Tests inject a fake Graph; otherwise built from the OBO certificate. */
   graphFor?: ((userToken: string) => Promise<Graph>) | null;
   /** Tests inject welcome sending; otherwise built from WELCOME_* settings. */
   welcome?: PeopleRoutesOptions['welcome'];
+  /** Shift-start emails (ADR-0037): tests pass null; otherwise from WELCOME_* settings. */
+  shiftAlertSend?: ((m: ShiftMail) => Promise<void>) | null;
   env: Env;
   logger: Logger;
   db?: DbRepositories | undefined;
@@ -115,6 +120,9 @@ export async function buildApp(opts: BuildAppOptions) {
       log: app.log,
       providers: new DbIpProviderLookup(opts.env.DBIP_ASN_MMDB, app.log),
     });
+    // ADR-0037: remember who holds which role, for alert recipients.
+    const roleNotes = new RoleNotes(opts.db, app.log);
+    app.addHook('preHandler', async (req) => roleNotes.fromRequest(req));
     await app.register(meRoutes, { db: opts.db });
     await app.register(devicesRoutes, { db: opts.db, connections });
     await app.register(eventsRoutes, { db: opts.db, connections });
@@ -125,6 +133,20 @@ export async function buildApp(opts: BuildAppOptions) {
     await app.register(connectionRoutes, { db: opts.db });
     await app.register(correctionRoutes, { db: opts.db });
     await app.register(shiftRoutes, { db: opts.db });
+    // ADR-0037 §3: the shift-start emails, checked every minute while
+    // the server runs (only where CloudPunch's mailbox is configured).
+    const alertSend =
+      opts.shiftAlertSend === undefined ? shiftAlertSendFromEnv(opts.env) : opts.shiftAlertSend;
+    if (alertSend) {
+      const job = new ShiftAlertJob({
+        db: opts.db,
+        log: app.log,
+        send: alertSend,
+        siteUrl: opts.env.PUBLIC_SITE_URL,
+      });
+      app.addHook('onReady', async () => job.start());
+      app.addHook('onClose', async () => job.stop());
+    }
     await app.register(peopleRoutes, {
       db: opts.db,
       graphFor: opts.graphFor ?? graphFromEnv(opts),
@@ -172,12 +194,11 @@ function graphFromEnv(opts: BuildAppOptions): ((userToken: string) => Promise<Gr
 }
 
 /**
- * Welcome emails (ADR-0021): sent as WELCOME_FROM with CloudPunch's own
- * token, which Exchange limits to that one mailbox. Off unless
- * WELCOME_FROM and the certificate are configured.
+ * CloudPunch's mailbox (ADR-0021): mail goes as WELCOME_FROM with
+ * CloudPunch's own token, which Exchange limits to that one mailbox.
+ * Null unless WELCOME_FROM and the certificate are configured.
  */
-function welcomeFromEnv(opts: BuildAppOptions): NonNullable<PeopleRoutesOptions['welcome']> | null {
-  const { env } = opts;
+function mailerFromEnv(env: Env): { from: string; token: () => Promise<string> } | null {
   if (
     !env.WELCOME_FROM ||
     !env.ENTRA_TENANT_ID ||
@@ -199,15 +220,30 @@ function welcomeFromEnv(opts: BuildAppOptions): NonNullable<PeopleRoutesOptions[
     privateKeyPem,
     thumbprint: env.ENTRA_OBO_CERT_THUMBPRINT,
   };
+  return { from: env.WELCOME_FROM, token: () => graphTokenForApp(cfg) };
+}
+
+/** Welcome emails (ADR-0021), from CloudPunch's mailbox. */
+function welcomeFromEnv(opts: BuildAppOptions): NonNullable<PeopleRoutesOptions['welcome']> | null {
+  const { env } = opts;
+  const mailer = mailerFromEnv(env);
+  if (!mailer) return null;
   const downloadsDir = env.DOWNLOADS_DIR;
   return {
     settings: {
-      from: env.WELCOME_FROM,
+      from: mailer.from,
       cc: addressList(env.WELCOME_CC),
       siteUrl: env.PUBLIC_SITE_URL,
       supportEmail: env.SUPPORT_EMAIL,
     },
     version: async () => (await readReleases(downloadsDir))[0]?.version ?? null,
-    send: async (m) => sendWelcome(await graphTokenForApp(cfg), m),
+    send: async (m) => sendWelcome(await mailer.token(), m),
   };
+}
+
+/** Shift-start emails (ADR-0037 §3), from CloudPunch's mailbox. */
+function shiftAlertSendFromEnv(env: Env): ((m: ShiftMail) => Promise<void>) | null {
+  const mailer = mailerFromEnv(env);
+  if (!mailer) return null;
+  return async (m) => sendShiftMail(await mailer.token(), mailer.from, m);
 }

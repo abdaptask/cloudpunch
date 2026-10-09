@@ -196,3 +196,20 @@ These change _how_, not _what_, the owner decided:
 4. **Team's holiday status** shows only during the person's shift
    hours, like "Not clocked in, shift started"; outside them it stays
    "Clocked out".
+6. **One email per person and event, with the manager copied**, rather
+   than one combined email per manager per check. Each email is claimed
+   and sent in its own transaction; a combined email would either send
+   twice after a partial failure or lose some. With ~50 people it is a
+   handful of emails on a bad morning.
+7. **Who the Administrators and HR are** (the owner chose "remember
+   roles", 2026-10-09): migration 0011 adds `role_seen`, the roles each
+   person's latest sign-in token carried, written only when they change,
+   and updated at once when Settings → People changes someone's roles.
+   Used only to choose recipients, never for access (invariant 6).
+   Someone whose role is removed directly in Entra keeps getting these
+   emails until they next sign in.
+8. **The switch and the grace period** are `alerts.shift_emails`
+   (default off) and `alerts.missed_clock_in_minutes` (default 15) in
+   the global policy, read from the global settings only.
+9. **The email check only looks at shifts in progress.** A clock-in
+   after the shift has ended sends no follow-up.

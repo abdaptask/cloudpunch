@@ -13,6 +13,9 @@ import type {
   NotWorkingDeclaration,
   Holiday,
   HolidayRepo,
+  RoleDirectoryRepo,
+  ShiftAlertClaim,
+  ShiftAlertRepo,
   ShiftAssignment,
   ShiftRepo,
   Device,
@@ -64,6 +67,12 @@ export class InMemoryDb implements DbRepositories {
   readonly corrections: CorrectionRepo;
   readonly shifts: ShiftRepo;
   readonly holidays: HolidayRepo;
+  readonly shiftAlerts: ShiftAlertRepo;
+  readonly roles: RoleDirectoryRepo;
+  /** shift_alert rows (ADR-0037 §3), for tests. */
+  readonly shiftAlertRows: ShiftAlertClaim[] = [];
+  /** role_seen (ADR-0037), oid -> roles, for tests. */
+  readonly roleSeen = new Map<string, { roles: string[]; source: 'token' | 'people' }>();
   /** holiday rows (ADR-0037), oldest first, for tests. */
   readonly holidayRows: Holiday[] = [];
   /** audit_log actions for holidays, for tests. */
@@ -135,6 +144,53 @@ export class InMemoryDb implements DbRepositories {
           .filter((r) => !r.cancelled && r.date >= from && r.date <= to)
           .sort((a, b) => a.date.localeCompare(b.date))
           .map((r) => ({ ...r }));
+      },
+    };
+    this.shiftAlerts = {
+      sent: async (ids, dates) =>
+        new Set(
+          this.shiftAlertRows
+            .filter((r) => ids.includes(r.employeeId) && dates.includes(r.shiftDate))
+            .map((r) => `${r.employeeId}:${r.shiftDate}:${r.kind}`),
+        ),
+      claimAndSend: async (c, send) => {
+        const taken = this.shiftAlertRows.some(
+          (r) => r.employeeId === c.employeeId && r.shiftDate === c.shiftDate && r.kind === c.kind,
+        );
+        if (taken) return false;
+        const row = { ...c, sentTo: [...c.sentTo] };
+        this.shiftAlertRows.push(row);
+        try {
+          await send();
+        } catch (err) {
+          this.shiftAlertRows.splice(this.shiftAlertRows.indexOf(row), 1);
+          throw err;
+        }
+        return true;
+      },
+      missedSince: async (since) => {
+        const out = new Map<string, number>();
+        for (const r of this.shiftAlertRows) {
+          if (r.kind === 'missed' && r.shiftDate >= since) {
+            out.set(r.employeeId, (out.get(r.employeeId) ?? 0) + 1);
+          }
+        }
+        return out;
+      },
+    };
+    this.roles = {
+      note: async (oid, roles, source) => {
+        this.roleSeen.set(oid, { roles: [...roles], source });
+      },
+      holders: async (roles) => {
+        const out: { oid: string; email: string }[] = [];
+        for (const [oid, seen] of this.roleSeen) {
+          if (!seen.roles.some((r) => roles.includes(r))) continue;
+          const userId = this.userByOid.get(oid);
+          const email = userId ? this.userById.get(userId)?.workEmail : undefined;
+          if (email) out.push({ oid, email });
+        }
+        return out;
       },
     };
     this.shifts = {

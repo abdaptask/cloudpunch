@@ -11,6 +11,9 @@ import type {
   DbRepositories,
   Holiday,
   HolidayRepo,
+  RoleDirectoryRepo,
+  RoleHolder,
+  ShiftAlertRepo,
   ShiftAssignment,
   ShiftRepo,
   DeviceConnection,
@@ -61,10 +64,14 @@ export class PostgresDb implements DbRepositories {
   readonly corrections: CorrectionRepo;
   readonly shifts: ShiftRepo;
   readonly holidays: HolidayRepo;
+  readonly shiftAlerts: ShiftAlertRepo;
+  readonly roles: RoleDirectoryRepo;
 
   constructor(private readonly sql: postgres.Sql) {
     this.shifts = this.buildShiftRepo();
     this.holidays = this.buildHolidayRepo();
+    this.shiftAlerts = this.buildShiftAlertRepo();
+    this.roles = this.buildRoleDirectoryRepo();
     this.connections = this.buildConnectionRepo();
     this.corrections = this.buildCorrectionRepo();
     this.employees = this.buildEmployeeRepo();
@@ -314,6 +321,63 @@ export class PostgresDb implements DbRepositories {
           ) latest
           WHERE NOT cancelled
           ORDER BY "date"`,
+    };
+  }
+
+  // -------------------------------------------------------------------
+  // shift-start emails and the roles people were seen with (ADR-0037)
+  // -------------------------------------------------------------------
+
+  private buildShiftAlertRepo(): ShiftAlertRepo {
+    return {
+      sent: async (ids, dates) => {
+        if (ids.length === 0 || dates.length === 0) return new Set();
+        const rows = await this.sql<{ employeeId: string; shiftDate: string; kind: string }[]>`
+          SELECT employee_id, to_char(shift_date, 'YYYY-MM-DD') AS shift_date, kind
+          FROM shift_alert
+          WHERE employee_id IN ${this.sql(ids)} AND shift_date::text IN ${this.sql(dates)}`;
+        return new Set(rows.map((r) => `${r.employeeId}:${r.shiftDate}:${r.kind}`));
+      },
+      // Another server claiming the same alert waits on the unique key,
+      // then finds it taken; a failed send rolls the claim back.
+      claimAndSend: async (c, send) =>
+        this.sql.begin(async (tx) => {
+          const rows = await tx`
+            INSERT INTO shift_alert (employee_id, shift_date, kind, sent_to, sent_at)
+            VALUES (${c.employeeId}, ${c.shiftDate}::date, ${c.kind}, ${[...c.sentTo]}::text[], ${c.at})
+            ON CONFLICT (employee_id, shift_date, kind) DO NOTHING
+            RETURNING id`;
+          if (rows.length === 0) return false;
+          await send();
+          return true;
+        }),
+      missedSince: async (since) => {
+        const rows = await this.sql<{ employeeId: string; n: number }[]>`
+          SELECT employee_id, count(*)::int AS n FROM shift_alert
+          WHERE kind = 'missed' AND shift_date >= ${since}::date
+          GROUP BY employee_id`;
+        return new Map(rows.map((r) => [r.employeeId, r.n]));
+      },
+    };
+  }
+
+  private buildRoleDirectoryRepo(): RoleDirectoryRepo {
+    return {
+      note: async (oid, roles, source, at) => {
+        await this.sql`
+          INSERT INTO role_seen (entra_object_id, roles, source, seen_at)
+          VALUES (${oid}, ${[...roles]}::text[], ${source}, ${at})
+          ON CONFLICT (entra_object_id) DO UPDATE
+            SET roles = EXCLUDED.roles, source = EXCLUDED.source, seen_at = EXCLUDED.seen_at`;
+      },
+      holders: async (roles) => {
+        if (roles.length === 0) return [];
+        return this.sql<RoleHolder[]>`
+          SELECT r.entra_object_id::text AS oid, u.work_email::text AS email
+          FROM role_seen r JOIN app_user u ON u.entra_object_id = r.entra_object_id
+          WHERE r.roles && ${[...roles]}::text[]
+          ORDER BY u.work_email`;
+      },
     };
   }
 

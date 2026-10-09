@@ -52,7 +52,7 @@ beforeEach(async () => {
   // dependencies: event → session → device/employee → user.
   // time_event and audit_log are append-only (row triggers reject
   // DELETE); TRUNCATE is DDL and resets them between tests.
-  await sql`TRUNCATE audit_log, policy_override, time_event, time_session, device, employee_override, time_correction_decision, time_correction, shift_assignment, not_working_day, holiday, shift_alert RESTART IDENTITY CASCADE`;
+  await sql`TRUNCATE audit_log, policy_override, time_event, time_session, device, employee_override, time_correction_decision, time_correction, shift_assignment, not_working_day, holiday, shift_alert, role_seen RESTART IDENTITY CASCADE`;
   await sql`DELETE FROM admin_review_case`;
   await sql`UPDATE app_user SET employee_id = NULL`;
   await sql`DELETE FROM employee`;
@@ -1029,5 +1029,61 @@ describe('PostgresDb — holidays', () => {
     // Planted on purpose: the triggers must refuse these.
     await expect(sql`UPDATE holiday SET name = 'x'`).rejects.toThrow(/append-only/);
     await expect(sql`DELETE FROM shift_alert`).rejects.toThrow(/append-only/);
+  });
+});
+
+// ---------------------------------------------------------------------
+// shift-start emails and remembered roles (ADR-0037)
+// ---------------------------------------------------------------------
+
+describe('PostgresDb — shift alerts and roles', () => {
+  it('claims each alert once, rolls back a failed send, and counts missed starts', async () => {
+    const employeeId = await seedEmployee();
+    const claim = (kind: 'missed' | 'late_clock_in', shiftDate = '2026-10-09') => ({
+      employeeId,
+      shiftDate,
+      kind,
+      sentTo: ['alice@aptask.com', 'boss@aptask.com'],
+      at: new Date(),
+    });
+    let sends = 0;
+    const send = async () => {
+      sends += 1;
+    };
+    await expect(
+      db.shiftAlerts.claimAndSend(claim('missed'), async () => {
+        throw new Error('Graph down');
+      }),
+    ).rejects.toThrow('Graph down');
+    expect(await db.shiftAlerts.sent([employeeId], ['2026-10-09'])).toEqual(new Set());
+
+    expect(await db.shiftAlerts.claimAndSend(claim('missed'), send)).toBe(true);
+    // Two at once (two servers): one sends.
+    const both = await Promise.all([
+      db.shiftAlerts.claimAndSend(claim('late_clock_in'), send),
+      db.shiftAlerts.claimAndSend(claim('late_clock_in'), send),
+    ]);
+    expect(both.filter(Boolean)).toHaveLength(1);
+    expect(await db.shiftAlerts.claimAndSend(claim('missed'), send)).toBe(false);
+    expect(sends).toBe(2);
+    expect(await db.shiftAlerts.sent([employeeId], ['2026-10-09', '2026-10-10'])).toEqual(
+      new Set([`${employeeId}:2026-10-09:missed`, `${employeeId}:2026-10-09:late_clock_in`]),
+    );
+
+    await db.shiftAlerts.claimAndSend(claim('missed', '2026-09-01'), send);
+    expect(await db.shiftAlerts.missedSince('2026-09-10')).toEqual(new Map([[employeeId, 1]]));
+    await expect(sql`DELETE FROM shift_alert`).rejects.toThrow(/append-only/);
+  });
+
+  it('remembers the latest roles per person and finds the holders with an email', async () => {
+    const { oid } = await seedUser();
+    const stranger = randomUUID();
+    await db.roles.note(oid, ['Employee', 'Administrator'], 'token', new Date());
+    await db.roles.note(stranger, ['HR'], 'token', new Date());
+    expect(await db.roles.holders(['Administrator', 'HR'])).toEqual([
+      { oid, email: 'alice@aptask.com' },
+    ]);
+    await db.roles.note(oid, ['Employee'], 'people', new Date());
+    expect(await db.roles.holders(['Administrator', 'HR'])).toEqual([]);
   });
 });
