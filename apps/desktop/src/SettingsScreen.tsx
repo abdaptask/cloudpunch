@@ -309,6 +309,28 @@ export function SettingsScreen({
               </p>
             </Group>
           )}
+          {scope === 'global' && (
+            <Group title="Shift-start emails" t={t}>
+              <Toggle
+                label="Email when someone hasn't clocked in"
+                name="shift-emails"
+                on={form.shiftEmails}
+                onChange={(on) => set('shiftEmails', on)}
+              />
+              <NumberField
+                label="Minutes after the shift starts"
+                name="missed-clock-in-minutes"
+                value={form.missedClockInMinutes}
+                issue={issues.missedClockInMinutes}
+                onChange={(v) => set('missedClockInMinutes', v)}
+              />
+              <p style={{ margin: 0, fontSize: 12, lineHeight: 1.4, color: t.muted }}>
+                From cloudpunch@aptask.com to the person, with their manager copied (no manager:
+                Administrators and HR): not clocked in, clocked in late, and &ldquo;Not working
+                today&rdquo;. Once each per shift, never on a holiday. Add the holidays first.
+              </p>
+            </Group>
+          )}
           <Field label="Why (kept in the audit log, optional)">
             <input
               aria-label="reason"

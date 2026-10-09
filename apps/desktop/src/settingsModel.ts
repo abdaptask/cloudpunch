@@ -31,6 +31,10 @@ export interface SettingsForm {
   awayCheckMinutes: number;
   /** connections.record (ADR-0029); company-wide only. */
   recordConnections: boolean;
+  /** alerts.shift_emails (ADR-0037 §3); company-wide only. */
+  shiftEmails: boolean;
+  /** alerts.missed_clock_in_minutes (ADR-0037 §3); company-wide only. */
+  missedClockInMinutes: number;
 }
 
 export type BreakId = 'bio' | 'meal' | 'rest' | 'personal' | 'other';
@@ -122,6 +126,8 @@ export function formFrom(policy: Doc): SettingsForm {
         : true,
     awayCheckMinutes: num(obj(policy['away'])['check_after_minutes'], 60),
     recordConnections: obj(policy['connections'])['record'] === true,
+    shiftEmails: obj(policy['alerts'])['shift_emails'] === true,
+    missedClockInMinutes: num(obj(policy['alerts'])['missed_clock_in_minutes'], 15),
   };
 }
 
@@ -158,6 +164,9 @@ export function formIssues(f: SettingsForm): Partial<Record<keyof SettingsForm, 
   if (!whole(f.longDayHours, 4, 16)) out.longDayHours = 'Between 4 and 16 hours';
   if (!whole(f.longShiftHours, 4, 16)) out.longShiftHours = 'Between 4 and 16 hours';
   if (!whole(f.awayCheckMinutes, 15, 240)) out.awayCheckMinutes = 'Between 15 and 240 minutes';
+  if (!whole(f.missedClockInMinutes, 5, 120)) {
+    out.missedClockInMinutes = 'Between 5 and 120 minutes';
+  }
   if (Object.keys(breakIssues(f)).length > 0) out.breaks = 'Fix the break types marked below';
   else if (!f.breaks.some((b) => b.enabled)) out.breaks = 'Keep at least one break type on';
   return out;
@@ -166,16 +175,25 @@ export function formIssues(f: SettingsForm): Partial<Record<keyof SettingsForm, 
 /**
  * The scope's new override: its current document with the form's
  * settings written in. Other settings in the override are kept.
- * `connections.record` is written only company-wide (`global`): the
- * server reads it from there alone (ADR-0029 §7).
+ * `connections.record` (ADR-0029 §7) and `alerts` (ADR-0037) are
+ * written only company-wide (`global`): the server reads them from
+ * there alone.
  */
 export function overrideWith(current: Doc | null, f: SettingsForm, global = false): Doc {
   const base = current ?? {};
   return {
-    ...(global
-      ? { connections: { ...obj(base['connections']), record: f.recordConnections } }
-      : {}),
     ...base,
+    // After `base`, so a saved value can change (it once couldn't).
+    ...(global
+      ? {
+          connections: { ...obj(base['connections']), record: f.recordConnections },
+          alerts: {
+            ...obj(base['alerts']),
+            shift_emails: f.shiftEmails,
+            missed_clock_in_minutes: f.missedClockInMinutes,
+          },
+        }
+      : {}),
     idle: {
       ...obj(base['idle']),
       threshold_seconds: f.idlePromptMinutes * 60,

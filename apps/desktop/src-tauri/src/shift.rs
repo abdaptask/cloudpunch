@@ -41,12 +41,14 @@ pub struct ShiftWindow {
     pub end: SystemTime,
 }
 
-/// What the app knows about the shift: the pattern, and the shift date
-/// the person said "Not working today" for, if any.
+/// What the app knows about the shift: the pattern, the shift date
+/// the person said "Not working today" for, if any, and the company
+/// holidays coming up (ADR-0037 §2: no popups on them).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ShiftInfo {
     pub shift: Option<Shift>,
     pub not_working_on: Option<NaiveDate>,
+    pub holidays: Vec<NaiveDate>,
 }
 
 fn at(date: NaiveDate, hhmm: &str, tz: Tz) -> Option<SystemTime> {
@@ -99,9 +101,20 @@ pub fn fetch(http: &Client, base: &str, token: &str) -> Result<ShiftInfo, DayErr
     } else {
         None
     };
+    // Older servers don't send it: no holidays.
+    let holidays = body["holidays"]
+        .as_array()
+        .map(|list| {
+            list.iter()
+                .filter_map(|h| h["date"].as_str())
+                .filter_map(|d| NaiveDate::parse_from_str(d, "%Y-%m-%d").ok())
+                .collect()
+        })
+        .unwrap_or_default();
     Ok(ShiftInfo {
         shift,
         not_working_on,
+        holidays,
     })
 }
 

@@ -5,6 +5,7 @@ import { BlockedElsewherePanel } from './BlockedElsewhere.js';
 import { BreakPicker, callName } from './BreakPicker.js';
 import { ClockInPrompt } from './ClockInPrompt.js';
 import { ClockOutDialog } from './ClockOutDialog.js';
+import { HolidayEditor } from './HolidayEditor.js';
 import { ShiftEditor } from './ShiftEditor.js';
 import { BreakOverBanner } from './BreakOverBanner.js';
 import {
@@ -309,6 +310,8 @@ export function App(): JSX.Element {
   const canEditSettings = canEditRules || canManagePeople || canSeeAllConnections;
   const canSeeTeam = capabilities.includes('team.timeline.read');
   const canSetShifts = capabilities.includes('admin.shift.write');
+  // ADR-0037 §1: HR and Administrators keep the holiday list.
+  const canEditHolidays = capabilities.includes('hr.holiday.write');
   const canCorrectTeam = capabilities.includes('team.correction.review');
   const canAskCorrection = capabilities.includes('self.correction.request');
   const reviewsCorrections = canCorrectTeam || capabilities.includes('admin.correction.approve');
@@ -785,6 +788,7 @@ export function App(): JSX.Element {
                     />
                     <ReportingLines />
                     {canSetShifts && <ShiftEditor />}
+                    {canEditHolidays && <HolidayEditor />}
                   </>
                 ) : tab === 'versions' ? (
                   <VersionsScreen onClose={() => setSettingsOpen(false)} />
