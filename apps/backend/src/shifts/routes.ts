@@ -6,7 +6,7 @@ import { z } from 'zod';
 import { requireCapability } from '../auth/require.js';
 import type { AppUser, DbRepositories, Employee, ShiftAssignment } from '../db/index.js';
 import { nameOf } from '../team/service.js';
-import { activeWindow, dateIn, shiftOn } from './model.js';
+import { activeWindow, dateIn, shiftDate, shiftOn } from './model.js';
 
 /**
  * Shifts (ADR-0031):
@@ -15,6 +15,12 @@ import { activeWindow, dateIn, shiftOn } from './model.js';
  *   POST /v1/me/not-working-today      say it for the shift you're in now (no reason asked)
  *   GET /v1/admin/shifts               everyone's current shift (Administrators)
  *   PUT /v1/admin/employees/:id/shift  set or clear someone's shift (Administrators)
+ *
+ * Holidays (ADR-0037 §1), one company list:
+ *
+ *   GET /v1/holidays                   the list (anyone signed in), `?from=&to=` dates
+ *   PUT /v1/admin/holidays/:date       add or rename one (HR, Administrators)
+ *   DELETE /v1/admin/holidays/:date    remove one (HR, Administrators)
  *
  * Every change is a new append-only row with an audit_log row.
  */
@@ -25,6 +31,16 @@ export interface ShiftRoutesOptions {
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
+const DATE = /^\d{4}-\d{2}-\d{2}$/;
+/** How far ahead `GET /v1/me/shift` lists holidays, so the app knows offline. */
+const HOLIDAYS_AHEAD_DAYS = 60;
+
+const holidayBody = z.object({ name: z.string().trim().min(1).max(100) }).strict();
+
+/** A real calendar date in `YYYY-MM-DD`. */
+function validDate(d: string): boolean {
+  return DATE.test(d) && new Date(`${d}T00:00:00Z`).toISOString().slice(0, 10) === d;
+}
 
 const shiftBody = z
   .object({
@@ -85,10 +101,19 @@ const shiftRoutesImpl: FastifyPluginAsync<ShiftRoutesOptions> = async (app, opts
     const today = rows[0] ? dateIn(now.getTime(), rows[0].tzIana) : now.toISOString().slice(0, 10);
     const w = activeWindow(rows, now);
     const declared = w ? (await db.shifts.notWorking([m.employee.id], [w.date])).size > 0 : false;
+    // The app skips its popups on these (ADR-0037 §2): yesterday on,
+    // so an overnight shift and every zone are covered.
+    const holidays = await db.holidays.between(
+      shiftDate(today, -1),
+      shiftDate(today, HOLIDAYS_AHEAD_DAYS),
+    );
+    const off = w ? holidays.find((h) => h.date === w.date) : undefined;
     return reply.code(200).send({
       shift: shiftView(shiftOn(rows, today)),
       window: w ? { date: w.date, start: w.start.toISOString(), end: w.end.toISOString() } : null,
       not_working: declared,
+      day_off: off ? { kind: 'holiday', name: off.name } : null,
+      holidays: holidays.map((h) => ({ date: h.date, name: h.name })),
     });
   });
 
@@ -106,6 +131,73 @@ const shiftRoutesImpl: FastifyPluginAsync<ShiftRoutesOptions> = async (app, opts
       at: now,
     });
     return reply.code(200).send({ date: w.date });
+  });
+
+  app.get('/v1/holidays', async (req, reply) => {
+    if (!req.auth) return problem(reply, 401, 'unauthorized', 'authentication required');
+    const q = req.query as { from?: string; to?: string };
+    const today = dateIn(Date.now(), 'UTC');
+    const from = q.from ?? shiftDate(today, -30);
+    const to = q.to ?? shiftDate(today, 366);
+    if (!validDate(from) || !validDate(to) || from > to) {
+      return problem(reply, 400, 'validation', 'from and to must be dates, from first');
+    }
+    const list = await db.holidays.between(from, to);
+    return reply.code(200).send({ holidays: list.map((h) => ({ date: h.date, name: h.name })) });
+  });
+
+  const holidayAdmin = { preHandler: [requireCapability([Capability.HrHolidayWrite])] };
+
+  async function holidayActor(req: FastifyRequest, reply: FastifyReply) {
+    if (!req.auth) {
+      await problem(reply, 401, 'unauthorized', 'authentication required');
+      return null;
+    }
+    const actor = await db.users.findByEntraObjectId(req.auth.oid);
+    if (!actor) {
+      await problem(reply, 403, 'no_user_for_oid', 'your account has no CloudPunch user');
+      return null;
+    }
+    const { date } = req.params as { date: string };
+    if (!validDate(date)) {
+      await problem(reply, 400, 'validation', 'the date must be YYYY-MM-DD');
+      return null;
+    }
+    return { actor, date };
+  }
+
+  app.put('/v1/admin/holidays/:date', holidayAdmin, async (req, reply) => {
+    const a = await holidayActor(req, reply);
+    if (!a) return reply;
+    const parsed = holidayBody.safeParse(req.body);
+    if (!parsed.success) {
+      return problem(reply, 400, 'validation', parsed.error.issues[0]?.message ?? 'invalid body');
+    }
+    const saved = await db.holidays.record({
+      date: a.date,
+      name: parsed.data.name,
+      cancelled: false,
+      addedByUserId: a.actor.id,
+      correlationId: randomUUID(),
+      at: new Date(),
+    });
+    return reply.code(200).send({ date: saved.date, name: saved.name });
+  });
+
+  app.delete('/v1/admin/holidays/:date', holidayAdmin, async (req, reply) => {
+    const a = await holidayActor(req, reply);
+    if (!a) return reply;
+    const [current] = await db.holidays.between(a.date, a.date);
+    if (!current) return problem(reply, 404, 'not_found', 'that date is not a holiday');
+    await db.holidays.record({
+      date: a.date,
+      name: current.name,
+      cancelled: true,
+      addedByUserId: a.actor.id,
+      correlationId: randomUUID(),
+      at: new Date(),
+    });
+    return reply.code(204).send();
   });
 
   const admin = { preHandler: [requireCapability([Capability.AdminShiftWrite])] };

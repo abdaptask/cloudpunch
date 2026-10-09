@@ -9,6 +9,8 @@ import type {
   CorrectionRepo,
   CorrectionWithDecisions,
   DbRepositories,
+  Holiday,
+  HolidayRepo,
   ShiftAssignment,
   ShiftRepo,
   DeviceConnection,
@@ -58,9 +60,11 @@ export class PostgresDb implements DbRepositories {
   readonly connections: ConnectionRepo;
   readonly corrections: CorrectionRepo;
   readonly shifts: ShiftRepo;
+  readonly holidays: HolidayRepo;
 
   constructor(private readonly sql: postgres.Sql) {
     this.shifts = this.buildShiftRepo();
+    this.holidays = this.buildHolidayRepo();
     this.connections = this.buildConnectionRepo();
     this.corrections = this.buildCorrectionRepo();
     this.employees = this.buildEmployeeRepo();
@@ -275,6 +279,41 @@ export class PostgresDb implements DbRepositories {
           WHERE employee_id IN ${this.sql(ids)} AND shift_date::text IN ${this.sql(dates)}`;
         return new Set(rows.map((r) => `${r.employeeId}:${r.shiftDate}`));
       },
+    };
+  }
+
+  // -------------------------------------------------------------------
+  // holidays (ADR-0037 §1)
+  // -------------------------------------------------------------------
+
+  private buildHolidayRepo(): HolidayRepo {
+    const cols = this.sql`id, to_char(holiday_date, 'YYYY-MM-DD') AS "date", name, cancelled,
+                          added_by_user_id, added_at`;
+    return {
+      record: async (i) =>
+        this.sql.begin(async (tx) => {
+          const [row] = await tx<Holiday[]>`
+            INSERT INTO holiday (holiday_date, name, cancelled, added_by_user_id, added_at)
+            VALUES (${i.date}::date, ${i.name}, ${i.cancelled}, ${i.addedByUserId}, ${i.at})
+            RETURNING ${cols}`;
+          if (!row) throw new Error('holiday insert returned no row');
+          await tx`
+            INSERT INTO audit_log (actor_type, actor_user_id, entity_type, entity_id, action,
+                                   previous_value, new_value, reason, correlation_id, occurred_at)
+            VALUES ('user', ${i.addedByUserId}, 'holiday', ${row.id},
+                    ${i.cancelled ? 'holiday_removed' : 'holiday_added'}, NULL,
+                    ${tx.json({ date: i.date, name: i.name })}, NULL, ${i.correlationId}, ${i.at})`;
+          return row;
+        }),
+      between: async (from, to) =>
+        this.sql<Holiday[]>`
+          SELECT * FROM (
+            SELECT DISTINCT ON (holiday_date) ${cols} FROM holiday
+            WHERE holiday_date BETWEEN ${from}::date AND ${to}::date
+            ORDER BY holiday_date, added_at DESC, id
+          ) latest
+          WHERE NOT cancelled
+          ORDER BY "date"`,
     };
   }
 

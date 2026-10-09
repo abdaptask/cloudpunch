@@ -11,6 +11,8 @@ import type {
   CorrectionWithDecisions,
   DbRepositories,
   NotWorkingDeclaration,
+  Holiday,
+  HolidayRepo,
   ShiftAssignment,
   ShiftRepo,
   Device,
@@ -61,6 +63,11 @@ export class InMemoryDb implements DbRepositories {
   readonly connections: ConnectionRepo;
   readonly corrections: CorrectionRepo;
   readonly shifts: ShiftRepo;
+  readonly holidays: HolidayRepo;
+  /** holiday rows (ADR-0037), oldest first, for tests. */
+  readonly holidayRows: Holiday[] = [];
+  /** audit_log actions for holidays, for tests. */
+  readonly holidayAudit: string[] = [];
   /** shift_assignment rows (ADR-0031), for tests. */
   readonly shiftRows: ShiftAssignment[] = [];
   /** not_working_day rows (ADR-0031), for tests. */
@@ -104,6 +111,32 @@ export class InMemoryDb implements DbRepositories {
       decisions: c.decisions.map((d) => ({ ...d })),
     });
     const FINAL = new Set(['approved', 'rejected', 'withdrawn']);
+    this.holidays = {
+      record: async (i) => {
+        const row: Holiday = {
+          id: randomUUID(),
+          date: i.date,
+          name: i.name,
+          cancelled: i.cancelled,
+          addedByUserId: i.addedByUserId,
+          addedAt: i.at,
+        };
+        this.holidayRows.push(row);
+        this.holidayAudit.push(i.cancelled ? 'holiday_removed' : 'holiday_added');
+        return { ...row };
+      },
+      between: async (from, to) => {
+        const latest = new Map<string, Holiday>();
+        for (const r of this.holidayRows) {
+          const prev = latest.get(r.date);
+          if (!prev || r.addedAt >= prev.addedAt) latest.set(r.date, r);
+        }
+        return [...latest.values()]
+          .filter((r) => !r.cancelled && r.date >= from && r.date <= to)
+          .sort((a, b) => a.date.localeCompare(b.date))
+          .map((r) => ({ ...r }));
+      },
+    };
     this.shifts = {
       assign: async (i) => {
         const row: ShiftAssignment = {

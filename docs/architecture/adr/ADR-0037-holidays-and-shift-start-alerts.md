@@ -178,3 +178,21 @@ The owner wants to know who misses starts regularly.
 7. **Follow-up** when someone clocks in after a missed clock-in email:
    yes.
 8. **The employee gets a copy:** yes.
+
+## Implementation notes (2026-10-09, while building)
+
+These change _how_, not _what_, the owner decided:
+
+1. **`GET /v1/me/shift` also lists the holidays** from yesterday to 60
+   days ahead (`holidays: [{ date, name }]`), next to `day_off`. The app
+   needs them for the 8:00 popup (people without a shift, whose date is
+   the policy zone's) and to know about a holiday while offline.
+2. **Holidays are read by anyone signed in** at `GET /v1/holidays`, and
+   changed at `PUT` / `DELETE /v1/admin/holidays/:date` (HR and
+   Administrators). A rename is a new row; a removal is a new row with
+   `cancelled`.
+3. **Migration 0010 creates `shift_alert` now**, ahead of the emails
+   (§3), so the owner runs one migration for this ADR, not two.
+4. **Team's holiday status** shows only during the person's shift
+   hours, like "Not clocked in, shift started"; outside them it stays
+   "Clocked out".

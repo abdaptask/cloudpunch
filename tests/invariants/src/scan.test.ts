@@ -98,6 +98,9 @@ describe('appendOnlyViolations', () => {
     // ADR-0031: shifts and "not working today".
     expect(appendOnlyViolations('UPDATE shift_assignment SET days = $1')).toHaveLength(1);
     expect(appendOnlyViolations('DELETE FROM not_working_day')).toHaveLength(1);
+    // ADR-0037: holidays and shift-start alerts.
+    expect(appendOnlyViolations('UPDATE holiday SET name = $1')).toHaveLength(1);
+    expect(appendOnlyViolations('DELETE FROM shift_alert WHERE id = $1')).toHaveLength(1);
     // Trigger definitions and other tables are fine.
     expect(appendOnlyViolations('CREATE TRIGGER t BEFORE UPDATE ON time_event')).toEqual([]);
     expect(appendOnlyViolations('UPDATE time_session SET closed_at = now()')).toEqual([]);

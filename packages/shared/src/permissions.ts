@@ -37,6 +37,8 @@ export const Capability = {
   HrOverrideWrite: 'hr.override.write',
   /** Team and per-employee policy overrides (ADR-0015 §4); not global. */
   HrPolicyWrite: 'hr.policy.write',
+  /** Add and remove company holidays (ADR-0037 §1). HR and Administrators. */
+  HrHolidayWrite: 'hr.holiday.write',
 
   // Admin — full config + operational surface
   AdminConfigWrite: 'admin.config.write',
@@ -103,6 +105,7 @@ const _ROLE_CAPABILITIES: { readonly [K in AppRole]: readonly Capability[] } = {
     Capability.HrDepartmentWrite,
     Capability.HrOverrideWrite,
     Capability.HrPolicyWrite,
+    Capability.HrHolidayWrite,
     // HR has team-visibility across the org
     Capability.TeamTimelineRead,
     Capability.TeamTimesheetRead,
@@ -124,6 +127,7 @@ const _ROLE_CAPABILITIES: { readonly [K in AppRole]: readonly Capability[] } = {
     Capability.HrEmployeeWrite,
     Capability.HrDepartmentWrite,
     Capability.HrOverrideWrite,
+    Capability.HrHolidayWrite,
   ],
   [AppRole.Payroll]: [
     Capability.PayrollApprovedRead,

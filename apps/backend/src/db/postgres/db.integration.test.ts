@@ -52,7 +52,7 @@ beforeEach(async () => {
   // dependencies: event → session → device/employee → user.
   // time_event and audit_log are append-only (row triggers reject
   // DELETE); TRUNCATE is DDL and resets them between tests.
-  await sql`TRUNCATE audit_log, policy_override, time_event, time_session, device, employee_override, time_correction_decision, time_correction, shift_assignment, not_working_day RESTART IDENTITY CASCADE`;
+  await sql`TRUNCATE audit_log, policy_override, time_event, time_session, device, employee_override, time_correction_decision, time_correction, shift_assignment, not_working_day, holiday, shift_alert RESTART IDENTITY CASCADE`;
   await sql`DELETE FROM admin_review_case`;
   await sql`UPDATE app_user SET employee_id = NULL`;
   await sql`DELETE FROM employee`;
@@ -985,5 +985,49 @@ describe('PostgresDb — shifts', () => {
     // Planted on purpose: the triggers must refuse these.
     await expect(sql`UPDATE shift_assignment SET tz_iana = 'UTC'`).rejects.toThrow(/append-only/);
     await expect(sql`DELETE FROM not_working_day`).rejects.toThrow(/append-only/);
+  });
+});
+
+// ---------------------------------------------------------------------
+// holidays (ADR-0037)
+// ---------------------------------------------------------------------
+
+describe('PostgresDb — holidays', () => {
+  it('the latest row per date wins, removals drop out, and changes are audited', async () => {
+    const { userId } = await seedUser();
+    const add = (date: string, name: string, cancelled: boolean, at: string) =>
+      db.holidays.record({
+        date,
+        name,
+        cancelled,
+        addedByUserId: userId,
+        correlationId: randomUUID(),
+        at: new Date(at),
+      });
+    expect(await add('2026-11-09', 'Diwali', false, '2026-10-01T00:00:00Z')).toMatchObject({
+      date: '2026-11-09',
+      name: 'Diwali',
+      cancelled: false,
+    });
+    await add('2026-11-09', 'Diwali (Lakshmi Puja)', false, '2026-10-02T00:00:00Z');
+    await add('2026-12-25', 'Christmas', false, '2026-10-01T00:00:00Z');
+    await add('2026-12-25', 'Christmas', true, '2026-10-03T00:00:00Z');
+    await add('2027-01-26', 'Republic Day', false, '2026-10-01T00:00:00Z');
+
+    const list = await db.holidays.between('2026-11-01', '2026-12-31');
+    expect(list.map((h) => [h.date, h.name])).toEqual([['2026-11-09', 'Diwali (Lakshmi Puja)']]);
+
+    const audit = await sql<{ action: string }[]>`
+      SELECT action FROM audit_log WHERE entity_type = 'holiday' ORDER BY occurred_at, action`;
+    expect(audit.map((a) => a.action)).toEqual([
+      'holiday_added',
+      'holiday_added',
+      'holiday_added',
+      'holiday_added',
+      'holiday_removed',
+    ]);
+    // Planted on purpose: the triggers must refuse these.
+    await expect(sql`UPDATE holiday SET name = 'x'`).rejects.toThrow(/append-only/);
+    await expect(sql`DELETE FROM shift_alert`).rejects.toThrow(/append-only/);
   });
 });

@@ -3,7 +3,7 @@ import type { DbRepositories, Employee } from '../db/index.js';
 import { MAX_GAP_MS, totals, type DaySegment, type WorkingDay } from '../days/build.js';
 import { daysAround, rulesFor } from '../days/service.js';
 import { effectivePolicyFor } from '../policy/service.js';
-import { activeWindow, type ShiftWindow } from '../shifts/model.js';
+import { activeWindow, shiftDate, type ShiftWindow } from '../shifts/model.js';
 
 /**
  * Manager and HR team views (ADR-0025). Pure helpers plus the reads
@@ -55,7 +55,9 @@ export type LiveStatus =
   /** In their shift, not clocked in since it started (ADR-0031 §2); `since` = shift start. */
   | 'shift_not_started'
   /** Said "Not working today" for the shift they're in (ADR-0031 §2). */
-  | 'not_working';
+  | 'not_working'
+  /** Their shift today falls on a company holiday (ADR-0037 §2); see `holiday`. */
+  | 'holiday';
 
 export interface PersonNow {
   employee_id: string;
@@ -69,6 +71,8 @@ export interface PersonNow {
   back_by: string | null;
   /** Worked time in the current working day, ms. */
   worked_ms: number;
+  /** The holiday's name, when `status` is `holiday` (ADR-0037 §2). */
+  holiday?: string;
 }
 
 function statusOf(kind: string): LiveStatus {
@@ -123,19 +127,22 @@ export function statusFrom(
 /**
  * Pure: a clocked-out person in their shift (ADR-0031 §2). If nothing
  * they worked touches the shift yet, they haven't started it, or said
- * they aren't working; otherwise "clocked out" stands.
+ * they aren't working, or it's a holiday (ADR-0037 §2); otherwise
+ * "clocked out" stands.
  */
 export function withShift(
   p: PersonNow,
   window: ShiftWindow | null,
   days: readonly WorkingDay[],
   saidNotWorking: boolean,
+  holiday: string | null = null,
 ): PersonNow {
   if (p.status !== 'clocked_out' || !window) return p;
   const started = days.some((d) =>
     d.sessions.some((s) => s.clockIn < window.end && s.end > window.start),
   );
   if (started) return p;
+  if (holiday !== null) return { ...p, status: 'holiday', holiday };
   return {
     ...p,
     status: saidNotWorking ? 'not_working' : 'shift_not_started',
@@ -152,6 +159,10 @@ export async function teamNow(
   const today = now.toISOString().slice(0, 10);
   const yesterday = new Date(now.getTime() - 86_400_000).toISOString().slice(0, 10);
   const shiftRows = await db.shifts.history(people.map((p) => p.id));
+  // Shift dates are within a day of the UTC date, whatever the zone.
+  const holidays = new Map(
+    (await db.holidays.between(yesterday, shiftDate(today, 1))).map((h) => [h.date, h.name]),
+  );
   const out: PersonNow[] = [];
   for (const e of people) {
     const days = await daysAround(db, e.id, yesterday, today, now);
@@ -162,7 +173,7 @@ export async function teamNow(
       now,
     );
     const said = window ? (await db.shifts.notWorking([e.id], [window.date])).size > 0 : false;
-    out.push(withShift(p, window, days, said));
+    out.push(withShift(p, window, days, said, window ? (holidays.get(window.date) ?? null) : null));
   }
   return out;
 }

@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Holidays on the server (ADR-0037 step 1; migration 0010)
+
+- Migration **0010** adds `holiday` (one company list) and
+  `shift_alert` (for the shift-start emails, used from step 4). Both
+  append-only, with triggers; the invariant scan covers them. **Run it
+  before deploying.**
+- `GET /v1/holidays` for anyone signed in; `PUT` and
+  `DELETE /v1/admin/holidays/:date` for HR and Administrators (new
+  capability `hr.holiday.write`). Each change is a new row with an
+  audit row; renaming or removing keeps the history.
+- `GET /v1/me/shift` adds `day_off` (today's shift is a holiday) and
+  `holidays` (yesterday to 60 days ahead), for desktop 0.1.25.
+- Team shows `holiday` (with its name) instead of "Not clocked in" for
+  a person whose shift falls on a holiday. Desktop 0.1.24 doesn't know
+  this status yet and shows an empty line until 0.1.25.
+
 ### ADR-0037 accepted: holidays, shift-start emails, regular late starters
 
 - Before the 50-person rollout: a company holiday list (HR and

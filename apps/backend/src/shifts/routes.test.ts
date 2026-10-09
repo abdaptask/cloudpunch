@@ -86,7 +86,7 @@ beforeEach(() => {
 async function call(
   as: string,
   roles: readonly string[],
-  method: 'GET' | 'POST' | 'PUT',
+  method: 'GET' | 'POST' | 'PUT' | 'DELETE',
   url: string,
   payload?: unknown,
 ) {
@@ -239,5 +239,71 @@ describe('Team today knows the shift', () => {
     await call(roshni, EMP, 'POST', '/v1/me/not-working-today');
     const [r2] = await teamNow(db, people0, new Date());
     expect(r2?.status).toBe('not_working');
+  });
+});
+
+describe('holidays (ADR-0037)', () => {
+  it('HR and Administrators keep one list; everyone can read it; removal is a new row', async () => {
+    const put = (as: string, roles: readonly string[], date: string, name: unknown) =>
+      call(as, roles, 'PUT', `/v1/admin/holidays/${date}`, { name });
+    expect((await put(roshni, EMP, '2026-11-09', 'Diwali')).statusCode).toBe(403);
+    expect((await put(hema, HR, '2026-11-09', 'Diwali')).statusCode).toBe(200);
+    expect((await put(admin, ADMIN, '2026-12-25', 'Christmas')).statusCode).toBe(200);
+    expect((await put(admin, ADMIN, '2026-02-30', 'Nope')).statusCode).toBe(400);
+    expect((await put(admin, ADMIN, '2026-12-26', '')).statusCode).toBe(400);
+    // Renaming is another row; the latest wins.
+    await put(admin, ADMIN, '2026-11-09', 'Diwali (Lakshmi Puja)');
+
+    const list = async () =>
+      (
+        (await call(roshni, EMP, 'GET', '/v1/holidays?from=2026-11-01&to=2026-12-31')).json() as {
+          holidays: { date: string; name: string }[];
+        }
+      ).holidays;
+    expect(await list()).toEqual([
+      { date: '2026-11-09', name: 'Diwali (Lakshmi Puja)' },
+      { date: '2026-12-25', name: 'Christmas' },
+    ]);
+
+    expect((await call(roshni, EMP, 'DELETE', '/v1/admin/holidays/2026-12-25')).statusCode).toBe(
+      403,
+    );
+    expect((await call(hema, HR, 'DELETE', '/v1/admin/holidays/2026-12-25')).statusCode).toBe(204);
+    expect((await call(hema, HR, 'DELETE', '/v1/admin/holidays/2026-12-25')).statusCode).toBe(404);
+    expect(await list()).toEqual([{ date: '2026-11-09', name: 'Diwali (Lakshmi Puja)' }]);
+    expect(db.holidayRows).toHaveLength(4);
+    expect(db.holidayAudit).toEqual([
+      'holiday_added',
+      'holiday_added',
+      'holiday_added',
+      'holiday_removed',
+    ]);
+    expect(
+      (await call(roshni, EMP, 'GET', '/v1/holidays?from=2026-12-31&to=2026-11-01')).statusCode,
+    ).toBe(400);
+  });
+
+  it('your shift says when today is a holiday and lists the coming ones; Team shows it', async () => {
+    await seed(now());
+    const window = (
+      (await call(roshni, EMP, 'GET', '/v1/me/shift')).json() as { window: { date: string } }
+    ).window;
+    await call(admin, ADMIN, 'PUT', `/v1/admin/holidays/${window.date}`, { name: 'Diwali' });
+    const me = (await call(roshni, EMP, 'GET', '/v1/me/shift')).json() as {
+      day_off: unknown;
+      holidays: { date: string; name: string }[];
+    };
+    expect(me.day_off).toEqual({ kind: 'holiday', name: 'Diwali' });
+    expect(me.holidays).toContainEqual({ date: window.date, name: 'Diwali' });
+
+    const [r, h] = await teamNow(
+      db,
+      [people[roshni] as Employee, people[hema] as Employee],
+      new Date(),
+    );
+    expect(r?.status).toBe('holiday');
+    expect(r?.holiday).toBe('Diwali');
+    // No shift, no holiday status.
+    expect(h?.status).toBe('clocked_out');
   });
 });

@@ -586,6 +586,36 @@ export interface ShiftRepo {
   notWorking(employeeIds: readonly string[], dates: readonly string[]): Promise<Set<string>>;
 }
 
+// ---------------------------------------------------------------------
+// Holidays (ADR-0037 §1)
+// ---------------------------------------------------------------------
+
+export interface Holiday {
+  id: string;
+  /** `YYYY-MM-DD`. */
+  date: string;
+  name: string;
+  /** A later row that removes the date from the list. */
+  cancelled: boolean;
+  addedByUserId: string;
+  addedAt: Date;
+}
+
+export interface NewHoliday extends Omit<Holiday, 'id' | 'addedAt'> {
+  correlationId: string;
+  at: Date;
+}
+
+export interface HolidayRepo {
+  /**
+   * Add (or rename) a holiday, or remove one with `cancelled`: always a
+   * new row, with an audit_log row `holiday_added` / `holiday_removed`.
+   */
+  record(input: NewHoliday): Promise<Holiday>;
+  /** The holidays from `from` to `to` (inclusive, `YYYY-MM-DD`), oldest first: the latest row per date, cancelled ones left out. */
+  between(from: string, to: string): Promise<Holiday[]>;
+}
+
 export interface DbRepositories {
   people: PeopleRepo;
   employees: EmployeeRepo;
@@ -598,4 +628,5 @@ export interface DbRepositories {
   connections: ConnectionRepo;
   corrections: CorrectionRepo;
   shifts: ShiftRepo;
+  holidays: HolidayRepo;
 }
