@@ -363,6 +363,39 @@
       },
       "additionalProperties": false
     },
+    "alerts": {
+      "type": "object",
+      "description": "Shift-start emails and regular late starters (ADR-0037). Read from the global settings only; a department or employee value is ignored.",
+      "properties": {
+        "shift_emails": {
+          "type": "boolean",
+          "default": false,
+          "description": "Email the person and their manager about a missed clock-in, the late clock-in that follows, and \"Not working today\". Off until the holiday list is in (ADR-0037 §3)."
+        },
+        "missed_clock_in_minutes": {
+          "type": "integer",
+          "minimum": 5,
+          "maximum": 120,
+          "default": 15,
+          "description": "Minutes after the shift starts before a missed clock-in email goes (ADR-0037 §3)."
+        },
+        "regular_late_count": {
+          "type": "integer",
+          "minimum": 2,
+          "maximum": 20,
+          "default": 3,
+          "description": "Missed starts that make someone a regular late starter (ADR-0037 §4)."
+        },
+        "regular_late_days": {
+          "type": "integer",
+          "minimum": 7,
+          "maximum": 90,
+          "default": 30,
+          "description": "Over how many days regular_late_count is counted (ADR-0037 §4)."
+        }
+      },
+      "additionalProperties": false
+    },
     "connections": {
       "type": "object",
       "description": "Where people connect from (ADR-0029). Read from the global settings only; a department or employee value is ignored.",

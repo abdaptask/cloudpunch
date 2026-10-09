@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Shift-start emails on the server (ADR-0037 step 4; migration 0011)
+
+- Once a minute the API checks every shift in progress and emails,
+  from cloudpunch@: **not clocked in** (15 minutes after the start),
+  **clocked in late** (the follow-up), and **not working today**. To
+  the person, with their manager copied; with no manager, the
+  Administrators and HR. Never on a holiday. Each goes once per shift:
+  claimed in `shift_alert` and sent in one transaction, and a failed
+  send is tried again the next minute.
+- **Off until switched on**: global policy `alerts.shift_emails`
+  (and `alerts.missed_clock_in_minutes`, default 15). The switch is in
+  desktop Settings from 0.1.25.
+- Migration **0011** adds `role_seen`: the roles each person's sign-in
+  carried (and Settings → People changes), only to find the
+  Administrators and HR for these emails, never for access. **Run 0010
+  and 0011 before deploying.**
+- The welcome email and these share one mailbox setup
+  (`mailerFromEnv`); nothing changes for the welcome email.
+
 ### Desktop 0.1.25: no clock-in popup on holidays, and a Holidays list (ADR-0037 steps 2–3)
 
 - Neither the shift popup nor the 8:00 popup opens on a company

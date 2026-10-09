@@ -196,6 +196,8 @@ describe('People (ADR-0020)', () => {
       newRoles: ['Employee'],
       reason: 'pilot',
     });
+    // Alert recipients follow at once (ADR-0037).
+    expect(db.roleSeen.get(FARHEEN.oid)).toEqual({ roles: ['Employee'], source: 'people' });
     // Same roles again: nothing changes, nothing audited.
     const again = await call(ADMIN, 'PUT', `/v1/admin/people/${FARHEEN.oid}/roles`, {
       roles: ['Employee'],

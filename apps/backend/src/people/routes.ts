@@ -331,6 +331,8 @@ const peopleRoutesImpl: FastifyPluginAsync<PeopleRoutesOptions> = async (app, op
             correlationId,
             at,
           });
+          // Alert recipients follow at once (ADR-0037), not at their next sign-in.
+          await db.roles.note(oid, wanted, 'people', at);
         }
         // Turned off only once Entra has the roles removed.
         const unassigned = needsRecord ? [] : await setRecord(false);

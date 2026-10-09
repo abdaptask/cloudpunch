@@ -616,6 +616,47 @@ export interface HolidayRepo {
   between(from: string, to: string): Promise<Holiday[]>;
 }
 
+// ---------------------------------------------------------------------
+// Shift-start emails (ADR-0037 §3, §4)
+// ---------------------------------------------------------------------
+
+export type ShiftAlertKind = 'missed' | 'late_clock_in' | 'not_working';
+
+export interface ShiftAlertClaim {
+  employeeId: string;
+  /** The date the shift starts on, in its zone. */
+  shiftDate: string;
+  kind: ShiftAlertKind;
+  sentTo: readonly string[];
+  at: Date;
+}
+
+export interface ShiftAlertRepo {
+  /** `${employeeId}:${shiftDate}:${kind}` for each alert already sent among these. */
+  sent(employeeIds: readonly string[], dates: readonly string[]): Promise<Set<string>>;
+  /**
+   * Claim the alert and run `send` in one transaction: false (and no
+   * send) if it was already claimed; if `send` throws, the claim is
+   * rolled back so the next check tries again.
+   */
+  claimAndSend(claim: ShiftAlertClaim, send: () => Promise<void>): Promise<boolean>;
+  /** Missed starts per person since `since` (ADR-0037 §4). */
+  missedSince(since: string): Promise<Map<string, number>>;
+}
+
+/** Someone the server has seen with these roles, and where to email them. */
+export interface RoleHolder {
+  oid: string;
+  email: string;
+}
+
+export interface RoleDirectoryRepo {
+  /** Remember the roles `oid` was seen with (a token, or Settings → People). */
+  note(oid: string, roles: readonly string[], source: 'token' | 'people', at: Date): Promise<void>;
+  /** Everyone last seen with any of `roles`, with a work email. */
+  holders(roles: readonly string[]): Promise<RoleHolder[]>;
+}
+
 export interface DbRepositories {
   people: PeopleRepo;
   employees: EmployeeRepo;
@@ -629,4 +670,6 @@ export interface DbRepositories {
   corrections: CorrectionRepo;
   shifts: ShiftRepo;
   holidays: HolidayRepo;
+  shiftAlerts: ShiftAlertRepo;
+  roles: RoleDirectoryRepo;
 }
