@@ -89,6 +89,8 @@ export interface TeamPerson {
   worked_ms: number;
   /** The holiday's name, when `status` is `holiday`. */
   holiday?: string;
+  /** Missed starts and "not working" days lately (ADR-0037 §4), when any. */
+  starts?: { missed: number; not_working: number; days: number; regular: boolean };
 }
 
 /** One network a computer connected from (ADR-0029). */

@@ -21,11 +21,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Settings (company-wide) → **Shift-start emails**: the switch and the
   minutes after the shift start, for the server's emails (ADR-0037
   step 4). Off until switched on.
+- Team: a person's screen says "Missed starts: 4 in 30 days · Not
+  working today: 1", and the list marks regular late starters (ADR-0037
+  step 5). Shared with the web dashboard.
 - **Fix:** switching "Record where people connect from" off again in
   Settings didn't stick once it had been saved on: the saved value
   overwrote the new one. Found while adding the email switch, which
   uses the same pattern.
-- Needs the server changes (migrations 0010 and 0011) deployed first.
+- Needs the server changes (migrations 0010–0012) deployed first.
   Publish before the first holiday on the list.
 
 ### Holidays on the server (ADR-0037 step 1; migration 0010)
