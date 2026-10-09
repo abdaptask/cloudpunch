@@ -79,12 +79,18 @@ export interface TeamPerson {
     /** In their shift, not clocked in since it started (ADR-0031); `since` = shift start. */
     | 'shift_not_started'
     /** Said "Not working today" (ADR-0031). */
-    | 'not_working';
+    | 'not_working'
+    /** Their shift falls on a company holiday (ADR-0037); see `holiday`. */
+    | 'holiday';
   /** Segment kind now (`personal_break`, `away_meeting`, …). */
   kind: string | null;
   since: string | null;
   back_by: string | null;
   worked_ms: number;
+  /** The holiday's name, when `status` is `holiday`. */
+  holiday?: string;
+  /** Missed starts and "not working" days lately (ADR-0037 §4), when any. */
+  starts?: { missed: number; not_working: number; days: number; regular: boolean };
 }
 
 /** One network a computer connected from (ADR-0029). */
@@ -163,6 +169,13 @@ export interface Shift {
   start: string;
   end: string;
   tz_iana: string;
+}
+
+/** A company holiday (ADR-0037 §1). */
+export interface Holiday {
+  /** `YYYY-MM-DD`. */
+  date: string;
+  name: string;
 }
 
 export interface ShiftRow {
@@ -502,6 +515,13 @@ export const api = {
       end: s.end,
       tzIana: s.tzIana,
     }),
+  /** The company holidays, last month to a year ahead (ADR-0037). */
+  holidays: (): Promise<{ holidays: Holiday[] }> => invoke<{ holidays: Holiday[] }>('holidays'),
+  /** Add or rename a holiday (HR and Administrators). */
+  setHoliday: (date: string, name: string): Promise<Holiday> =>
+    invoke<Holiday>('admin_set_holiday', { date, name }),
+  /** Remove a holiday (HR and Administrators). */
+  removeHoliday: (date: string): Promise<unknown> => invoke('admin_remove_holiday', { date }),
   decideCorrection: (
     id: string,
     decision: 'endorse' | 'approve' | 'reject' | 'withdraw',

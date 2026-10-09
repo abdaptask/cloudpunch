@@ -475,8 +475,8 @@ struct Inner {
     break_over_alerted_at: Option<SystemTime>,
     /// The shift popup waits until then ("Not now", or a clock-out).
     shift_snooze_until: Option<SystemTime>,
-    /// The popup's last logged decision (ADR-0036 §2).
-    popup_check: Option<crate::clock_in_prompt::Check>,
+    /// The popup's last logged decision and which popup (ADR-0036 §2).
+    popup_check: Option<(&'static str, crate::clock_in_prompt::Check)>,
     /// The shift (or day) the popup last notified for (ADR-0036 §3).
     popup_notified_on: Option<chrono::NaiveDate>,
     timeline: Timeline,
@@ -1104,29 +1104,46 @@ impl<U: Ui> Agent<U> {
                             inner.clock_in_prompt = false;
                             plan.broadcast = true;
                         }
-                        let check = crate::clock_in_prompt::shift_check(
-                            window,
-                            inner.shift.not_working_on,
-                            inner.shift_snooze_until,
-                            prompt,
-                        );
+                        // ADR-0037 §2: not on a company holiday.
+                        let holiday =
+                            window.is_some_and(|w| inner.shift.holidays.contains(&w.date));
+                        let check = if holiday {
+                            crate::clock_in_prompt::Check::Holiday
+                        } else {
+                            crate::clock_in_prompt::shift_check(
+                                window,
+                                inner.shift.not_working_on,
+                                inner.shift_snooze_until,
+                                prompt,
+                            )
+                        };
                         ("shift popup", check, window.map(|w| w.date))
                     } else {
-                        let check = crate::clock_in_prompt::daily_check(
-                            &prompt_cfg,
-                            prompt,
-                            &mut inner.prompt_state,
-                        );
                         let today = chrono::DateTime::<chrono::Utc>::from(now)
                             .with_timezone(&prompt_cfg.tz)
                             .date_naive();
+                        // ADR-0037 §2: not on a company holiday.
+                        let check = if inner.shift.holidays.contains(&today) {
+                            crate::clock_in_prompt::Check::Holiday
+                        } else {
+                            crate::clock_in_prompt::daily_check(
+                                &prompt_cfg,
+                                prompt,
+                                &mut inner.prompt_state,
+                            )
+                        };
                         ("8:00 popup", check, Some(today))
                     };
+                    // A holiday added while it shows closes it.
+                    if check == crate::clock_in_prompt::Check::Holiday && inner.clock_in_prompt {
+                        inner.clock_in_prompt = false;
+                        plan.broadcast = true;
+                    }
                     let opens =
                         check == crate::clock_in_prompt::Check::Due && !inner.clock_in_prompt;
                     // While it is open, "due" again isn't news.
                     let logged = if opens || !inner.clock_in_prompt {
-                        Some(check)
+                        Some((kind, check))
                     } else {
                         inner.popup_check
                     };
@@ -1429,6 +1446,12 @@ fn describe_shift(info: &crate::shift::ShiftInfo) -> String {
     if let Some(d) = info.not_working_on {
         line.push_str(&format!(", not working on {d}"));
     }
+    if let Some(next) = info.holidays.iter().min() {
+        line.push_str(&format!(
+            ", {} holiday(s) ahead, next {next}",
+            info.holidays.len()
+        ));
+    }
     line
 }
 
@@ -1689,6 +1712,7 @@ mod tests {
                 tz_iana: "America/New_York".into(),
             }),
             not_working_on: None,
+            holidays: vec![],
         });
         // Friday 9 Oct 2026; 13:00 UTC is 09:00 EDT.
         let at = |h: u32, m: u32| -> SystemTime {
@@ -1759,6 +1783,83 @@ mod tests {
         assert_eq!(popup(&calls), ["popup:shift popup opened"]);
         assert!(has(&calls, "attention"));
         assert!(!calls.iter().any(|c| c.starts_with("notify:Your shift")));
+    }
+
+    /// ADR-0037 §2: on a company holiday neither popup opens, and one
+    /// showing when the holiday arrives closes.
+    #[test]
+    fn no_clock_in_popup_on_a_holiday() {
+        use crate::recorder::Target;
+        use ed25519_dalek::SigningKey;
+
+        let id = crate::enroll::Identity {
+            oid: "0f8e1c2a-3b4d-4e5f-8a9b-0c1d2e3f4a5b".into(),
+            device_id: "33333333-3333-4333-8333-333333333333".into(),
+            employee_id: "44444444-4444-4444-8444-444444444444".into(),
+        };
+        let recorder = Recorder::new();
+        recorder.arm(Target::in_memory(id, SigningKey::from_bytes(&[7u8; 32])));
+        let agent = Agent::<Arc<FakeUi>>::with_recorder(CoreConfig::default(), &recorder);
+        let ui = Arc::new(FakeUi::default());
+        agent.attach(ui.clone());
+        let fri = chrono::NaiveDate::from_ymd_opt(2026, 10, 9).unwrap();
+        let shift = crate::shift::Shift {
+            days: vec![1, 2, 3, 4, 5],
+            start: "09:00".into(),
+            end: "17:00".into(),
+            tz_iana: "America/New_York".into(),
+        };
+        let at = |h: u32, m: u32| -> SystemTime {
+            use chrono::TimeZone;
+            chrono::Utc
+                .with_ymd_and_hms(2026, 10, 9, h, m, 0)
+                .unwrap()
+                .into()
+        };
+        let tick = |now: SystemTime| {
+            agent
+                .handle_at(Input::Tick { last_input_at: now }, now)
+                .unwrap();
+        };
+
+        // With a shift: 09:00 EDT is 13:00 UTC; it opens, then the
+        // holiday arrives and it closes.
+        agent.apply_shift(crate::shift::ShiftInfo {
+            shift: Some(shift.clone()),
+            not_working_on: None,
+            holidays: vec![],
+        });
+        tick(at(13, 0));
+        assert!(agent.view().clock_in_prompt);
+        agent.apply_shift(crate::shift::ShiftInfo {
+            shift: Some(shift),
+            not_working_on: None,
+            holidays: vec![fri],
+        });
+        ui.calls.lock().unwrap().clear();
+        tick(at(13, 1));
+        assert!(!agent.view().clock_in_prompt);
+        assert!(ui
+            .popup
+            .lock()
+            .unwrap()
+            .contains(&"popup:shift popup waits: holiday".to_string()));
+        tick(at(13, 30));
+        assert!(!ui.calls.lock().unwrap().iter().any(|c| c == "show_main"));
+
+        // Without a shift: the 8:00 popup (12:00 UTC) waits too.
+        agent.apply_shift(crate::shift::ShiftInfo {
+            shift: None,
+            not_working_on: None,
+            holidays: vec![fri],
+        });
+        tick(at(12, 30));
+        assert!(!agent.view().clock_in_prompt);
+        assert!(ui
+            .popup
+            .lock()
+            .unwrap()
+            .contains(&"popup:8:00 popup waits: holiday".to_string()));
     }
 
     #[test]
