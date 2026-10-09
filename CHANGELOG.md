@@ -7,16 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### ADR-0037 proposed: holidays, leave days, and a missed clock-in alert
+### ADR-0037 accepted: holidays, shift-start emails, regular late starters
 
 - Before the 50-person rollout: a company holiday list (HR and
-  Administrators) and leave days per person (their manager, HR or an
-  Administrator) silence the clock-in popups and show on Team.
-- Managers get one email from cloudpunch@ when a direct report hasn't
-  clocked in 15 minutes after their shift started, once per shift,
-  never on a day off. Ships switched off. No new services or costs.
-- Eight open questions for the owner (calendars, leave requests, half
-  days, grace period, who gets alerts without a manager, follow-ups).
+  Administrators) silences the clock-in popups and shows on Team.
+  Leave days are set aside for now.
+- Emails from cloudpunch@ to the person and their manager (or
+  Administrators and HR when no manager is set): not clocked in 15
+  minutes after the shift started, the late clock-in that follows, and
+  "Not working today". Once each per shift; ships switched off.
+- A Monday email and Team counts flag regular late starters (3 missed
+  starts in 30 days by default). No new services or costs.
 
 ### Desktop 0.1.24: starts with Windows, a louder clock-in popup, and a popup log (ADR-0036)
 
