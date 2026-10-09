@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### ADR-0037 accepted: holidays, shift-start emails, regular late starters
+
+- Before the 50-person rollout: a company holiday list (HR and
+  Administrators) silences the clock-in popups and shows on Team.
+  Leave days are set aside for now.
+- Emails from cloudpunch@ to the person and their manager (or
+  Administrators and HR when no manager is set): not clocked in 15
+  minutes after the shift started, the late clock-in that follows, and
+  "Not working today". Once each per shift; ships switched off.
+- A Monday email and Team counts flag regular late starters (3 missed
+  starts in 30 days by default). No new services or costs.
+
 ### Desktop 0.1.24: starts with Windows, a louder clock-in popup, and a popup log (ADR-0036)
 
 - On 2026-10-09 the 8:00 ET shift popup "didn't come": the testers'
