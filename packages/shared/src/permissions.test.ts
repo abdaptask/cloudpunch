@@ -107,6 +107,14 @@ describe('ROLE_CAPABILITIES', () => {
     }
   });
 
+  it('holidays (ADR-0037 §1): HR and Administrators keep the list', () => {
+    expect(hasCapability([AppRole.HR], Capability.HrHolidayWrite)).toBe(true);
+    expect(hasCapability([AppRole.Administrator], Capability.HrHolidayWrite)).toBe(true);
+    for (const role of [AppRole.Employee, AppRole.Manager, AppRole.Payroll, AppRole.Auditor]) {
+      expect(hasCapability([role], Capability.HrHolidayWrite)).toBe(false);
+    }
+  });
+
   it('corrections (ADR-0030 §3): only an Administrator approves', () => {
     expect(hasCapability([AppRole.Administrator], Capability.AdminCorrectionApprove)).toBe(true);
     for (const role of [
