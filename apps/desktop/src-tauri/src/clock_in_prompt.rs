@@ -69,29 +69,95 @@ pub struct PromptState {
     shown_on: Option<NaiveDate>,
 }
 
-/// Whether the popup should open now; marks it shown for the day.
-pub fn due(cfg: &PromptConfig, inp: PromptInputs, st: &mut PromptState) -> bool {
-    let Some(at) = cfg.at else { return false };
-    if !inp.ready || !inp.clocked_out || inp.worked_today {
-        return false;
+/// Why the popup is or isn't due now (ADR-0036 §2: logged on change).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Check {
+    Due,
+    /// Policy turned the 8:00 popup off.
+    Off,
+    /// Not signed in, not enrolled, or clocked in on another computer.
+    NotReady,
+    ClockedIn,
+    /// The 8:00 popup: something is already tracked today.
+    WorkedToday,
+    /// No input for longer than [`AT_COMPUTER_WITHIN`].
+    Away,
+    Weekend,
+    /// The 8:00 popup: before its time today.
+    TooEarly,
+    /// The 8:00 popup: it already opened today.
+    ShownToday,
+    /// A shift is set but `now` isn't in it.
+    OutsideShift,
+    /// "Not working today" for this shift.
+    NotWorking,
+    /// "Not now", or a clock-out mid-shift.
+    Snoozed,
+}
+
+impl Check {
+    /// For `popup.log`: states only, no content.
+    pub fn describe(self) -> &'static str {
+        match self {
+            Self::Due => "due",
+            Self::Off => "waits: turned off by policy",
+            Self::NotReady => {
+                "waits: not ready (not signed in, not enrolled, or clocked in elsewhere)"
+            }
+            Self::ClockedIn => "waits: clocked in",
+            Self::WorkedToday => "waits: already worked today",
+            Self::Away => "waits: away from the computer",
+            Self::Weekend => "waits: weekend",
+            Self::TooEarly => "waits: before its time",
+            Self::ShownToday => "waits: already shown today",
+            Self::OutsideShift => "waits: outside the shift",
+            Self::NotWorking => "waits: not working today",
+            Self::Snoozed => "waits: snoozed",
+        }
     }
+}
+
+fn at_computer(inp: &PromptInputs) -> bool {
     let idle_for = inp
         .now
         .duration_since(inp.last_input_at)
         .unwrap_or_default();
-    if idle_for > AT_COMPUTER_WITHIN {
-        return false;
+    idle_for <= AT_COMPUTER_WITHIN
+}
+
+/// Whether the popup should open now; marks it shown for the day.
+pub fn due(cfg: &PromptConfig, inp: PromptInputs, st: &mut PromptState) -> bool {
+    daily_check(cfg, inp, st) == Check::Due
+}
+
+/// [`due`], with the reason when it isn't.
+pub fn daily_check(cfg: &PromptConfig, inp: PromptInputs, st: &mut PromptState) -> Check {
+    let Some(at) = cfg.at else { return Check::Off };
+    if !inp.ready {
+        return Check::NotReady;
+    }
+    if !inp.clocked_out {
+        return Check::ClockedIn;
+    }
+    if inp.worked_today {
+        return Check::WorkedToday;
+    }
+    if !at_computer(&inp) {
+        return Check::Away;
     }
     let local = DateTime::<Utc>::from(inp.now).with_timezone(&cfg.tz);
-    if matches!(local.weekday(), Weekday::Sat | Weekday::Sun) || local.time() < at {
-        return false;
+    if matches!(local.weekday(), Weekday::Sat | Weekday::Sun) {
+        return Check::Weekend;
+    }
+    if local.time() < at {
+        return Check::TooEarly;
     }
     let today = local.date_naive();
     if st.shown_on == Some(today) {
-        return false;
+        return Check::ShownToday;
     }
     st.shown_on = Some(today);
-    true
+    Check::Due
 }
 
 /// ADR-0031 §2: with a shift, the popup asks during it, while clocked
@@ -104,18 +170,35 @@ pub fn shift_due(
     snooze_until: Option<SystemTime>,
     inp: PromptInputs,
 ) -> bool {
-    let Some(w) = window else { return false };
-    if !inp.ready || !inp.clocked_out || not_working_on == Some(w.date) {
-        return false;
+    shift_check(window, not_working_on, snooze_until, inp) == Check::Due
+}
+
+/// [`shift_due`], with the reason when it isn't.
+pub fn shift_check(
+    window: Option<crate::shift::ShiftWindow>,
+    not_working_on: Option<NaiveDate>,
+    snooze_until: Option<SystemTime>,
+    inp: PromptInputs,
+) -> Check {
+    let Some(w) = window else {
+        return Check::OutsideShift;
+    };
+    if !inp.ready {
+        return Check::NotReady;
+    }
+    if !inp.clocked_out {
+        return Check::ClockedIn;
+    }
+    if not_working_on == Some(w.date) {
+        return Check::NotWorking;
     }
     if snooze_until.is_some_and(|until| inp.now < until) {
-        return false;
+        return Check::Snoozed;
     }
-    let idle_for = inp
-        .now
-        .duration_since(inp.last_input_at)
-        .unwrap_or_default();
-    idle_for <= AT_COMPUTER_WITHIN
+    if !at_computer(&inp) {
+        return Check::Away;
+    }
+    Check::Due
 }
 
 /// The start to offer: the sign-in, if it is at least a minute ago, at
@@ -262,6 +345,63 @@ mod tests {
             ..inputs(tue)
         };
         assert!(!shift_due(w(tue), None, None, away));
+    }
+
+    #[test]
+    fn says_why_it_waits() {
+        let s = shift("09:00", "17:00");
+        let at = |h, m| ny(2026, 9, 28, h, m);
+        let w = |now| crate::shift::active_window(&s, now);
+        assert_eq!(
+            shift_check(w(at(8, 59)), None, None, inputs(at(8, 59))),
+            Check::OutsideShift
+        );
+        let away = PromptInputs {
+            last_input_at: at(9, 0) - Duration::from_secs(6 * 60),
+            ..inputs(at(9, 0))
+        };
+        assert_eq!(shift_check(w(at(9, 0)), None, None, away), Check::Away);
+        let signed_out = PromptInputs {
+            ready: false,
+            ..inputs(at(9, 0))
+        };
+        assert_eq!(
+            shift_check(w(at(9, 0)), None, None, signed_out),
+            Check::NotReady
+        );
+        let snooze = Some(at(9, 5));
+        assert_eq!(
+            shift_check(w(at(9, 1)), None, snooze, inputs(at(9, 1))),
+            Check::Snoozed
+        );
+        let mon = NaiveDate::from_ymd_opt(2026, 9, 28);
+        assert_eq!(
+            shift_check(w(at(9, 1)), mon, None, inputs(at(9, 1))),
+            Check::NotWorking
+        );
+        assert_eq!(
+            shift_check(w(at(9, 1)), None, None, inputs(at(9, 1))),
+            Check::Due
+        );
+
+        let cfg = PromptConfig::default();
+        let mut st = PromptState::default();
+        assert_eq!(
+            daily_check(&cfg, inputs(at(7, 59)), &mut st),
+            Check::TooEarly
+        );
+        let worked = PromptInputs {
+            worked_today: true,
+            ..inputs(at(8, 0))
+        };
+        assert_eq!(daily_check(&cfg, worked, &mut st), Check::WorkedToday);
+        assert_eq!(daily_check(&cfg, inputs(at(8, 0)), &mut st), Check::Due);
+        assert_eq!(
+            daily_check(&cfg, inputs(at(8, 1)), &mut st),
+            Check::ShownToday
+        );
+        let sat = ny(2026, 10, 3, 8, 30);
+        assert_eq!(daily_check(&cfg, inputs(sat), &mut st), Check::Weekend);
     }
 
     #[test]

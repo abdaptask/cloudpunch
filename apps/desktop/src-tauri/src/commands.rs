@@ -529,7 +529,11 @@ fn start_policy_sync(
                 if let Ok(token) = auth.access_token(SystemTime::now()) {
                     match crate::shift::fetch(&http, &base_url, &token) {
                         Ok(info) => agent.apply_shift(info),
-                        Err(e) => eprintln!("[cloudpunch] shift not fetched: {e:?}"),
+                        Err(e) => crate::applog::write(
+                            &check_app,
+                            crate::agent::POPUP_LOG,
+                            &format!("shift not fetched: {e:?}"),
+                        ),
                     }
                 }
                 match auth.access_token(SystemTime::now()) {

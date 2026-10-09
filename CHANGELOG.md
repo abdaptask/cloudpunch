@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Desktop 0.1.24: starts with Windows, a louder clock-in popup, and a popup log (ADR-0036)
+
+- On 2026-10-09 the 8:00 ET shift popup "didn't come": the testers'
+  apps weren't running at 8:00 (they started at 8:09 and 8:17 ET, when
+  the computers were switched on). Shift data and the popup logic were
+  right.
+- CloudPunch now starts when the person signs in to Windows (the
+  per-user `Run` key, written by the app on each start). Started that
+  way it waits in the tray; the clock-in popup brings it forward when
+  due, or at once if no one is signed in. Task Manager can still switch
+  it off; uninstalling removes it.
+- The clock-in popup (shift or 8:00) now flashes the taskbar when it
+  opens, and the first time for a shift (or day) sends a notification:
+  "Your shift has started". "Not now" repeats flash without notifying.
+- `logs/popup.log` records why the popup waited or opened (outside the
+  shift, away, snoozed, clocked in, not ready…), each change in the
+  shift the app knows, failed shift fetches, and each app start. States
+  only, no content; it stays on the computer.
+
 ### ADR-0036 proposed: start with Windows, a louder clock-in popup, a popup log
 
 - After the 8:00 ET shift popup "didn't come" on 2026-10-09 (the
