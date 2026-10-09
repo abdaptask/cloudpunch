@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### ADR-0036 proposed: start with Windows, a louder clock-in popup, a popup log
+
+- After the 8:00 ET shift popup "didn't come" on 2026-10-09 (the
+  testers' apps weren't running yet), the app starts at Windows
+  sign-in (in the tray), the clock-in popup flashes the taskbar and
+  notifies once per shift, and `logs/popup.log` records why it waited.
+
 ### Ops: the 5-minute health check starts
 
 - `cloudpunch-health.service` failed with `226/NAMESPACE`: its writable
