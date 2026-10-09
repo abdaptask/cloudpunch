@@ -1,6 +1,7 @@
 # ADR-0036 — Start at Windows sign-in, a popup log, and a louder clock-in popup
 
-- **Status:** Proposed (2026-10-09, the owner asked for all three)
+- **Status:** Accepted (2026-10-09: the owner asked for all three and
+  merged #135; built in #136, released as desktop 0.1.24)
 - **Date:** 2026-10-09
 - **Deciders:** Abdulla Sheikh (project owner), Architecture (Claude)
 - **Amends:** ADR-0031 §2 (the shift popup) and ADR-0018 §4 (the 8:00
