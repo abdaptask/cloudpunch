@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Desktop 0.1.25: no clock-in popup on holidays, and a Holidays list (ADR-0037 steps 2–3)
+
+- Neither the shift popup nor the 8:00 popup opens on a company
+  holiday; one already showing closes when the holiday arrives. The app
+  gets the holidays with the shift (`GET /v1/me/shift`), so it knows
+  them offline. `popup.log` says `waits: holiday`, and now also notes
+  when the popup switches between the shift and the 8:00 one.
+- Settings → People → **Holidays** for HR and Administrators: add a
+  date and a name, or remove one. The server checks the role again.
+- Team shows "Holiday: Diwali" for someone whose shift falls on a
+  holiday (the web dashboard shares this label).
+- Needs the server change (migration 0010) deployed first. Publish
+  before the first holiday on the list.
+
 ### Holidays on the server (ADR-0037 step 1; migration 0010)
 
 - Migration **0010** adds `holiday` (one company list) and

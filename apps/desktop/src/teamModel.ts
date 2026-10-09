@@ -34,6 +34,8 @@ export function statusText(p: TeamPerson): string {
       return `Not clocked in · shift started ${clock(p.since)}`;
     case 'not_working':
       return 'Said not working today';
+    case 'holiday':
+      return p.holiday ? `Holiday: ${p.holiday}` : 'Holiday';
   }
 }
 

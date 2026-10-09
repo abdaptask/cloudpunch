@@ -196,3 +196,7 @@ These change _how_, not _what_, the owner decided:
 4. **Team's holiday status** shows only during the person's shift
    hours, like "Not clocked in, shift started"; outside them it stays
    "Clocked out".
+5. **The Holidays editor is in the desktop app only** (Settings →
+   People), where HR and Administrators already keep shifts and roles.
+   The web dashboard shares only the Team and person screens, so it
+   shows "Holiday: …" on Team but has no editor.
