@@ -93,6 +93,8 @@ pub enum Check {
     NotWorking,
     /// "Not now", or a clock-out mid-shift.
     Snoozed,
+    /// A company holiday (ADR-0037 §2).
+    Holiday,
 }
 
 impl Check {
@@ -113,6 +115,7 @@ impl Check {
             Self::OutsideShift => "waits: outside the shift",
             Self::NotWorking => "waits: not working today",
             Self::Snoozed => "waits: snoozed",
+            Self::Holiday => "waits: holiday",
         }
     }
 }

@@ -5,7 +5,15 @@ import { CorrectionForm, DayCorrections } from './Corrections.js';
 import { placeOf } from './connectionsModel.js';
 import { dayLabel, localDateOf, LOOKBACK_DAYS, shiftDate } from './dayHistory.js';
 import type { DaySummary } from './dayPickerModel.js';
-import { dayRows, exceptionText, hm, overdue, statusText, type DayRow } from './teamModel.js';
+import {
+  dayRows,
+  exceptionText,
+  hm,
+  overdue,
+  startsText,
+  statusText,
+  type DayRow,
+} from './teamModel.js';
 import { formatClock, type SegmentKind } from './timelineModel.js';
 import { Button } from './ui/Button.js';
 import { useTheme, type Theme } from './ui/theme.js';
@@ -46,6 +54,7 @@ export function TeamScreen({
     id: string;
     name: string;
     subtitle: string | null;
+    starts?: string | null;
   } | null>(null);
   return (
     <section aria-label="team" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -63,6 +72,7 @@ export function TeamScreen({
         <Person
           id={person.id}
           subtitle={person.subtitle}
+          starts={person.starts ?? null}
           canSeeConnections={canSeeConnections}
           canCorrect={canCorrect}
         />
@@ -97,6 +107,7 @@ export function TeamScreen({
                   id: p.employee_id,
                   name: p.name,
                   subtitle: place ? `${statusText(p)} · ${place}` : statusText(p),
+                  starts: startsText(p),
                 })
               }
             />
@@ -216,6 +227,7 @@ function TeamToday({
                 >
                   {statusText(p)}
                   {late && ' · late'}
+                  {p.starts?.regular && ` · ${p.starts.missed} missed starts`}
                   {places.has(p.employee_id) && ` · ${places.get(p.employee_id)}`}
                 </span>
               </span>
@@ -239,11 +251,14 @@ function TeamToday({
 function Person({
   id,
   subtitle,
+  starts,
   canSeeConnections,
   canCorrect,
 }: {
   id: string;
   subtitle: string | null;
+  /** Missed starts lately (ADR-0037 §4), or null. */
+  starts: string | null;
   canSeeConnections: boolean;
   canCorrect: boolean;
 }): JSX.Element {
@@ -257,6 +272,11 @@ function Person({
       {subtitle && (
         <span aria-label="person-status" style={{ fontSize: 13, color: t.muted, marginTop: -8 }}>
           {subtitle}
+        </span>
+      )}
+      {starts && (
+        <span aria-label="person-starts" style={{ fontSize: 13, color: t.warnText, marginTop: -8 }}>
+          {starts}
         </span>
       )}
       <TodayCard

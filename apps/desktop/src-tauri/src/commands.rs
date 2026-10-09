@@ -1113,6 +1113,40 @@ pub async fn admin_set_shift(
     answer(fetched)
 }
 
+/// The company holidays (ADR-0037 §1).
+#[tauri::command]
+pub async fn holidays(auth: State<'_, Arc<Auth>>) -> Result<serde_json::Value, String> {
+    let (_, fetched) = fetch_as_user(&auth, admin::holidays).await?;
+    answer(fetched)
+}
+
+/// Add or rename a holiday (HR and Administrators; the server checks).
+#[tauri::command]
+pub async fn admin_set_holiday(
+    auth: State<'_, Arc<Auth>>,
+    date: String,
+    name: String,
+) -> Result<serde_json::Value, String> {
+    let (_, fetched) = fetch_as_user(&auth, move |http, base, token| {
+        admin::set_holiday(http, base, token, &date, &name)
+    })
+    .await?;
+    answer(fetched)
+}
+
+/// Remove a holiday (HR and Administrators; the server checks).
+#[tauri::command]
+pub async fn admin_remove_holiday(
+    auth: State<'_, Arc<Auth>>,
+    date: String,
+) -> Result<serde_json::Value, String> {
+    let (_, fetched) = fetch_as_user(&auth, move |http, base, token| {
+        admin::remove_holiday(http, base, token, &date)
+    })
+    .await?;
+    answer(fetched)
+}
+
 /// Corrections waiting on the signed-in user.
 #[tauri::command]
 pub async fn corrections_queue(auth: State<'_, Arc<Auth>>) -> Result<serde_json::Value, String> {

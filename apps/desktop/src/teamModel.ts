@@ -34,7 +34,18 @@ export function statusText(p: TeamPerson): string {
       return `Not clocked in · shift started ${clock(p.since)}`;
     case 'not_working':
       return 'Said not working today';
+    case 'holiday':
+      return p.holiday ? `Holiday: ${p.holiday}` : 'Holiday';
   }
+}
+
+/** "Missed starts: 4 in 30 days · Not working today: 1" (ADR-0037 §4), or null. */
+export function startsText(p: TeamPerson): string | null {
+  const s = p.starts;
+  if (!s || (s.missed === 0 && s.not_working === 0)) return null;
+  const parts = [`Missed starts: ${s.missed} in ${s.days} days`];
+  if (s.not_working > 0) parts.push(`Not working today: ${s.not_working}`);
+  return parts.join(' · ');
 }
 
 /** A break back-by time that has passed: "late" on the Team list. */

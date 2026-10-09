@@ -32,6 +32,8 @@ describe('settings form (ADR-0018 §5)', () => {
       offerTraining: true,
       awayCheckMinutes: 60,
       recordConnections: false,
+      shiftEmails: false,
+      missedClockInMinutes: 15,
     });
     // Missing values fall back to the schema defaults.
     expect(formFrom({})).toMatchObject({
@@ -97,6 +99,34 @@ describe('settings form (ADR-0018 §5)', () => {
     expect(formFrom({ connections: { record: true } }).recordConnections).toBe(true);
     expect(overrideWith(null, f, true)['connections']).toEqual({ record: true });
     expect(overrideWith(null, f)).not.toHaveProperty('connections');
+    // Once saved on, it can be switched off again (it used to stay on).
+    const off = { ...f, recordConnections: false };
+    expect(overrideWith({ connections: { record: true } }, off, true)['connections']).toEqual({
+      record: false,
+    });
+  });
+
+  it('writes the shift-start emails switch only company-wide (ADR-0037)', () => {
+    const f = formFrom({});
+    expect(f.shiftEmails).toBe(false);
+    expect(f.missedClockInMinutes).toBe(15);
+    const on = { ...f, shiftEmails: true, missedClockInMinutes: 20 };
+    const current = { alerts: { shift_emails: false, regular_late_count: 4 } };
+    expect(overrideWith(current, on, true)['alerts']).toEqual({
+      shift_emails: true,
+      missed_clock_in_minutes: 20,
+      regular_late_count: 4,
+    });
+    expect(overrideWith(null, on)).not.toHaveProperty('alerts');
+    expect(formFrom({ alerts: { shift_emails: true, missed_clock_in_minutes: 30 } })).toMatchObject(
+      {
+        shiftEmails: true,
+        missedClockInMinutes: 30,
+      },
+    );
+    expect(formIssues({ ...on, missedClockInMinutes: 3 }).missedClockInMinutes).toBe(
+      'Between 5 and 120 minutes',
+    );
   });
 
   describe('breaks (ADR-0023 §5)', () => {

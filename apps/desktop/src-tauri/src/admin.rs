@@ -271,6 +271,59 @@ pub fn set_shift(
     )
 }
 
+/// The company holidays (ADR-0037 §1), last month to a year ahead.
+pub fn holidays(http: &Client, base: &str, token: &str) -> Result<Value, DayError> {
+    send(
+        http,
+        base,
+        token,
+        reqwest::Method::GET,
+        "/v1/holidays",
+        None,
+    )
+}
+
+/// Add or rename a holiday (HR and Administrators).
+pub fn set_holiday(
+    http: &Client,
+    base: &str,
+    token: &str,
+    date: &str,
+    name: &str,
+) -> Result<Value, DayError> {
+    if !is_date(date) {
+        return Err(DayError::Refused("invalid_argument".into()));
+    }
+    send(
+        http,
+        base,
+        token,
+        reqwest::Method::PUT,
+        &format!("/v1/admin/holidays/{date}"),
+        Some(&serde_json::json!({ "name": name })),
+    )
+}
+
+/// Remove a holiday (HR and Administrators).
+pub fn remove_holiday(
+    http: &Client,
+    base: &str,
+    token: &str,
+    date: &str,
+) -> Result<Value, DayError> {
+    if !is_date(date) {
+        return Err(DayError::Refused("invalid_argument".into()));
+    }
+    send(
+        http,
+        base,
+        token,
+        reqwest::Method::DELETE,
+        &format!("/v1/admin/holidays/{date}"),
+        None,
+    )
+}
+
 // Time corrections (ADR-0030 §3). The server decides who may do what:
 // anyone for their own time, a manager for a direct report (endorsed),
 // an Administrator approves what others asked and endorsed.
