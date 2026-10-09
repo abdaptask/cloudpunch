@@ -27,31 +27,10 @@ use crate::commands::Auth;
 
 const FIRST_CHECK: Duration = Duration::from_secs(60);
 const LOG_FILE: &str = "update.log";
-/// Past this the log starts again (the old one is kept as `.old`).
-const LOG_MAX_BYTES: u64 = 256 * 1024;
 
 /// Append a timestamped line to `update.log`; never fails the caller.
 pub fn log<R: tauri::Runtime>(app: &AppHandle<R>, line: &str) {
-    eprintln!("[cloudpunch] {line}");
-    let Ok(dir) = app.path().app_log_dir() else {
-        return;
-    };
-    let _ = append_log(&dir, line, SystemTime::now());
-}
-
-fn append_log(dir: &std::path::Path, line: &str, now: SystemTime) -> std::io::Result<()> {
-    use std::io::Write;
-    std::fs::create_dir_all(dir)?;
-    let path = dir.join(LOG_FILE);
-    if std::fs::metadata(&path).is_ok_and(|m| m.len() > LOG_MAX_BYTES) {
-        let _ = std::fs::rename(&path, dir.join(format!("{LOG_FILE}.old")));
-    }
-    let at = chrono::DateTime::<chrono::Utc>::from(now).format("%Y-%m-%dT%H:%M:%SZ");
-    let mut f = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(path)?;
-    writeln!(f, "{at} {} {line}", env!("CARGO_PKG_VERSION"))
+    crate::applog::write(app, LOG_FILE, line);
 }
 
 /// The server's name for this platform's updates (ADR-0026 §4).
@@ -227,30 +206,5 @@ pub fn install(app: &AppHandle, version: &str) {
     log(app, &format!("installing update {version}"));
     if let Err(e) = update.install(bytes) {
         log(app, &format!("update {version} failed to install: {e}"));
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn log_appends_timestamped_lines_and_rolls_over() {
-        let dir = std::env::temp_dir().join(format!("cp-update-log-{}", uuid::Uuid::new_v4()));
-        let t = SystemTime::UNIX_EPOCH + Duration::from_secs(1_790_000_000);
-        append_log(&dir, "update 0.1.8 downloaded", t).unwrap();
-        append_log(&dir, "installing update 0.1.8", t).unwrap();
-        let text = std::fs::read_to_string(dir.join(LOG_FILE)).unwrap();
-        let lines: Vec<&str> = text.lines().collect();
-        assert_eq!(lines.len(), 2);
-        assert!(lines[0].starts_with("2026-09-21T"), "{}", lines[0]);
-        assert!(lines[0].ends_with(" update 0.1.8 downloaded"));
-
-        std::fs::write(dir.join(LOG_FILE), vec![b'x'; LOG_MAX_BYTES as usize + 1]).unwrap();
-        append_log(&dir, "after roll", t).unwrap();
-        assert!(dir.join(format!("{LOG_FILE}.old")).exists());
-        let fresh = std::fs::read_to_string(dir.join(LOG_FILE)).unwrap();
-        assert_eq!(fresh.lines().count(), 1);
-        let _ = std::fs::remove_dir_all(&dir);
     }
 }

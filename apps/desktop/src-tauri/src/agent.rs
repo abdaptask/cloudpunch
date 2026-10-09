@@ -43,6 +43,8 @@ use crate::tray::{self, TrayStateSnapshot};
 
 /// Label of the idle prompt window. The frontend routes on it.
 pub const PROMPT_WINDOW: &str = "idle-prompt";
+/// Why the clock-in popup opened or waited (ADR-0036 §2).
+pub const POPUP_LOG: &str = "popup.log";
 /// Event carrying a [`StateView`] to every webview.
 pub const STATE_EVENT: &str = "cp://state";
 /// A break past its plan alerts again this often (ADR-0031 §3).
@@ -344,6 +346,8 @@ struct UiPlan {
     install_update: Option<String>,
     /// A line for the update log (why an update waits).
     update_note: Option<String>,
+    /// Lines for the popup log (ADR-0036 §2).
+    popup_log: Vec<String>,
 }
 
 /// The window/tray side of the agent. Production uses [`TauriUi`];
@@ -368,6 +372,8 @@ pub trait Ui: Send + Sync + 'static {
     fn install_update(&self, _version: &str) {}
     /// Append a line to the local update log.
     fn log_update(&self, _line: &str) {}
+    /// Append a line to the local popup log (ADR-0036 §2).
+    fn log_popup(&self, _line: &str) {}
 }
 
 pub struct TauriUi {
@@ -387,6 +393,10 @@ impl Ui for TauriUi {
 
     fn log_update(&self, line: &str) {
         crate::updater::log(&self.app, line);
+    }
+
+    fn log_popup(&self, line: &str) {
+        crate::applog::write(&self.app, POPUP_LOG, line);
     }
 
     fn show_prompt(&self) {
@@ -465,6 +475,10 @@ struct Inner {
     break_over_alerted_at: Option<SystemTime>,
     /// The shift popup waits until then ("Not now", or a clock-out).
     shift_snooze_until: Option<SystemTime>,
+    /// The popup's last logged decision (ADR-0036 §2).
+    popup_check: Option<crate::clock_in_prompt::Check>,
+    /// The shift (or day) the popup last notified for (ADR-0036 §3).
+    popup_notified_on: Option<chrono::NaiveDate>,
     timeline: Timeline,
     reminder_cfg: ReminderConfig,
     reminders: ReminderState,
@@ -648,6 +662,8 @@ impl<U: Ui> Agent<U> {
                 prompt_state: Default::default(),
                 shift: Default::default(),
                 shift_snooze_until: None,
+                popup_check: None,
+                popup_notified_on: None,
                 break_over_since: None,
                 break_over_alerted_at: None,
                 timeline: Timeline::new(),
@@ -864,6 +880,9 @@ impl<U: Ui> Agent<U> {
             if inner.shift == info {
                 return;
             }
+            if let Some(ui) = self.ui.get() {
+                ui.log_popup(&describe_shift(&info));
+            }
             inner.shift = info;
             let now = SystemTime::now();
             let silenced = inner
@@ -1074,7 +1093,10 @@ impl<U: Ui> Agent<U> {
                         last_input_at,
                     };
                     let prompt_cfg = cfg.clock_in_prompt;
-                    if inner.shift.shift.is_some() {
+                    // ADR-0036: why it waits goes to popup.log on change;
+                    // opening flashes the taskbar, and the first time
+                    // for a shift (or day) a notification goes with it.
+                    let (kind, check, due_on) = if inner.shift.shift.is_some() {
                         // A shift decides (ADR-0031 §2): ask during it,
                         // again after "Not now"; stop when it ends.
                         let window = inner.shift_window(now);
@@ -1082,25 +1104,46 @@ impl<U: Ui> Agent<U> {
                             inner.clock_in_prompt = false;
                             plan.broadcast = true;
                         }
-                        let due = crate::clock_in_prompt::shift_due(
+                        let check = crate::clock_in_prompt::shift_check(
                             window,
                             inner.shift.not_working_on,
                             inner.shift_snooze_until,
                             prompt,
                         );
-                        if due && !inner.clock_in_prompt {
-                            inner.clock_in_prompt = true;
-                            plan.show_main = true;
-                            plan.broadcast = true;
-                        }
-                    } else if crate::clock_in_prompt::due(
-                        &prompt_cfg,
-                        prompt,
-                        &mut inner.prompt_state,
-                    ) {
+                        ("shift popup", check, window.map(|w| w.date))
+                    } else {
+                        let check = crate::clock_in_prompt::daily_check(
+                            &prompt_cfg,
+                            prompt,
+                            &mut inner.prompt_state,
+                        );
+                        let today = chrono::DateTime::<chrono::Utc>::from(now)
+                            .with_timezone(&prompt_cfg.tz)
+                            .date_naive();
+                        ("8:00 popup", check, Some(today))
+                    };
+                    let opens =
+                        check == crate::clock_in_prompt::Check::Due && !inner.clock_in_prompt;
+                    // While it is open, "due" again isn't news.
+                    let logged = if opens || !inner.clock_in_prompt {
+                        Some(check)
+                    } else {
+                        inner.popup_check
+                    };
+                    if logged != inner.popup_check {
+                        inner.popup_check = logged;
+                        let what = if opens { "opened" } else { check.describe() };
+                        plan.popup_log.push(format!("{kind} {what}"));
+                    }
+                    if opens {
                         inner.clock_in_prompt = true;
                         plan.show_main = true;
+                        plan.attention = true;
                         plan.broadcast = true;
+                        if due_on.is_some() && inner.popup_notified_on != due_on {
+                            inner.popup_notified_on = due_on;
+                            plan.notes.push(popup_note(inner.shift.shift.as_ref()));
+                        }
                     }
                     let nudge = NudgeInputs {
                         now,
@@ -1217,6 +1260,9 @@ impl<U: Ui> Agent<U> {
         }
         if let Some(line) = &plan.update_note {
             ui.log_update(line);
+        }
+        for line in &plan.popup_log {
+            ui.log_popup(line);
         }
         if let Some(version) = &plan.install_update {
             ui.install_update(version);
@@ -1368,6 +1414,38 @@ impl Drop for TickerGuard {
         if let Some(t) = self.thread.take() {
             let _ = t.join();
         }
+    }
+}
+
+/// For `popup.log`: the shift as the app now knows it (ADR-0036 §2).
+fn describe_shift(info: &crate::shift::ShiftInfo) -> String {
+    let mut line = match &info.shift {
+        Some(s) => format!(
+            "shift: days {:?} {}-{} {}",
+            s.days, s.start, s.end, s.tz_iana
+        ),
+        None => "shift: none (the 8:00 popup applies)".to_string(),
+    };
+    if let Some(d) = info.not_working_on {
+        line.push_str(&format!(", not working on {d}"));
+    }
+    line
+}
+
+/// The notification that goes with the clock-in popup (ADR-0036 §3).
+fn popup_note(shift: Option<&crate::shift::Shift>) -> (String, String) {
+    match shift {
+        Some(s) => (
+            "Your shift has started".to_string(),
+            format!(
+                "It started at {}. Clock in when you're ready.",
+                s.start.strip_prefix('0').unwrap_or(&s.start)
+            ),
+        ),
+        None => (
+            "Good morning".to_string(),
+            "Clock in when you're ready.".to_string(),
+        ),
     }
 }
 
@@ -1533,6 +1611,8 @@ mod tests {
     #[derive(Default)]
     struct FakeUi {
         calls: Mutex<Vec<String>>,
+        /// `popup.log` lines, kept apart so `calls` stays UI only.
+        popup: Mutex<Vec<String>>,
         visible: AtomicBool,
     }
 
@@ -1568,6 +1648,9 @@ mod tests {
                 .unwrap()
                 .push(format!("install_update:{version}"));
         }
+        fn log_popup(&self, line: &str) {
+            self.popup.lock().unwrap().push(format!("popup:{line}"));
+        }
     }
 
     fn notes(ui: &FakeUi) -> Vec<String> {
@@ -1578,6 +1661,104 @@ mod tests {
             .filter(|c| c.starts_with("notify:"))
             .cloned()
             .collect()
+    }
+
+    /// ADR-0036: the shift popup end to end through the agent: it says
+    /// why it waits, opens at the start with a flash and one
+    /// notification, and a "Not now" repeat flashes without notifying.
+    #[test]
+    fn the_shift_popup_opens_loud_once_and_logs_why_it_waits() {
+        use crate::recorder::Target;
+        use ed25519_dalek::SigningKey;
+
+        let id = crate::enroll::Identity {
+            oid: "0f8e1c2a-3b4d-4e5f-8a9b-0c1d2e3f4a5b".into(),
+            device_id: "33333333-3333-4333-8333-333333333333".into(),
+            employee_id: "44444444-4444-4444-8444-444444444444".into(),
+        };
+        let recorder = Recorder::new();
+        recorder.arm(Target::in_memory(id, SigningKey::from_bytes(&[7u8; 32])));
+        let agent = Agent::<Arc<FakeUi>>::with_recorder(CoreConfig::default(), &recorder);
+        let ui = Arc::new(FakeUi::default());
+        agent.attach(ui.clone());
+        agent.apply_shift(crate::shift::ShiftInfo {
+            shift: Some(crate::shift::Shift {
+                days: vec![1, 2, 3, 4, 5],
+                start: "09:00".into(),
+                end: "17:00".into(),
+                tz_iana: "America/New_York".into(),
+            }),
+            not_working_on: None,
+        });
+        // Friday 9 Oct 2026; 13:00 UTC is 09:00 EDT.
+        let at = |h: u32, m: u32| -> SystemTime {
+            use chrono::TimeZone;
+            chrono::Utc
+                .with_ymd_and_hms(2026, 10, 9, h, m, 0)
+                .unwrap()
+                .into()
+        };
+        let tick = |now: SystemTime| {
+            agent
+                .handle_at(Input::Tick { last_input_at: now }, now)
+                .unwrap();
+        };
+        // UI calls, then popup.log lines.
+        let taken = |ui: &FakeUi| {
+            let mut calls = std::mem::take(&mut *ui.calls.lock().unwrap());
+            calls.append(&mut ui.popup.lock().unwrap());
+            calls
+        };
+        let popup = |calls: &[String]| -> Vec<String> {
+            calls
+                .iter()
+                .filter(|c| c.starts_with("popup:"))
+                .cloned()
+                .collect()
+        };
+        let has = |calls: &[String], c: &str| calls.iter().any(|x| x == c);
+
+        let calls = taken(&ui);
+        assert_eq!(
+            popup(&calls),
+            ["popup:shift: days [1, 2, 3, 4, 5] 09:00-17:00 America/New_York"]
+        );
+        tick(at(12, 58));
+        tick(at(12, 59));
+        let calls = taken(&ui);
+        assert_eq!(
+            popup(&calls),
+            ["popup:shift popup waits: outside the shift"]
+        );
+        assert!(!has(&calls, "show_main"));
+
+        tick(at(13, 0));
+        let calls = taken(&ui);
+        assert_eq!(popup(&calls), ["popup:shift popup opened"]);
+        assert!(has(&calls, "show_main"));
+        assert!(has(&calls, "attention"));
+        assert!(has(&calls, "notify:Your shift has started"));
+        assert!(agent.view().clock_in_prompt);
+
+        // Still open: nothing new is logged.
+        tick(at(13, 1));
+        assert!(popup(&taken(&ui)).is_empty());
+
+        // "Not now": waits, then opens again with a flash, no notification.
+        let _ = agent.dismiss_clock_in_prompt();
+        taken(&ui);
+        tick(at(13, 2));
+        assert_eq!(popup(&taken(&ui)), ["popup:shift popup waits: snoozed"]);
+        // The snooze runs from the wall clock: move it to this test's time.
+        {
+            let mut inner = agent.lock();
+            inner.shift_snooze_until = Some(at(13, 3));
+        }
+        tick(at(13, 3));
+        let calls = taken(&ui);
+        assert_eq!(popup(&calls), ["popup:shift popup opened"]);
+        assert!(has(&calls, "attention"));
+        assert!(!calls.iter().any(|c| c.starts_with("notify:Your shift")));
     }
 
     #[test]

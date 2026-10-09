@@ -32,7 +32,9 @@ pub mod active_device;
 pub mod admin;
 pub mod agent;
 pub mod app_update;
+pub mod applog;
 pub mod auth;
+pub mod autostart;
 pub mod backend_http;
 pub mod call_type;
 pub mod clock_in_prompt;
@@ -258,6 +260,8 @@ pub fn run() {
     let _ticker = agent.start_ticker();
 
     let setup_agent = agent.clone();
+    // Started by Windows at sign-in: stay in the tray (ADR-0036 §1).
+    let at_sign_in = autostart::launched_at_sign_in(std::env::args());
     let context = tauri::generate_context!();
     // Auto-update only in builds that carry its key (ADR-0022).
     let updates = updater::configured(context.config());
@@ -350,6 +354,35 @@ pub fn run() {
         ])
         .setup(move |app| {
             setup_agent.attach(agent::TauriUi::new(app.handle().clone()));
+            let started = if at_sign_in {
+                "app started at sign-in"
+            } else {
+                "app started"
+            };
+            applog::write(app.handle(), agent::POPUP_LOG, started);
+            // Installed builds start with Windows (ADR-0036 §1).
+            if updates {
+                match autostart::register() {
+                    Ok(true) => applog::write(
+                        app.handle(),
+                        agent::POPUP_LOG,
+                        "start at sign-in: registered",
+                    ),
+                    Ok(false) => {}
+                    Err(e) => applog::write(
+                        app.handle(),
+                        agent::POPUP_LOG,
+                        &format!("start at sign-in not registered: {e}"),
+                    ),
+                }
+            }
+            // The window starts hidden (tauri.conf.json); at sign-in it
+            // stays in the tray until the clock-in popup is due.
+            if !at_sign_in {
+                if let Some(w) = app.get_webview_window("main") {
+                    let _ = w.show();
+                }
+            }
             if updates {
                 updater::start(app.handle().clone());
             }
@@ -366,18 +399,34 @@ pub fn run() {
             std::thread::Builder::new()
                 .name("cp-auth-restore".into())
                 .spawn(move || {
-                    match restore_auth.restore() {
-                        Ok(true) => commands::start_enrollment(
-                            &handle,
-                            restore_auth.clone(),
-                            restore_enrollment,
-                            restore_recorder,
-                            true,
-                        ),
-                        Ok(false) => eprintln!(
-                            "[cloudpunch] silent sign-in: no saved session (none stored, or it was rejected)"
-                        ),
-                        Err(e) => eprintln!("[cloudpunch] silent sign-in failed: {}", e.code()),
+                    let signed_in = match restore_auth.restore() {
+                        Ok(true) => {
+                            commands::start_enrollment(
+                                &handle,
+                                restore_auth.clone(),
+                                restore_enrollment,
+                                restore_recorder,
+                                true,
+                            );
+                            true
+                        }
+                        Ok(false) => {
+                            eprintln!(
+                                "[cloudpunch] silent sign-in: no saved session (none stored, or it was rejected)"
+                            );
+                            false
+                        }
+                        Err(e) => {
+                            eprintln!("[cloudpunch] silent sign-in failed: {}", e.code());
+                            false
+                        }
+                    };
+                    // Hidden at sign-in but unable to record: show it,
+                    // so the person can sign in (ADR-0036 §1).
+                    if at_sign_in && !signed_in {
+                        if let Some(w) = handle.get_webview_window("main") {
+                            let _ = w.show();
+                        }
                     }
                     let _ = handle.emit(commands::AUTH_EVENT, restore_auth.status());
                 })?;
