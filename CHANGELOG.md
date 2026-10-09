@@ -25,8 +25,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   shift, away, snoozed, clocked in, not ready…), each change in the
   shift the app knows, failed shift fetches, and each app start. States
   only, no content; it stays on the computer.
+- Published for Windows and Mac on 2026-10-09 (#135, #136). Checked on
+  the owner's computer after the update: the `Run` value was written,
+  and `popup.log` recorded the start, the 9:00–17:00 shift, the popup
+  opening, and the clock-in that followed. Mac gets the louder popup
+  and the log; start-at-login is Windows only.
 
-### ADR-0036 proposed: start with Windows, a louder clock-in popup, a popup log
+### ADR-0036 accepted: start with Windows, a louder clock-in popup, a popup log
 
 - After the 8:00 ET shift popup "didn't come" on 2026-10-09 (the
   testers' apps weren't running yet), the app starts at Windows
