@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Desktop 0.1.26: the admin console opens in its own wide window (ADR-0038 phase 2)
+
+- Settings has **Open admin console**: a separate window (1100 × 720,
+  resizable, smaller on a small screen) with a sidebar of People,
+  Shifts, Holidays, Rules, Computers and Connections, each offered only
+  to the roles that can use it. The main window stays the clock.
+- Each section is today's screen, unchanged; later phases replace them.
+  The last section open is remembered on that computer.
+- Signing out closes the admin window. New commands
+  `open_admin_window` / `close_admin_window`; no new permissions.
+- The same console reaches the web (`/app/admin/`) in the next PR.
+
 ### ADR-0038 accepted: an admin console (one People table, bulk changes, named shifts)
 
 - People, Shifts, Holidays, Rules, Computers and Connections move into

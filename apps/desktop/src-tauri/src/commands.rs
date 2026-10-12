@@ -12,7 +12,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 
-use tauri::{AppHandle, Emitter, LogicalSize, Manager, State, WebviewWindow};
+use tauri::{
+    AppHandle, Emitter, LogicalSize, Manager, State, WebviewUrl, WebviewWindow,
+    WebviewWindowBuilder,
+};
 
 use crate::active_device::{self, Action, BlockedView, CheckError};
 use crate::admin;
@@ -82,6 +85,72 @@ pub fn clamp_height(requested: f64, max: f64) -> f64 {
 /// past the work area. Beyond it the details scroll.
 pub fn max_height(work_area: f64) -> f64 {
     (work_area * 0.7).max(560.0).min(work_area - 40.0)
+}
+
+/// Label of the admin console window (ADR-0038 §2).
+pub const ADMIN_WINDOW: &str = "admin";
+
+/// Pure: the admin window's size and minimum size on a work area of
+/// this size (logical px): 1100 × 720 and at least 900 × 600, shrunk to
+/// leave 40 px of the work area free on a small screen.
+pub fn admin_window_size(work_w: f64, work_h: f64) -> ((f64, f64), (f64, f64)) {
+    let (fit_w, fit_h) = if work_w.is_finite() && work_h.is_finite() {
+        ((work_w - 40.0).max(640.0), (work_h - 40.0).max(480.0))
+    } else {
+        (1100.0, 720.0)
+    };
+    (
+        (1100.0_f64.min(fit_w), 720.0_f64.min(fit_h)),
+        (900.0_f64.min(fit_w), 600.0_f64.min(fit_h)),
+    )
+}
+
+/// Open the admin console (ADR-0038 §2) in its own wide, resizable
+/// window, so the main window stays the clock. Already open: bring it
+/// forward. Async on purpose: building a window inside a synchronous
+/// command deadlocks on Windows.
+#[tauri::command]
+pub async fn open_admin_window(app: AppHandle, auth: State<'_, Arc<Auth>>) -> Result<(), String> {
+    if auth.oid().is_none() {
+        return Err("sign_in_again".to_string());
+    }
+    if let Some(w) = app.get_webview_window(ADMIN_WINDOW) {
+        let _ = w.unminimize();
+        let _ = w.show();
+        return w.set_focus().map_err(|e| e.to_string());
+    }
+    let work = app
+        .get_webview_window("main")
+        .and_then(|w| w.current_monitor().ok().flatten())
+        .or_else(|| app.primary_monitor().ok().flatten())
+        .map(|m| {
+            let size = m.work_area().size;
+            (
+                f64::from(size.width) / m.scale_factor(),
+                f64::from(size.height) / m.scale_factor(),
+            )
+        })
+        .unwrap_or((f64::NAN, f64::NAN));
+    let ((w, h), (min_w, min_h)) = admin_window_size(work.0, work.1);
+    WebviewWindowBuilder::new(&app, ADMIN_WINDOW, WebviewUrl::App("index.html".into()))
+        .title("CloudPunch admin")
+        .inner_size(w, h)
+        .min_inner_size(min_w, min_h)
+        .resizable(true)
+        .center()
+        .focused(true)
+        .build()
+        .map(|_| ())
+        .map_err(|e| e.to_string())
+}
+
+/// The admin console's "Done": close its window. Only that window.
+#[tauri::command]
+pub fn close_admin_window(window: WebviewWindow) -> Result<(), String> {
+    if window.label() != ADMIN_WINDOW {
+        return Err("invalid_argument".to_string());
+    }
+    window.close().map_err(|e| e.to_string())
 }
 
 /// Resize the main window to fit its content. The webview measures
@@ -834,6 +903,10 @@ fn sign_out_blocking(
     let oid = auth.oid();
     app.state::<LiveSync>().stop();
     app.state::<DayCache>().clear();
+    // The admin console is for a signed-in user too (ADR-0038 §2).
+    if let Some(w) = app.get_webview_window(ADMIN_WINDOW) {
+        let _ = w.destroy();
+    }
     // The strip is for a signed-in user: back to the full window.
     if let Some(w) = app.get_webview_window("main") {
         if let Err(e) = app.state::<Pin>().unpin(&w) {
@@ -1576,6 +1649,25 @@ mod tests {
         assert_eq!(clamp_height(500.0, 900.0), 500.0);
         assert_eq!(clamp_height(100.0, 900.0), MIN_HEIGHT);
         assert_eq!(clamp_height(2_000.0, 900.0), 900.0);
+    }
+
+    #[test]
+    fn admin_window_is_wide_but_fits_a_small_screen() {
+        // A 1920 × 1040 work area: the full size.
+        assert_eq!(
+            admin_window_size(1920.0, 1040.0),
+            ((1100.0, 720.0), (900.0, 600.0))
+        );
+        // A 1366 × 768 laptop at 125%: 1093 × 584 of work area.
+        assert_eq!(
+            admin_window_size(1093.0, 584.0),
+            ((1053.0, 544.0), (900.0, 544.0))
+        );
+        // No monitor known: the full size.
+        assert_eq!(
+            admin_window_size(f64::NAN, f64::NAN),
+            ((1100.0, 720.0), (900.0, 600.0))
+        );
     }
 
     #[test]

@@ -754,6 +754,14 @@ export function App(): JSX.Element {
             settingsOpen &&
             canEditSettings && (
               <>
+                <Button
+                  variant="secondary"
+                  onClick={() => {
+                    api.openAdminWindow().catch(() => undefined);
+                  }}
+                >
+                  Open admin console
+                </Button>
                 {adminTabs.length > 1 && (
                   <div role="tablist" aria-label="admin-tabs" style={{ display: 'flex', gap: 6 }}>
                     {adminTabs.map(([key, label]) => (
