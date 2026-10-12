@@ -1,7 +1,7 @@
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it, vi } from 'vitest';
-import { App, type AppDeps, type Me } from './App.js';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { ADMIN_PATH, App, type AppDeps, type Me } from './App.js';
 import { isAuthResponse, type Auth } from './auth.js';
 
 const CONFIG = {
@@ -176,7 +176,7 @@ describe('web dashboard shell (ADR-0033)', () => {
     const auth = fakeAuth(true);
     render(<App deps={deps(auth, json(200, me(['self.timeline.read'])))} />);
     expect(
-      await screen.findByText(/CloudPunch on the web is for managers and HR/),
+      await screen.findByText(/CloudPunch on the web is for managers, HR and administrators/),
     ).toBeInTheDocument();
     expect(screen.queryByText(/Hello/)).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Sign out' }));
@@ -202,5 +202,53 @@ describe('web dashboard shell (ADR-0033)', () => {
     expect(isAuthResponse({ hash: '', search: '?code=abc&state=xyz' })).toBe(true);
     expect(isAuthResponse({ hash: '', search: '' })).toBe(false);
     expect(isAuthResponse({ hash: '#team', search: '' })).toBe(false);
+  });
+});
+
+describe('the admin console on the web (ADR-0038 §2)', () => {
+  afterEach(() => window.history.replaceState(null, '', '/'));
+
+  const HR = ['team.timeline.read', 'hr.employee.write', 'hr.holiday.write', 'hr.policy.write'];
+  const sections = (): string[] =>
+    within(screen.getByRole('navigation', { name: 'admin-sections' }))
+      .getAllByRole('button')
+      .map((b) => b.textContent ?? '');
+
+  it('/app/admin/ opens the console with the sections this role can use', async () => {
+    window.history.replaceState(null, '', ADMIN_PATH);
+    render(<App deps={deps(fakeAuth(true), json(200, me(HR)))} />);
+    await screen.findByRole('navigation', { name: 'admin-sections' });
+    expect(sections()).toEqual(['People', 'Managers', 'Holidays', 'Rules']);
+    expect(screen.queryByRole('list', { name: 'team-today' })).not.toBeInTheDocument();
+  });
+
+  it('Team and Admin switch pages and the address', async () => {
+    window.history.replaceState(null, '', '/app/');
+    render(<App deps={deps(fakeAuth(true), json(200, me(HR)))} />);
+    const pages = await screen.findByRole('navigation', { name: 'pages' });
+    expect(await screen.findByRole('list', { name: 'team-today' })).toBeInTheDocument();
+    await userEvent.click(within(pages).getByRole('link', { name: 'Admin' }));
+    expect(window.location.pathname).toBe(ADMIN_PATH);
+    expect(screen.getByRole('navigation', { name: 'admin-sections' })).toBeInTheDocument();
+    await userEvent.click(within(pages).getByRole('link', { name: 'Team' }));
+    expect(window.location.pathname).toBe('/app/');
+    expect(await screen.findByRole('list', { name: 'team-today' })).toBeInTheDocument();
+  });
+
+  it('someone with admin screens but no team (an Auditor) gets the console', async () => {
+    window.history.replaceState(null, '', '/app/');
+    render(
+      <App deps={deps(fakeAuth(true), json(200, me(['admin.device.read', 'audit.read.all'])))} />,
+    );
+    await screen.findByRole('navigation', { name: 'admin-sections' });
+    expect(sections()).toEqual(['Computers']);
+    expect(screen.queryByRole('navigation', { name: 'pages' })).not.toBeInTheDocument();
+  });
+
+  it('a manager asking for /app/admin/ gets Team, with no Admin link', async () => {
+    window.history.replaceState(null, '', ADMIN_PATH);
+    render(<App deps={deps(fakeAuth(true), json(200, me(['team.timeline.read'])))} />);
+    expect(await screen.findByRole('list', { name: 'team-today' })).toBeInTheDocument();
+    expect(screen.queryByRole('navigation', { name: 'pages' })).not.toBeInTheDocument();
   });
 });
