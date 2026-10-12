@@ -1,7 +1,7 @@
 # ADR-0038 — An admin console: one People table, bulk changes, named shifts, and Rules by section
 
-- **Status:** Proposed (2026-10-12; the owner chose "both", named
-  shifts and all four bulk actions; see "Decided so far")
+- **Status:** Accepted (2026-10-12; the owner answered every question,
+  see "Decided")
 - **Date:** 2026-10-12
 - **Deciders:** Abdulla Sheikh (project owner), Architecture (Claude)
 - **Builds on:** ADR-0020 (People and roles through Graph OBO),
@@ -266,19 +266,15 @@ publish Win + Mac).
 - **Per-person shifts only, no names.** No migration, but changing
   "India day" means finding everyone on it.
 
-## Decided so far (2026-10-12, the owner)
+## Decided (2026-10-12, the owner)
 
 1. **Where:** both, the desktop and the web, from the same components.
 2. **Named shifts:** yes.
 3. **Bulk actions in the first release:** set manager, set shift, add
    or remove role, send welcome email.
-
-## Open questions
-
-1. **Editing a named shift moves everyone on it** (§6). Proposed: yes,
-   from a chosen date, after a preview. The alternative is that edits
-   affect only people assigned afterwards.
-2. **HR and bulk roles.** Proposed: HR can bulk add or remove Employee
-   and Manager, as they can one at a time.
-3. **The old screens in the small window.** Proposed: removed in phase
-   8, once the console has everything.
+4. **Editing a named shift moves everyone on it**, from a date the
+   Administrator picks, after a preview (§6).
+5. **HR can bulk add or remove Employee and Manager**, as they can one
+   at a time (§5).
+6. **The old admin screens leave the small window** in phase 8, once
+   the console has everything.
