@@ -1264,6 +1264,71 @@ pub async fn admin_employees(auth: State<'_, Arc<Auth>>) -> Result<serde_json::V
     answer(fetched)
 }
 
+/// Bulk (ADR-0038 §5): one manager for many, all or nothing.
+#[tauri::command]
+pub async fn admin_bulk_manager(
+    auth: State<'_, Arc<Auth>>,
+    key: String,
+    employee_ids: Vec<String>,
+    manager_id: Option<String>,
+    reason: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let (_, fetched) = fetch_as_user(&auth, move |http, base, token| {
+        admin::bulk_manager(
+            http,
+            base,
+            token,
+            &key,
+            &employee_ids,
+            manager_id.as_deref(),
+            reason.as_deref(),
+        )
+    })
+    .await?;
+    answer(fetched)
+}
+
+/// Bulk (ADR-0038 §5): add or remove roles for many, per person.
+#[tauri::command]
+pub async fn admin_bulk_roles(
+    auth: State<'_, Arc<Auth>>,
+    key: String,
+    oids: Vec<String>,
+    add: Vec<String>,
+    remove: Vec<String>,
+    reason: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let (_, fetched) = fetch_as_user(&auth, move |http, base, token| {
+        admin::bulk_roles(
+            http,
+            base,
+            token,
+            &key,
+            &oids,
+            &add,
+            &remove,
+            reason.as_deref(),
+        )
+    })
+    .await?;
+    answer(fetched)
+}
+
+/// Bulk (ADR-0038 §5): welcome emails for many, per person.
+#[tauri::command]
+pub async fn admin_bulk_welcome(
+    auth: State<'_, Arc<Auth>>,
+    key: String,
+    oids: Vec<String>,
+    note: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let (_, fetched) = fetch_as_user(&auth, move |http, base, token| {
+        admin::bulk_welcome(http, base, token, &key, &oids, note.as_deref())
+    })
+    .await?;
+    answer(fetched)
+}
+
 /// People: set or clear someone's manager (audited server-side).
 #[tauri::command]
 pub async fn admin_set_manager(

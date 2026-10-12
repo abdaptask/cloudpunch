@@ -3,8 +3,10 @@ import { api, type DirectoryUser, type EmployeeRow, type Person, type ShiftRow }
 import { ERROR_TEXT, ROLES } from '../PeopleScreen.js';
 import { shiftText } from '../ShiftEditor.js';
 import { useTheme, type Theme } from '../ui/theme.js';
+import { BULK_LABEL, BulkPanel, type BulkAction } from './BulkPanel.js';
 import {
   FLAGS,
+  MAX_BULK,
   NO_FILTER,
   PAGE_SIZE,
   applyFilter,
@@ -51,6 +53,9 @@ export function PeopleTable({
   // Someone picked from the directory who isn't in the table yet.
   const [added, setAdded] = useState<PersonRow | null>(null);
   const [adding, setAdding] = useState(false);
+  // Ticked for a bulk change (ADR-0038 §5), by row key; kept across pages.
+  const [ticked, setTicked] = useState<ReadonlySet<string>>(new Set());
+  const [bulk, setBulk] = useState<BulkAction | null>(null);
 
   const load = (): void => {
     api.adminPeople().then(
@@ -92,6 +97,21 @@ export function PeopleTable({
   const shown = pageOf(matching, page);
   const open =
     rows?.find((r) => r.key === selected) ?? (added?.key === selected ? added : undefined);
+  const picked = rows?.filter((r) => ticked.has(r.key)) ?? [];
+  const pageTicked = shown.rows.length > 0 && shown.rows.every((r) => ticked.has(r.key));
+  const tick = (keys: readonly string[], on: boolean): void =>
+    setTicked((was) => {
+      const next = new Set(was);
+      for (const k of keys) {
+        if (on) next.add(k);
+        else next.delete(k);
+      }
+      return next;
+    });
+  const select = (key: string): void => {
+    setBulk(null);
+    setSelected(key);
+  };
 
   const refine = (f: Partial<Filter>): void => {
     setFilter((x) => ({ ...x, ...f }));
@@ -205,6 +225,54 @@ export function PeopleTable({
       {rows && (
         <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
           <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {ticked.size > 0 && (
+              <div role="toolbar" aria-label="bulk-actions" style={bulkBar(t)}>
+                <strong style={{ fontWeight: 650 }}>{ticked.size} selected</strong>
+                {!pageTicked || matching.every((r) => ticked.has(r.key)) ? null : (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      tick(
+                        matching.map((r) => r.key),
+                        true,
+                      )
+                    }
+                    style={link(t)}
+                  >
+                    Select all {matching.length} matching
+                  </button>
+                )}
+                <span style={{ flex: 1 }} />
+                {ticked.size > MAX_BULK ? (
+                  <span style={{ color: t.warnText }}>At most {MAX_BULK} at a time</span>
+                ) : (
+                  (Object.keys(BULK_LABEL) as BulkAction[]).map((a) => (
+                    <button
+                      key={a}
+                      type="button"
+                      aria-pressed={bulk === a}
+                      onClick={() => {
+                        setSelected(null);
+                        setBulk(a);
+                      }}
+                      style={{ ...link(t), fontWeight: bulk === a ? 650 : 400 }}
+                    >
+                      {BULK_LABEL[a]}
+                    </button>
+                  ))
+                )}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTicked(new Set());
+                    setBulk(null);
+                  }}
+                  style={{ ...link(t), color: t.muted }}
+                >
+                  Clear
+                </button>
+              </div>
+            )}
             {/* Scrolls inside, so the header row stays put. */}
             <div style={tableBox(t)}>
               <table
@@ -213,6 +281,19 @@ export function PeopleTable({
               >
                 <thead>
                   <tr>
+                    <th style={{ ...th(t), width: 28, padding: '0 0 0 10px' }}>
+                      <input
+                        type="checkbox"
+                        aria-label="select this page"
+                        checked={pageTicked}
+                        onChange={(e) =>
+                          tick(
+                            shown.rows.map((r) => r.key),
+                            e.target.checked,
+                          )
+                        }
+                      />
+                    </th>
                     {columns.map((c) => (
                       <th
                         key={c.key}
@@ -240,16 +321,27 @@ export function PeopleTable({
                     return (
                       <tr
                         key={r.key}
-                        onClick={() => setSelected(r.key)}
+                        onClick={() => select(r.key)}
                         style={{ cursor: 'pointer', background: on ? t.surfaceAlt : undefined }}
                       >
+                        <td
+                          style={{ ...td(t), padding: '6px 0 6px 10px' }}
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <input
+                            type="checkbox"
+                            aria-label={`select ${r.name}`}
+                            checked={ticked.has(r.key)}
+                            onChange={(e) => tick([r.key], e.target.checked)}
+                          />
+                        </td>
                         <td style={td(t)}>
                           <button
                             type="button"
                             aria-current={on ? 'true' : undefined}
                             onClick={(e) => {
                               e.stopPropagation();
-                              setSelected(r.key);
+                              select(r.key);
                             }}
                             style={nameButton(t)}
                           >
@@ -340,16 +432,28 @@ export function PeopleTable({
               )}
             </div>
           </div>
-          {open && (
-            <PersonPanel
-              key={open.key}
-              row={open}
+          {bulk && picked.length > 0 ? (
+            <BulkPanel
+              key={`${bulk}:${[...ticked].sort().join()}`}
+              action={bulk}
+              picked={picked}
               rows={rows}
               canAssignAll={canAssignAll}
-              canSignOutMachines={canSignOutMachines}
               onChanged={load}
-              onClose={() => setSelected(null)}
+              onClose={() => setBulk(null)}
             />
+          ) : (
+            open && (
+              <PersonPanel
+                key={open.key}
+                row={open}
+                rows={rows}
+                canAssignAll={canAssignAll}
+                canSignOutMachines={canSignOutMachines}
+                onChanged={load}
+                onClose={() => setSelected(null)}
+              />
+            )
           )}
         </div>
       )}
@@ -421,6 +525,20 @@ const clip: CSSProperties = {
   whiteSpace: 'nowrap',
   maxWidth: 180,
 };
+
+function bulkBar(t: Theme): CSSProperties {
+  return {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 12,
+    flexWrap: 'wrap',
+    padding: '8px 12px',
+    borderRadius: 10,
+    border: `1px solid ${t.accent}`,
+    background: t.surfaceAlt,
+    fontSize: 13,
+  };
+}
 
 function tableBox(t: Theme): CSSProperties {
   return {
