@@ -314,6 +314,8 @@ pub fn run() {
             commands::sign_out,
             commands::enrollment_status,
             commands::fit_window,
+            commands::open_admin_window,
+            commands::close_admin_window,
             commands::clock_in,
             commands::clock_out,
             commands::start_break,

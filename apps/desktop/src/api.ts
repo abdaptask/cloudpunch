@@ -546,6 +546,10 @@ export const api = {
     invoke<StateView>('respond_to_prompt', { response, note }),
   /** Ask the agent to resize the main window to `height` logical px. */
   fitWindow: (height: number): Promise<void> => invoke<void>('fit_window', { height }),
+  /** The admin console in its own wide window (ADR-0038 §2); brings it forward if open. */
+  openAdminWindow: (): Promise<void> => invoke<void>('open_admin_window'),
+  /** From inside the admin window only: close it. */
+  closeAdminWindow: (): Promise<void> => invoke<void>('close_admin_window'),
   authStatus: (): Promise<AuthStatus> => invoke<AuthStatus>('auth_status'),
   /** Opens the system browser; resolves once sign-in completes. */
   signIn: (): Promise<AuthStatus> => invoke<AuthStatus>('sign_in'),
