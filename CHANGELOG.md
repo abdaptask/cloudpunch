@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Desktop 0.1.32 and web: Holidays, Computers and Connections as tables (ADR-0038 phase 7)
+
+- A shared **`DataTable`** in the admin console: a search box, columns
+  that sort on a click, a header row that stays put, a count, and an
+  optional row click. "Saved" and errors show as a short **notice at
+  the top** of the page.
+- **Holidays:** a table (Date, Name) with search. **Remove** asks
+  first. **Paste a list**: one holiday per line ("26 Jan, Republic
+  Day", "2027-01-26 Republic Day", "Jan 26: …"; no year means the next
+  one), **Check** shows what each line would do (add, rename, already
+  listed, or why a line can't be read), then **Save N**.
+- **Computers:** a table (Person, System, Version, Last seen) with
+  search, a Windows/Mac filter and **Behind only**; versions sort as
+  numbers (0.1.9 before 0.1.10); the summary says how many are behind.
+- **Connections:** a table (Name, Place, Provider, Last seen) with
+  search; a row opens that person's history beside the table.
+- The small Settings window is unchanged (removed in phase 8).
+
 ### Desktop 0.1.31 and web: Rules by section (ADR-0038 phase 6)
 
 - **Admin console → Rules** shows one section at a time from a menu:
