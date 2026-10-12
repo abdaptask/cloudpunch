@@ -5,6 +5,12 @@ import {
   formFrom,
   formIssues,
   overrideWith,
+  breakText,
+  changedFields,
+  departmentOverride,
+  sectionOf,
+  valueText,
+  type SettingsForm,
 } from './settingsModel.js';
 
 describe('settings form (ADR-0018 §5)', () => {
@@ -203,5 +209,61 @@ describe('settings form (ADR-0018 §5)', () => {
         check_after_minutes: 60,
       });
     });
+  });
+});
+
+describe('Rules page model (ADR-0038 §8)', () => {
+  const company = formFrom({});
+  const dept = (patch: Partial<SettingsForm>): SettingsForm => ({ ...company, ...patch });
+
+  it('lists what changed, with the break table field by field, and its section', () => {
+    const f = dept({
+      idlePromptMinutes: 5,
+      breaks: company.breaks.map((b) => (b.id === 'meal' ? { ...b, maxMinutes: 45 } : b)),
+    });
+    const changed = changedFields(f, company);
+    expect(changed).toEqual(['idlePromptMinutes', 'breaks.meal.maxMinutes']);
+    expect(changed.map(sectionOf)).toEqual(['idle', 'breaks']);
+    // A half-typed number is still "changed" against itself only once.
+    const typing = dept({ idlePromptMinutes: Number.NaN });
+    expect(changedFields(typing, typing)).toEqual([]);
+  });
+
+  it("a department's override holds only what differs from the company", () => {
+    const f = dept({
+      idlePromptMinutes: 5,
+      breaks: company.breaks.map((b) => (b.id === 'meal' ? { ...b, label: 'Lunch' } : b)),
+    });
+    expect(departmentOverride(null, f, company)).toEqual({
+      idle: { threshold_seconds: 300 },
+      break: { meal: { label: 'Lunch' } },
+    });
+  });
+
+  it('a value set back to the company one is dropped; settings not on the form are kept', () => {
+    const old = {
+      idle: { threshold_seconds: 300, grace_seconds: 30, max_idle_minutes: 120 },
+      reminders: { long_day_hours: 8, nudge: 'kept' },
+      break: { meal: { label: 'Lunch', prompt: 'kept' } },
+      away: { offer_training: true, check_after_minutes: 60 },
+    };
+    const f = formFrom(old);
+    const back = { ...f, idlePromptMinutes: company.idlePromptMinutes };
+    const doc = departmentOverride(old, back, company);
+    expect(doc).toEqual({
+      reminders: { nudge: 'kept' },
+      break: { meal: { label: 'Lunch', prompt: 'kept' } },
+    });
+    // The input is not changed.
+    expect(old.idle.threshold_seconds).toBe(300);
+  });
+
+  it('says values in words', () => {
+    expect(valueText('idleCapMinutes', dept({ idleCapMinutes: null }))).toBe('Never');
+    expect(valueText('clockInPromptTz', dept({ clockInPromptTz: 'Asia/Kolkata' }))).toBe(
+      'India (Kolkata)',
+    );
+    expect(valueText('longDayHours', company)).toBe('8 hours');
+    expect(breakText(company.breaks[1]!)).toBe('On · Meal break · Unpaid · 60 min');
   });
 });
