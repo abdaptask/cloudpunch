@@ -1,9 +1,9 @@
 import { useState, type CSSProperties, type ReactNode } from 'react';
-import { EveryoneConnections } from '../ConnectionsView.js';
-import { HolidayEditor } from '../HolidayEditor.js';
 import { ReportingLines } from '../ReportingLines.js';
 import { useTheme, type Theme } from '../ui/theme.js';
-import { VersionsScreen } from '../VersionsScreen.js';
+import { ComputersPage } from './ComputersPage.js';
+import { ConnectionsPage } from './ConnectionsPage.js';
+import { HolidaysPage } from './HolidaysPage.js';
 import { PeopleTable } from './PeopleTable.js';
 import { RulesPage } from './RulesPage.js';
 import { ShiftsPage } from './ShiftsPage.js';
@@ -82,13 +82,13 @@ export function AdminConsole({
       case 'shifts':
         return <ShiftsPage />;
       case 'holidays':
-        return <HolidayEditor defaultOpen />;
+        return <HolidaysPage />;
       case 'rules':
         return <RulesPage canEditCompany={has('admin.policy.write')} onDirtyChange={setDirty} />;
       case 'computers':
-        return <VersionsScreen onClose={onClose} />;
+        return <ComputersPage />;
       case 'connections':
-        return <EveryoneConnections />;
+        return <ConnectionsPage />;
     }
   };
 
@@ -115,7 +115,12 @@ export function AdminConsole({
         <div
           style={{
             // People is a table with a panel beside it: it takes the width.
-            maxWidth: section === 'people' ? 1400 : section === 'rules' ? 960 : 760,
+            maxWidth:
+              section === 'people' || section === 'connections'
+                ? 1400
+                : section === 'shifts'
+                  ? 760
+                  : 960,
             padding: '20px 28px 40px',
             display: 'flex',
             flexDirection: 'column',

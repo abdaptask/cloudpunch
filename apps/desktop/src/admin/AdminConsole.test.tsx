@@ -7,7 +7,7 @@ import { AdminConsole } from './AdminConsole.js';
 vi.mock('./PeopleTable.js', () => ({ PeopleTable: () => <p>people screen</p> }));
 vi.mock('../ReportingLines.js', () => ({ ReportingLines: () => <p>reporting lines</p> }));
 vi.mock('./ShiftsPage.js', () => ({ ShiftsPage: () => <p>shift editor</p> }));
-vi.mock('../HolidayEditor.js', () => ({ HolidayEditor: () => <p>holiday editor</p> }));
+vi.mock('./HolidaysPage.js', () => ({ HolidaysPage: () => <p>holiday editor</p> }));
 vi.mock('./RulesPage.js', () => ({
   RulesPage: ({
     canEditCompany,
@@ -24,10 +24,8 @@ vi.mock('./RulesPage.js', () => ({
     </p>
   ),
 }));
-vi.mock('../VersionsScreen.js', () => ({ VersionsScreen: () => <p>versions screen</p> }));
-vi.mock('../ConnectionsView.js', () => ({
-  EveryoneConnections: () => <p>connections screen</p>,
-}));
+vi.mock('./ComputersPage.js', () => ({ ComputersPage: () => <p>versions screen</p> }));
+vi.mock('./ConnectionsPage.js', () => ({ ConnectionsPage: () => <p>connections screen</p> }));
 
 const ADMIN = [
   'admin.role.assign',
