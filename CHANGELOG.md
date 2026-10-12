@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Desktop 0.1.30 and web: named shifts in the admin console (ADR-0038 phase 5b)
+
+- **Shifts page:** each named shift with its pattern, how many people
+  are on it and any change coming ("From 19 Oct: Mon–Fri · 08:00–17:00").
+  **New named shift**; **Edit** asks the date it changes from, then
+  shows "This changes the shift of 14 people from 19 Oct" before
+  **Apply**; **Retire** says people on it keep it. Below: how many are
+  on a custom shift or none, and each person's shift as before.
+- **People:** the Shift column names the named shift (the pattern on
+  hover). In the person panel, **Set shift** offers the named shifts
+  (retired ones left out) from a date, today if left empty, or
+  "Custom pattern…" as before.
+- **Bulk bar: Set shift** gives a named shift to everyone ticked, from
+  a date, with a preview (who goes on it, who already is, who is left
+  out). Administrators only; HR doesn't see it.
+- Needs the server from phase 5a (migration 0014).
+
 ### Server: named shifts and bulk shift (ADR-0038 phase 5a; migration 0014)
 
 - **Migration 0014** (append-only): `shift_template` and

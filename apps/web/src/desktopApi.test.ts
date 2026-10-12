@@ -228,4 +228,59 @@ describe('the browser api for the desktop screens (ADR-0033 §5)', () => {
       ],
     ]);
   });
+
+  it('named shifts: the same requests as the Rust core (ADR-0038 §6)', async () => {
+    const f = connect(json(200, {}));
+    const KEY = '22222222-2222-4222-8222-222222222222';
+    const t = {
+      name: 'India day',
+      days: [1, 2],
+      start: '09:00',
+      end: '18:00',
+      tzIana: 'Asia/Kolkata',
+    };
+    const body = {
+      name: 'India day',
+      days: [1, 2],
+      start: '09:00',
+      end: '18:00',
+      tz_iana: 'Asia/Kolkata',
+    };
+    await api.adminShiftTemplates();
+    await api.adminCreateShiftTemplate(t, ' new ');
+    await api.adminSaveShiftTemplate(ID, t, '2026-10-19', '', true);
+    await api.adminRetireShiftTemplate(ID, '');
+    await api.adminSetNamedShift(ID, ID, null);
+    await api.adminBulkShift(KEY, [ID], { templateId: ID }, '2026-10-19', '');
+    expect(
+      (f.mock.calls as [string, RequestInit][]).map(([u, init]) => [
+        init.method ?? 'GET',
+        u,
+        init.body ?? null,
+      ]),
+    ).toEqual([
+      ['GET', '/v1/admin/shift-templates', null],
+      ['POST', '/v1/admin/shift-templates', JSON.stringify({ ...body, reason: 'new' })],
+      [
+        'PUT',
+        `/v1/admin/shift-templates/${ID}`,
+        JSON.stringify({ ...body, effective_from: '2026-10-19', dry_run: true }),
+      ],
+      ['POST', `/v1/admin/shift-templates/${ID}/retire`, JSON.stringify({})],
+      ['PUT', `/v1/admin/employees/${ID}/shift`, JSON.stringify({ template_id: ID })],
+      [
+        'PUT',
+        '/v1/admin/employees/bulk/shift',
+        JSON.stringify({
+          idempotency_key: KEY,
+          employee_ids: [ID],
+          template_id: ID,
+          effective_from: '2026-10-19',
+        }),
+      ],
+    ]);
+    await expect(api.adminSaveShiftTemplate('../x', t, '2026-10-19', '')).rejects.toThrow(
+      code('invalid_argument'),
+    );
+  });
 });

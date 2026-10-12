@@ -322,7 +322,13 @@ function Copier({
   );
 }
 
-export function ShiftEditor({ defaultOpen = false }: { defaultOpen?: boolean }): JSX.Element {
+export function ShiftEditor({
+  defaultOpen = false,
+  title = 'Shifts',
+}: {
+  defaultOpen?: boolean;
+  title?: string;
+}): JSX.Element {
   const t = useTheme();
   const [rows, setRows] = useState<ShiftRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -349,7 +355,7 @@ export function ShiftEditor({ defaultOpen = false }: { defaultOpen?: boolean }):
 
   return (
     <Collapsible
-      title="Shifts"
+      title={title}
       summary={
         rows
           ? `${rows.length} ${rows.length === 1 ? 'person' : 'people'}` +

@@ -1,3 +1,4 @@
+import { bulkShiftBody, patternBody } from '../../desktop/src/admin/shiftBodies.js';
 import type { api as DesktopApi } from '../../desktop/src/api.js';
 
 /**
@@ -52,6 +53,12 @@ export type WebApi = Pick<
   | 'adminBulkManager'
   | 'adminBulkRoles'
   | 'adminBulkWelcome'
+  | 'adminShiftTemplates'
+  | 'adminCreateShiftTemplate'
+  | 'adminSaveShiftTemplate'
+  | 'adminRetireShiftTemplate'
+  | 'adminSetNamedShift'
+  | 'adminBulkShift'
 >;
 
 export interface Transport {
@@ -257,6 +264,35 @@ export const api: WebApi = {
         'reason',
         reason,
       ),
+    ),
+  // Named shifts (ADR-0038 §6): the same requests as the Rust core.
+  adminShiftTemplates: () => get('/v1/admin/shift-templates'),
+  adminCreateShiftTemplate: async (t, reason) =>
+    send('POST', '/v1/admin/shift-templates', patternBody(t, reason)),
+  adminSaveShiftTemplate: async (id, t, effectiveFrom, reason, dryRun = false) => {
+    check(UUID.test(id));
+    return send('PUT', `/v1/admin/shift-templates/${id}`, {
+      ...patternBody(t, reason),
+      effective_from: effectiveFrom,
+      ...(dryRun ? { dry_run: true } : {}),
+    });
+  },
+  adminRetireShiftTemplate: async (id, reason) => {
+    check(UUID.test(id));
+    return send('POST', `/v1/admin/shift-templates/${id}/retire`, withText({}, 'reason', reason));
+  },
+  adminSetNamedShift: async (employeeId, templateId, effectiveFrom) => {
+    check(UUID.test(employeeId));
+    return send('PUT', `/v1/admin/employees/${employeeId}/shift`, {
+      template_id: templateId,
+      ...(effectiveFrom ? { effective_from: effectiveFrom } : {}),
+    });
+  },
+  adminBulkShift: async (key, employeeIds, target, effectiveFrom, reason) =>
+    send(
+      'PUT',
+      '/v1/admin/employees/bulk/shift',
+      bulkShiftBody(key, employeeIds, target, effectiveFrom, reason),
     ),
   adminBulkWelcome: async (key, oids, note) =>
     send(

@@ -1,3 +1,4 @@
+import { bulkShiftBody, patternBody } from './admin/shiftBodies.js';
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
@@ -190,7 +191,37 @@ export interface ShiftRow {
   employee_id: string;
   name: string;
   shift: Shift | null;
+  /** The named shift they're on (ADR-0038 §6); null or absent: custom. */
+  template?: { id: string; name: string } | null;
 }
+
+/** A named shift's pattern, as it's set up (ADR-0038 §6). */
+export interface ShiftPattern {
+  name: string;
+  days: number[];
+  start: string;
+  end: string;
+  tzIana: string;
+}
+
+/** A named shift as listed: today's version, the next change, and who's on it. */
+export interface ShiftTemplate {
+  id: string;
+  name: string;
+  days: number[];
+  start: string;
+  end: string;
+  tz_iana: string;
+  effective_from: string;
+  retired: boolean;
+  next: (Shift & { name: string; effective_from: string; retired: boolean }) | null;
+  people: number;
+}
+
+/** What a bulk shift sets: a named shift, or a pattern (empty days: none). */
+export type BulkShiftTarget =
+  | { templateId: string }
+  | { days: number[]; start: string | null; end: string | null; tzIana: string };
 
 export interface CorrectionInput {
   /** A direct report's id, as their manager; absent for your own time. */
@@ -552,6 +583,52 @@ export const api = {
       start: s.start,
       end: s.end,
       tzIana: s.tzIana,
+    }),
+  /** Named shifts (ADR-0038 §6), Administrators. */
+  adminShiftTemplates: (): Promise<{ templates: ShiftTemplate[]; custom: number; none: number }> =>
+    invoke('admin_shift_templates'),
+  adminCreateShiftTemplate: (t: ShiftPattern, reason: string): Promise<ShiftTemplate> =>
+    invoke('admin_create_shift_template', { body: patternBody(t, reason) }),
+  /** A new version from `effectiveFrom`; `dryRun` only counts who it changes. */
+  adminSaveShiftTemplate: (
+    id: string,
+    t: ShiftPattern,
+    effectiveFrom: string,
+    reason: string,
+    dryRun = false,
+  ): Promise<{ people: number; effective_from: string }> =>
+    invoke('admin_save_shift_template', {
+      id,
+      body: {
+        ...patternBody(t, reason),
+        effective_from: effectiveFrom,
+        ...(dryRun ? { dry_run: true } : {}),
+      },
+    }),
+  adminRetireShiftTemplate: (id: string, reason: string): Promise<{ id: string; retired: true }> =>
+    invoke('admin_retire_shift_template', { id, reason: reason || null }),
+  /** Give someone a named shift from a date (today when null). */
+  adminSetNamedShift: (
+    employeeId: string,
+    templateId: string,
+    effectiveFrom: string | null,
+  ): Promise<{ shift: Shift | null; template_id: string | null; effective_from: string }> =>
+    invoke('admin_set_named_shift', { employeeId, templateId, effectiveFrom }),
+  /** Bulk (ADR-0038 §5): one shift for many, all or nothing; `key` as for the others. */
+  adminBulkShift: (
+    key: string,
+    employeeIds: string[],
+    target: BulkShiftTarget,
+    effectiveFrom: string | null,
+    reason: string,
+  ): Promise<{
+    template_id: string | null;
+    effective_from: string;
+    changed: string[];
+    unchanged: string[];
+  }> =>
+    invoke('admin_bulk_shift', {
+      body: bulkShiftBody(key, employeeIds, target, effectiveFrom, reason),
     }),
   /** The company holidays, last month to a year ahead (ADR-0037). */
   holidays: (): Promise<{ holidays: Holiday[] }> => invoke<{ holidays: Holiday[] }>('holidays'),

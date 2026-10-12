@@ -1,5 +1,12 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
-import { api, type DirectoryUser, type EmployeeRow, type Person, type ShiftRow } from '../api.js';
+import {
+  api,
+  type DirectoryUser,
+  type EmployeeRow,
+  type Person,
+  type ShiftRow,
+  type ShiftTemplate,
+} from '../api.js';
 import { ERROR_TEXT, ROLES } from '../PeopleScreen.js';
 import { shiftText } from '../ShiftEditor.js';
 import { useTheme, type Theme } from '../ui/theme.js';
@@ -45,6 +52,8 @@ export function PeopleTable({
   const [people, setPeople] = useState<Person[] | null>(null);
   const [employees, setEmployees] = useState<EmployeeRow[] | null>(null);
   const [shifts, setShifts] = useState<ShiftRow[] | null>(null);
+  // Named shifts (ADR-0038 §6): Administrators only, like shifts.
+  const [templates, setTemplates] = useState<ShiftTemplate[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>(NO_FILTER);
   const [sort, setSort] = useState<Sort>({ key: 'name', dir: 'asc' });
@@ -70,6 +79,10 @@ export function PeopleTable({
       (r) => setShifts(r.people),
       () => setShifts(null),
     );
+    api.adminShiftTemplates().then(
+      (r) => setTemplates(r.templates),
+      () => setTemplates(null),
+    );
   };
   useEffect(load, []);
 
@@ -88,7 +101,7 @@ export function PeopleTable({
       case 'manager':
         return r.managerName ?? '';
       case 'shift':
-        return r.shift ? shiftText(r.shift) : '';
+        return r.shift ? (r.template?.name ?? shiftText(r.shift)) : '';
       case 'status':
         return rows ? statusOf(r, rows).join(', ') : '';
     }
@@ -132,6 +145,7 @@ export function PeopleTable({
         managerId: null,
         managerName: null,
         shift: showShift ? null : undefined,
+        template: null,
       });
     }
     setSelected(u.oid);
@@ -246,20 +260,23 @@ export function PeopleTable({
                 {ticked.size > MAX_BULK ? (
                   <span style={{ color: t.warnText }}>At most {MAX_BULK} at a time</span>
                 ) : (
-                  (Object.keys(BULK_LABEL) as BulkAction[]).map((a) => (
-                    <button
-                      key={a}
-                      type="button"
-                      aria-pressed={bulk === a}
-                      onClick={() => {
-                        setSelected(null);
-                        setBulk(a);
-                      }}
-                      style={{ ...link(t), fontWeight: bulk === a ? 650 : 400 }}
-                    >
-                      {BULK_LABEL[a]}
-                    </button>
-                  ))
+                  (Object.keys(BULK_LABEL) as BulkAction[])
+                    // Shifts are Administrators' only.
+                    .filter((a) => a !== 'shift' || showShift)
+                    .map((a) => (
+                      <button
+                        key={a}
+                        type="button"
+                        aria-pressed={bulk === a}
+                        onClick={() => {
+                          setSelected(null);
+                          setBulk(a);
+                        }}
+                        style={{ ...link(t), fontWeight: bulk === a ? 650 : 400 }}
+                      >
+                        {BULK_LABEL[a]}
+                      </button>
+                    ))
                 )}
                 <button
                   type="button"
@@ -366,7 +383,9 @@ export function PeopleTable({
                         {showShift && (
                           <td style={{ ...td(t), fontSize: 12 }}>
                             {r.shift ? (
-                              shiftText(r.shift)
+                              <span title={shiftText(r.shift)}>
+                                {r.template?.name ?? shiftText(r.shift)}
+                              </span>
                             ) : (
                               <span style={{ color: t.muted }}>—</span>
                             )}
@@ -434,6 +453,7 @@ export function PeopleTable({
           </div>
           {bulk && picked.length > 0 ? (
             <BulkPanel
+              templates={templates}
               key={`${bulk}:${[...ticked].sort().join()}`}
               action={bulk}
               picked={picked}
@@ -445,6 +465,7 @@ export function PeopleTable({
           ) : (
             open && (
               <PersonPanel
+                templates={templates}
                 key={open.key}
                 row={open}
                 rows={rows}

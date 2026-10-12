@@ -1,6 +1,6 @@
 [package]
 name = "cloudpunch-desktop"
-version = "0.1.29"
+version = "0.1.30"
 description = "CloudPunch employee time and attendance desktop agent"
 authors = ["ApTask"]
 edition.workspace = true

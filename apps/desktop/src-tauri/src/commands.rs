@@ -1186,6 +1186,88 @@ pub async fn admin_set_shift(
     answer(fetched)
 }
 
+/// Give someone a named shift (ADR-0038 §6) from a date (today when None).
+#[tauri::command]
+pub async fn admin_set_named_shift(
+    auth: State<'_, Arc<Auth>>,
+    employee_id: String,
+    template_id: String,
+    effective_from: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let mut body = serde_json::json!({ "template_id": template_id });
+    if let Some(d) = effective_from {
+        body["effective_from"] = serde_json::Value::String(d);
+    }
+    let (_, fetched) = fetch_as_user(&auth, move |http, base, token| {
+        admin::set_shift(http, base, token, &employee_id, &body)
+    })
+    .await?;
+    answer(fetched)
+}
+
+/// Named shifts (ADR-0038 §6), with how many people are on each.
+#[tauri::command]
+pub async fn admin_shift_templates(
+    auth: State<'_, Arc<Auth>>,
+) -> Result<serde_json::Value, String> {
+    let (_, fetched) = fetch_as_user(&auth, admin::shift_templates).await?;
+    answer(fetched)
+}
+
+/// Make a named shift; the server checks every field.
+#[tauri::command]
+pub async fn admin_create_shift_template(
+    auth: State<'_, Arc<Auth>>,
+    body: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    let (_, fetched) = fetch_as_user(&auth, move |http, base, token| {
+        admin::create_shift_template(http, base, token, &body)
+    })
+    .await?;
+    answer(fetched)
+}
+
+/// A new version of a named shift from a date; `dry_run` only counts.
+#[tauri::command]
+pub async fn admin_save_shift_template(
+    auth: State<'_, Arc<Auth>>,
+    id: String,
+    body: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    let (_, fetched) = fetch_as_user(&auth, move |http, base, token| {
+        admin::save_shift_template(http, base, token, &id, &body)
+    })
+    .await?;
+    answer(fetched)
+}
+
+/// Retire a named shift.
+#[tauri::command]
+pub async fn admin_retire_shift_template(
+    auth: State<'_, Arc<Auth>>,
+    id: String,
+    reason: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let (_, fetched) = fetch_as_user(&auth, move |http, base, token| {
+        admin::retire_shift_template(http, base, token, &id, reason.as_deref())
+    })
+    .await?;
+    answer(fetched)
+}
+
+/// Bulk (ADR-0038 §5): one shift for many, all or nothing.
+#[tauri::command]
+pub async fn admin_bulk_shift(
+    auth: State<'_, Arc<Auth>>,
+    body: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    let (_, fetched) = fetch_as_user(&auth, move |http, base, token| {
+        admin::bulk_shift(http, base, token, &body)
+    })
+    .await?;
+    answer(fetched)
+}
+
 /// The company holidays (ADR-0037 §1).
 #[tauri::command]
 pub async fn holidays(auth: State<'_, Arc<Auth>>) -> Result<serde_json::Value, String> {

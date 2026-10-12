@@ -15,10 +15,19 @@ const mocks = vi.hoisted(() => ({
   adminWelcomePreview: vi.fn(),
   adminBulkManager: vi.fn(),
   adminBulkRoles: vi.fn(),
+  adminShiftTemplates: vi.fn(),
+  adminSetNamedShift: vi.fn(),
+  adminBulkShift: vi.fn(),
 }));
 vi.mock('../api.js', () => ({ api: mocks }));
 
 const DAY = { days: [1, 2, 3, 4, 5], start: '09:00', end: '18:00', tz_iana: 'Asia/Kolkata' };
+const TEMPLATE_DAY = {
+  days: [1, 2, 3, 4, 5],
+  start: '09:00',
+  end: '18:00',
+  tz_iana: 'Asia/Kolkata',
+};
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -50,10 +59,39 @@ beforeEach(() => {
   });
   mocks.adminShifts.mockResolvedValue({
     people: [
-      { employee_id: 'e-priya', name: 'Priya Shah', shift: DAY },
+      {
+        employee_id: 'e-priya',
+        name: 'Priya Shah',
+        shift: DAY,
+        template: { id: 't-india', name: 'India day' },
+      },
       { employee_id: 'e-hr', name: 'Hema R', shift: DAY },
       { employee_id: 'e-roshni', name: 'Roshni Sahani', shift: null },
     ],
+  });
+  mocks.adminShiftTemplates.mockResolvedValue({
+    templates: [
+      {
+        id: 't-india',
+        name: 'India day',
+        ...TEMPLATE_DAY,
+        effective_from: '2026-10-01',
+        retired: false,
+        next: null,
+        people: 2,
+      },
+      {
+        id: 't-old',
+        name: 'Old night',
+        ...TEMPLATE_DAY,
+        effective_from: '2026-10-01',
+        retired: true,
+        next: null,
+        people: 0,
+      },
+    ],
+    custom: 0,
+    none: 1,
   });
   mocks.adminSetManager.mockResolvedValue({ id: 'e-roshni', reporting_manager_id: 'e-priya' });
   mocks.adminActiveDevice.mockResolvedValue(null);
@@ -268,5 +306,80 @@ describe('bulk changes (ADR-0038 §5)', () => {
     );
     // The table reloads after.
     expect(mocks.adminPeople).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('named shifts in People (ADR-0038 §6)', () => {
+  it('the table names the shift; the panel gives one by name from a date', async () => {
+    mocks.adminSetNamedShift.mockResolvedValue({
+      shift: DAY,
+      template_id: 't-india',
+      effective_from: '2026-10-19',
+    });
+    const user = userEvent.setup();
+    render(<PeopleTable canAssignAll onClose={() => undefined} />);
+    const priya = (await screen.findByRole('button', { name: 'Priya Shah' })).closest('tr')!;
+    expect(within(priya).getByText('India day')).toHaveAttribute(
+      'title',
+      expect.stringContaining('09:00–18:00'),
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Roshni Sahani' }));
+    const panel = screen.getByRole('complementary', { name: 'person Roshni Sahani' });
+    await user.click(within(panel).getByRole('button', { name: 'Set shift' }));
+    const select = within(panel).getByLabelText('shift for Roshni Sahani');
+    // Retired named shifts aren't offered.
+    expect(
+      within(select)
+        .getAllByRole('option')
+        .map((o) => o.textContent),
+    ).toEqual(['Choose a named shift', 'India day', 'Custom pattern…']);
+    await user.selectOptions(select, 'India day');
+    await user.type(within(panel).getByLabelText('shift-from'), '2026-10-19');
+    await user.click(within(panel).getByRole('button', { name: 'Save shift' }));
+    expect(mocks.adminSetNamedShift).toHaveBeenCalledWith('e-roshni', 't-india', '2026-10-19');
+    expect(await within(panel).findByRole('status')).toHaveTextContent(
+      'Roshni Sahani is on India day from 2026-10-19.',
+    );
+  });
+
+  it('bulk: Set shift by name, with a preview', async () => {
+    mocks.adminBulkShift.mockResolvedValue({
+      template_id: 't-india',
+      effective_from: '2026-10-12',
+      changed: ['e-hr', 'e-roshni'],
+      unchanged: ['e-priya'],
+    });
+    const user = userEvent.setup();
+    render(<PeopleTable canAssignAll onClose={() => undefined} />);
+    await user.click(await screen.findByRole('checkbox', { name: 'select this page' }));
+    await user.click(screen.getByRole('button', { name: 'Set shift' }));
+    const panel = screen.getByRole('complementary', { name: 'bulk Set shift' });
+    await user.selectOptions(within(panel).getByLabelText('bulk-shift'), 'India day');
+    expect(within(panel).getByLabelText('bulk-preview')).toHaveTextContent(
+      'This changes 2 people: Hema R and Roshni Sahani go on India day from today. 1 person is already on it.',
+    );
+    await user.click(within(panel).getByRole('button', { name: 'Apply' }));
+    expect(mocks.adminBulkShift).toHaveBeenCalledWith(
+      expect.any(String),
+      ['e-hr', 'e-roshni'],
+      { templateId: 't-india' },
+      null,
+      '',
+    );
+    expect(
+      await within(panel).findByText(/2 people changed; 1 already had that shift/),
+    ).toBeInTheDocument();
+  });
+
+  it('HR: no Set shift in the bulk bar', async () => {
+    mocks.adminShifts.mockRejectedValue('forbidden');
+    mocks.adminShiftTemplates.mockRejectedValue('forbidden');
+    const user = userEvent.setup();
+    render(<PeopleTable canAssignAll={false} onClose={() => undefined} />);
+    await user.click(await screen.findByRole('checkbox', { name: 'select Hema R' }));
+    const bar = screen.getByRole('toolbar', { name: 'bulk-actions' });
+    expect(within(bar).queryByRole('button', { name: 'Set shift' })).not.toBeInTheDocument();
+    expect(within(bar).getByRole('button', { name: 'Set manager' })).toBeInTheDocument();
   });
 });

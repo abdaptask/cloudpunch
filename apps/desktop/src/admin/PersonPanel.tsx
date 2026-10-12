@@ -1,12 +1,13 @@
 import { useState, type CSSProperties, type ReactNode } from 'react';
-import { api } from '../api.js';
+import { api, type ShiftTemplate } from '../api.js';
 import { ActiveMachineSection, ERROR_TEXT, HR_ASSIGNABLE, ROLES } from '../PeopleScreen.js';
-import { ShiftForm, shiftText } from '../ShiftEditor.js';
+import { shiftText } from '../ShiftEditor.js';
 import { Button } from '../ui/Button.js';
 import { useTheme, type Theme } from '../ui/theme.js';
 import { WelcomePanel } from '../WelcomePanel.js';
 import { MANAGING_ROLES, managerChoices, type PersonRow } from './peopleModel.js';
 import { ManagerPicker } from './ManagerPicker.js';
+import { ShiftChooser } from './ShiftChooser.js';
 
 const MORE_ERRORS: Record<string, string> = {
   manager_loop: 'That would make a reporting loop.',
@@ -29,6 +30,7 @@ export function PersonPanel({
   rows,
   canAssignAll,
   canSignOutMachines,
+  templates = null,
   onChanged,
   onClose,
 }: {
@@ -37,6 +39,8 @@ export function PersonPanel({
   rows: readonly PersonRow[];
   canAssignAll: boolean;
   canSignOutMachines: boolean;
+  /** Named shifts to offer (ADR-0038 §6); null: custom only. */
+  templates?: readonly ShiftTemplate[] | null;
   /** Something was saved: reload the table. */
   onChanged: () => void;
   onClose: () => void;
@@ -191,12 +195,16 @@ export function PersonPanel({
           {row.shift !== undefined && (
             <Part title="Shift" t={t}>
               {editingShift ? (
-                <ShiftForm
-                  row={{ employee_id: row.employeeId, name: row.name, shift: row.shift }}
+                <ShiftChooser
+                  employeeId={row.employeeId}
+                  name={row.name}
+                  shift={row.shift}
+                  current={row.template}
+                  templates={templates}
                   onCancel={() => setEditingShift(false)}
-                  onSaved={(s) => {
+                  onSaved={(text) => {
                     setEditingShift(false);
-                    setStatus({ kind: 'saved', text: `Shift saved: ${shiftText(s)}.` });
+                    setStatus({ kind: 'saved', text });
                     onChanged();
                   }}
                 />
@@ -206,6 +214,7 @@ export function PersonPanel({
                     aria-label={`shift of ${row.name}`}
                     style={{ flex: 1, minWidth: 0, color: row.shift ? t.text : t.warnText }}
                   >
+                    {row.template ? `${row.template.name} · ` : ''}
                     {shiftText(row.shift)}
                   </span>
                   <button type="button" onClick={() => setEditingShift(true)} style={link(t)}>
