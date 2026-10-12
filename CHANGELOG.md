@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### ADR-0038 accepted: an admin console (one People table, bulk changes, named shifts)
+
+- People, Shifts, Holidays, Rules, Computers and Connections move into
+  an admin console with a sidebar, in a wide desktop window and on the
+  web at `/app/admin/`, from the same components.
+- People becomes one searchable table (roles, manager, shift, status)
+  with a person panel, a type-to-search manager picker, and bulk set
+  manager, set shift, add or remove role and welcome email, each with
+  a preview and an idempotency key.
+- Named shifts ("India day 09:00–18:00 IST") assigned by name; Rules
+  split into sections with department overrides marked and a save bar
+  that stays on screen. Accepted 2026-10-12; built in phases 2–8.
+
 ### Regular late starters (ADR-0037 step 5; migration 0012)
 
 - `GET /v1/team` adds `starts` per person: missed starts and "Not
