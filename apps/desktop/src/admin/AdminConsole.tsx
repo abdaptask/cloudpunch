@@ -57,19 +57,19 @@ export function AdminConsole({
     switch (key) {
       case 'people':
         return (
-          <>
-            <PeopleScreen
-              canAssignAll={has('admin.role.assign')}
-              canSignOutMachines={has('admin.device.revoke')}
-              onClose={onClose}
-            />
-            <ReportingLines />
-          </>
+          <PeopleScreen
+            canAssignAll={has('admin.role.assign')}
+            canSignOutMachines={has('admin.device.revoke')}
+            onClose={onClose}
+          />
         );
+      // Each of these is the whole page here, so its list starts open.
+      case 'managers':
+        return <ReportingLines defaultOpen />;
       case 'shifts':
-        return <ShiftEditor />;
+        return <ShiftEditor defaultOpen />;
       case 'holidays':
-        return <HolidayEditor />;
+        return <HolidayEditor defaultOpen />;
       case 'rules':
         return <SettingsScreen canEditCompany={has('admin.policy.write')} onClose={onClose} />;
       case 'computers':

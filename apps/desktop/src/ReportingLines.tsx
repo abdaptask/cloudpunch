@@ -1,5 +1,6 @@
 import { useEffect, useState, type CSSProperties } from 'react';
 import { api, type EmployeeRow, type Person } from './api.js';
+import { Collapsible } from './ui/Collapsible.js';
 import { useTheme, type Theme } from './ui/theme.js';
 
 const ERROR_TEXT: Record<string, string> = {
@@ -26,8 +27,9 @@ const errorText = (code: string): string => ERROR_TEXT[code] ?? `Something went 
  * and someone whose roles were removed before it turned the record off
  * can be taken off the list here.
  */
-export function ReportingLines(): JSX.Element {
+export function ReportingLines({ defaultOpen = false }: { defaultOpen?: boolean }): JSX.Element {
   const t = useTheme();
+  const [find, setFind] = useState('');
   const [rows, setRows] = useState<EmployeeRow[] | null>(null);
   const [reason, setReason] = useState('');
   const [status, setStatus] = useState<{ kind: 'error' | 'saved'; text: string } | null>(null);
@@ -183,23 +185,23 @@ export function ReportingLines(): JSX.Element {
     );
   };
 
+  const unmanaged = rows?.filter((r) => r.reporting_manager_id === null).length ?? 0;
+  const needle = find.trim().toLowerCase();
+  const shown = rows?.filter((r) => !needle || r.name.toLowerCase().includes(needle)) ?? [];
+
   return (
-    <section
-      aria-label="reporting-lines"
-      style={{
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 8,
-        padding: 12,
-        border: `1px solid ${t.border}`,
-        borderRadius: 12,
-        background: t.surface,
-      }}
+    <Collapsible
+      title="Reporting lines"
+      summary={
+        rows
+          ? `${rows.length} ${rows.length === 1 ? 'person' : 'people'}` +
+            (unmanaged > 0 ? ` · ${unmanaged} without a manager` : '')
+          : undefined
+      }
+      defaultOpen={defaultOpen}
     >
-      <h3 style={{ margin: 0, fontSize: 13, fontWeight: 650 }}>Reporting lines</h3>
       <p style={{ margin: 0, fontSize: 12, lineHeight: 1.4, color: t.muted }}>
-        Who each person reports to. Managers see their direct reports in the Team tab. Only people
-        with the Manager or HR role are offered as managers.
+        Who each person reports to. Only people with the Manager or HR role can be picked.
       </p>
       {noRecord.map((p) => (
         <span key={p.oid} role="note" style={{ fontSize: 12, color: t.warnText }}>
@@ -209,99 +211,107 @@ export function ReportingLines(): JSX.Element {
             type="button"
             disabled={saving === p.oid}
             onClick={() => addRecord(p)}
-            style={{
-              padding: 0,
-              border: 'none',
-              background: 'none',
-              color: t.accent,
-              font: 'inherit',
-              cursor: 'pointer',
-            }}
+            style={linkButton(t)}
           >
             Add {p.name}&apos;s record
           </button>
         </span>
       ))}
-      <label
-        style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 12, color: t.muted }}
-      >
-        Why (kept in the audit log, optional)
+      <div style={{ display: 'flex', gap: 8 }}>
+        <input
+          aria-label="reporting-find"
+          placeholder="Find a person"
+          value={find}
+          onChange={(e) => setFind(e.target.value)}
+          style={{ ...input(t), flex: 1, minWidth: 0 }}
+        />
         <input
           aria-label="reporting-reason"
+          placeholder="Why (audit log, optional)"
           value={reason}
           maxLength={500}
           onChange={(e) => setReason(e.target.value)}
-          style={input(t)}
+          style={{ ...input(t), flex: 1, minWidth: 0 }}
         />
-      </label>
+      </div>
       {!rows && !status && <span style={{ fontSize: 13, color: t.muted }}>Loading…</span>}
-      {rows?.map((row) => {
-        const missing = lacksRole(row.reporting_manager_id);
-        return (
-          <div key={row.id} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
-              <span style={{ flex: 1, minWidth: 0 }}>{row.name}</span>
-              <select
-                aria-label={`manager of ${row.name}`}
-                value={row.reporting_manager_id ?? ''}
-                disabled={saving === row.id}
-                onChange={(e) => change(row, e.target.value || null)}
-                style={{ ...input(t), maxWidth: 180 }}
-              >
-                <option value="">No manager</option>
-                {rows
-                  .filter((m) => offered(row, m))
-                  .map((m) => (
-                    <option key={m.id} value={m.id}>
-                      {m.name}
-                    </option>
-                  ))}
-              </select>
-            </label>
-            {roleless(row) && (
-              <span role="note" style={{ fontSize: 12, color: t.muted }}>
-                {row.name} has no CloudPunch role.{' '}
-                <button
-                  type="button"
+      <div style={{ display: 'flex', flexDirection: 'column' }}>
+        {shown.map((row) => {
+          const missing = lacksRole(row.reporting_manager_id);
+          return (
+            <div
+              key={row.id}
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 2,
+                padding: '4px 0',
+                borderTop: `1px solid ${t.border}`,
+              }}
+            >
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
+                <span
+                  style={{
+                    flex: 1,
+                    minWidth: 0,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {row.name}
+                </span>
+                <select
+                  aria-label={`manager of ${row.name}`}
+                  value={row.reporting_manager_id ?? ''}
                   disabled={saving === row.id}
-                  onClick={() => remove(row)}
-                  style={{
-                    padding: 0,
-                    border: 'none',
-                    background: 'none',
-                    color: t.accent,
-                    font: 'inherit',
-                    cursor: 'pointer',
-                  }}
+                  onChange={(e) => change(row, e.target.value || null)}
+                  style={{ ...input(t), width: 170 }}
                 >
-                  Remove {row.name} from this list
-                </button>
-              </span>
-            )}
-            {missing && (
-              <span role="note" style={{ fontSize: 12, color: t.warnText }}>
-                {missing.name} doesn&apos;t have the Manager role yet, so they won&apos;t see the
-                Team tab.{' '}
-                <button
-                  type="button"
-                  disabled={saving === missing.oid}
-                  onClick={() => giveManager(missing)}
-                  style={{
-                    padding: 0,
-                    border: 'none',
-                    background: 'none',
-                    color: t.accent,
-                    font: 'inherit',
-                    cursor: 'pointer',
-                  }}
-                >
-                  Give {missing.name} the Manager role
-                </button>
-              </span>
-            )}
-          </div>
-        );
-      })}
+                  <option value="">No manager</option>
+                  {(rows ?? [])
+                    .filter((m) => offered(row, m))
+                    .map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.name}
+                      </option>
+                    ))}
+                </select>
+              </label>
+              {roleless(row) && (
+                <span role="note" style={{ fontSize: 12, color: t.muted }}>
+                  {row.name} has no CloudPunch role.{' '}
+                  <button
+                    type="button"
+                    disabled={saving === row.id}
+                    onClick={() => remove(row)}
+                    style={linkButton(t)}
+                  >
+                    Remove {row.name} from this list
+                  </button>
+                </span>
+              )}
+              {missing && (
+                <span role="note" style={{ fontSize: 12, color: t.warnText }}>
+                  {missing.name} doesn&apos;t have the Manager role yet, so they won&apos;t see the
+                  Team tab.{' '}
+                  <button
+                    type="button"
+                    disabled={saving === missing.oid}
+                    onClick={() => giveManager(missing)}
+                    style={linkButton(t)}
+                  >
+                    Give {missing.name} the Manager role
+                  </button>
+                </span>
+              )}
+            </div>
+          );
+        })}
+        {rows && needle && shown.length === 0 && (
+          <span style={{ fontSize: 13, color: t.muted }}>Nobody matches.</span>
+        )}
+      </div>
       {status && (
         <p
           role={status.kind === 'error' ? 'alert' : 'status'}
@@ -310,15 +320,26 @@ export function ReportingLines(): JSX.Element {
           {status.text}
         </p>
       )}
-    </section>
+    </Collapsible>
   );
+}
+
+function linkButton(t: Theme): CSSProperties {
+  return {
+    padding: 0,
+    border: 'none',
+    background: 'none',
+    color: t.accent,
+    font: 'inherit',
+    cursor: 'pointer',
+  };
 }
 
 function input(t: Theme): CSSProperties {
   return {
     font: 'inherit',
     fontSize: 13,
-    padding: '6px 8px',
+    padding: '5px 8px',
     borderRadius: 8,
     border: `1px solid ${t.border}`,
     background: t.bg,

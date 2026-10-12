@@ -53,6 +53,7 @@ const mocks = vi.hoisted(() => ({
   teamDays: vi.fn(),
   teamExceptions: vi.fn(),
   adminEmployees: vi.fn(),
+  adminShifts: vi.fn(),
   adminSetManager: vi.fn(),
   adminDevices: vi.fn(),
   adminActiveDevice: vi.fn(),
@@ -73,6 +74,15 @@ const SIGNED_IN: AuthStatus = { signedIn: true, name: 'Test User', username: 'te
 const SIGNED_OUT: AuthStatus = { signedIn: false, name: null, username: null };
 
 vi.mock('./api.js', () => ({ api: mocks, STATE_EVENT: 'cp://state' }));
+
+/** Open a folded list (Collapsible) once it has loaded; returns its region. */
+async function unfold(
+  user: ReturnType<typeof userEvent.setup>,
+  title: string,
+): Promise<HTMLElement> {
+  await user.click(await screen.findByRole('button', { name: new RegExp(`^${title}`) }));
+  return screen.getByRole('region', { name: title });
+}
 
 function view(over: Partial<StateView> = {}): StateView {
   return {
@@ -147,6 +157,7 @@ beforeEach(() => {
   mocks.myCapabilities.mockResolvedValue([]);
   mocks.adminDepartments.mockResolvedValue({ departments: [] });
   mocks.adminEmployees.mockResolvedValue({ employees: [] });
+  mocks.adminShifts.mockResolvedValue({ people: [] });
   mocks.adminDevices.mockResolvedValue({ devices: [] });
   mocks.teamNow.mockResolvedValue({ people: [] });
   mocks.teamExceptions.mockResolvedValue({ exceptions: [] });
@@ -1827,6 +1838,7 @@ describe('People (ADR-0020)', () => {
     await user.click(await screen.findByRole('button', { name: 'Settings' }));
     await user.click(screen.getByRole('tab', { name: 'People' }));
     const people = screen.getByRole('region', { name: 'people' });
+    await unfold(user, 'With a CloudPunch role');
     expect(await within(people).findByText('Employee · Administrator')).toBeInTheDocument();
     await user.type(within(people).getByLabelText('people-search'), 'farh');
     await user.click(await within(people).findByRole('button', { name: /Farheen Khanam/ }));
@@ -1859,6 +1871,7 @@ describe('People (ADR-0020)', () => {
     await user.click(await screen.findByRole('button', { name: 'Settings' }));
     expect(screen.queryByRole('tab', { name: 'Rules' })).not.toBeInTheDocument();
     const people = screen.getByRole('region', { name: 'people' });
+    await unfold(user, 'With a CloudPunch role');
     await user.click(await within(people).findByRole('button', { name: /Farheen Khanam/ }));
     const roles = within(people).getByRole('group', { name: 'edit-roles' });
     expect(within(roles).getByLabelText('role-Manager')).toBeEnabled();
@@ -1885,6 +1898,7 @@ describe('People (ADR-0020)', () => {
     render(<App />);
     await user.click(await screen.findByRole('button', { name: 'Settings' }));
     const people = screen.getByRole('region', { name: 'people' });
+    await unfold(user, 'With a CloudPunch role');
     await user.click(await within(people).findByRole('button', { name: /Nilesh Darekar/ }));
     await user.click(within(people).getByLabelText('role-Administrator'));
     await user.click(within(people).getByRole('button', { name: 'Save' }));
@@ -1919,6 +1933,7 @@ describe('welcome email (ADR-0021)', () => {
     render(<App />);
     await user.click(await screen.findByRole('button', { name: 'Settings' }));
     const people = screen.getByRole('region', { name: 'people' });
+    await unfold(user, 'With a CloudPunch role');
     await user.click(await within(people).findByRole('button', { name: /Shaziya Syed/ }));
     const roles = within(people).getByRole('group', { name: 'edit-roles' });
     await user.click(within(roles).getByLabelText('role-Manager'));
@@ -1942,6 +1957,7 @@ describe('welcome email (ADR-0021)', () => {
     render(<App />);
     await user.click(await screen.findByRole('button', { name: 'Settings' }));
     const people = screen.getByRole('region', { name: 'people' });
+    await unfold(user, 'With a CloudPunch role');
     await user.type(within(people).getByLabelText('people-search'), 'farh');
     await user.click(await within(people).findByRole('button', { name: /Farheen Khanam/ }));
     await user.click(within(people).getByRole('button', { name: 'Save' }));
@@ -1972,6 +1988,7 @@ describe('welcome email (ADR-0021)', () => {
     render(<App />);
     await user.click(await screen.findByRole('button', { name: 'Settings' }));
     const people = screen.getByRole('region', { name: 'people' });
+    await unfold(user, 'With a CloudPunch role');
     await user.click(await within(people).findByRole('button', { name: /Farheen Khanam/ }));
     await user.click(within(people).getByRole('button', { name: 'Send welcome email' }));
     const panel = await within(people).findByRole('group', { name: 'welcome-email' });
@@ -2130,7 +2147,7 @@ describe('Reporting lines and Versions (ADR-0025)', () => {
     const user = userEvent.setup();
     render(<App />);
     await user.click(await screen.findByRole('button', { name: 'Settings' }));
-    const lines = await screen.findByRole('region', { name: 'reporting-lines' });
+    const lines = await unfold(user, 'Reporting lines');
     await user.type(within(lines).getByLabelText('reporting-reason'), 'pilot team');
     await user.selectOptions(await within(lines).findByLabelText('manager of Farheen Test'), 'a1');
     expect(mocks.adminSetManager).toHaveBeenCalledWith('b2', 'a1', 'pilot team');
@@ -2234,7 +2251,7 @@ describe('reporting lines warn about a manager without the Manager role', () => 
     const user = userEvent.setup();
     render(<App />);
     await user.click(await screen.findByRole('button', { name: 'Settings' }));
-    const lines = await screen.findByRole('region', { name: 'reporting-lines' });
+    const lines = await unfold(user, 'Reporting lines');
     expect(await within(lines).findByRole('note')).toHaveTextContent(
       "Mona Test doesn't have the Manager role yet",
     );
@@ -2411,6 +2428,7 @@ describe('People: Active machine (ADR-0028 §4)', () => {
     render(<App />);
     await user.click(await screen.findByRole('button', { name: 'Settings' }));
     const people = screen.getByRole('region', { name: 'people' });
+    await unfold(user, 'With a CloudPunch role');
     await user.click(await within(people).findByRole('button', { name: /Farheen Khanam/ }));
     const section = within(people).getByRole('group', { name: 'active-machine' });
     const details = await within(section).findByLabelText('active-machine-details');
@@ -2446,6 +2464,7 @@ describe('People: Active machine (ADR-0028 §4)', () => {
     render(<App />);
     await user.click(await screen.findByRole('button', { name: 'Settings' }));
     const people = screen.getByRole('region', { name: 'people' });
+    await unfold(user, 'With a CloudPunch role');
     await user.click(await within(people).findByRole('button', { name: /Farheen Khanam/ }));
     expect(within(people).getByRole('group', { name: 'edit-roles' })).toBeInTheDocument();
     expect(within(people).queryByRole('group', { name: 'active-machine' })).not.toBeInTheDocument();

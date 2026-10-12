@@ -37,7 +37,7 @@ describe('ShiftEditor', () => {
       shift: { days: [1, 2, 3, 4, 5], start: '08:00', end: '17:30', tz_iana: 'America/New_York' },
     });
     const user = userEvent.setup();
-    render(<ShiftEditor />);
+    render(<ShiftEditor defaultOpen />);
     expect(await screen.findByLabelText('shift of Roshni Sahani')).toHaveTextContent('No shift');
     await user.click(screen.getByRole('button', { name: 'Set shift' }));
     await user.type(screen.getByLabelText('shift-start'), '08:00');
@@ -68,7 +68,7 @@ describe('Copy to…', () => {
     mocks.adminShifts.mockResolvedValue({ people });
     mocks.adminSetShift.mockResolvedValue({ shift: night });
     const user = userEvent.setup();
-    render(<ShiftEditor />);
+    render(<ShiftEditor defaultOpen />);
     await user.click(await screen.findByRole('button', { name: 'Copy to…' }));
     await user.click(screen.getByLabelText('copy to Farheen Khan'));
     await user.click(screen.getByLabelText('copy to Nilesh Patil'));
@@ -88,14 +88,37 @@ describe('Copy to…', () => {
       id === 'e3' ? Promise.reject(new Error('offline')) : Promise.resolve({ shift: night }),
     );
     const user = userEvent.setup();
-    render(<ShiftEditor />);
+    render(<ShiftEditor defaultOpen />);
     await user.click(await screen.findByRole('button', { name: 'Copy to…' }));
-    await user.click(screen.getByLabelText('Everyone'));
+    await user.click(screen.getByLabelText('All 2 listed'));
     await user.click(screen.getByRole('button', { name: 'Copy to 2 people' }));
     expect(await screen.findByRole('alert')).toHaveTextContent(/^Not copied to Nilesh Patil/);
     expect(screen.getByLabelText('copy to Nilesh Patil')).toBeChecked();
-    expect(screen.getByLabelText('copy to Farheen Khan')).not.toBeChecked();
+    // Farheen has a shift now, so she's no longer offered.
+    expect(screen.queryByLabelText('copy to Farheen Khan')).not.toBeInTheDocument();
     expect(screen.getByLabelText('shift of Farheen Khan')).toHaveTextContent('Mon–Fri');
+  });
+
+  it('offers only people without a shift, and the rest when asked', async () => {
+    const day = { days: [1, 2, 3, 4, 5], start: '09:00', end: '18:00', tz_iana: 'Asia/Kolkata' };
+    mocks.adminShifts.mockResolvedValue({
+      people: [...people, { employee_id: 'e4', name: 'Priya Shah', shift: day }],
+    });
+    const user = userEvent.setup();
+    render(<ShiftEditor defaultOpen />);
+    await user.click((await screen.findAllByRole('button', { name: 'Copy to…' }))[0]!);
+    expect(screen.getByLabelText('copy to Farheen Khan')).toBeInTheDocument();
+    expect(screen.getByLabelText('copy to Nilesh Patil')).toBeInTheDocument();
+    expect(screen.queryByLabelText('copy to Priya Shah')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Also show the 1 who have a shift' }));
+    await user.click(screen.getByLabelText('copy to Priya Shah'));
+    expect(
+      screen.getByText('This replaces the shift of anyone ticked who already has one.'),
+    ).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Only people without a shift' }));
+    expect(screen.queryByLabelText('copy to Priya Shah')).not.toBeInTheDocument();
+    // Priya's tick went with her.
+    expect(screen.getByRole('button', { name: 'Copy to 0 people' })).toBeDisabled();
   });
 });
 
