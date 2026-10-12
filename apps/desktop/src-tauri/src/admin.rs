@@ -499,6 +499,90 @@ pub fn active_device(
     send(http, base, token, reqwest::Method::GET, &path, None)
 }
 
+// Bulk changes (ADR-0038 §5). The body carries the idempotency key, so
+// a retry gets the server's kept answer; the server checks everything.
+
+/// The trimmed text under `key`, left out when empty.
+fn with_text(mut body: Value, key: &str, text: Option<&str>) -> Value {
+    if let Some(t) = text.map(str::trim).filter(|t| !t.is_empty()) {
+        body[key] = Value::String(t.to_string());
+    }
+    body
+}
+
+/// One manager (or none) for many people: all or nothing.
+pub fn bulk_manager(
+    http: &Client,
+    base: &str,
+    token: &str,
+    key: &str,
+    employee_ids: &[String],
+    manager_id: Option<&str>,
+    reason: Option<&str>,
+) -> Result<Value, DayError> {
+    let body = serde_json::json!({
+        "idempotency_key": key,
+        "employee_ids": employee_ids,
+        "manager_employee_id": manager_id,
+    });
+    send(
+        http,
+        base,
+        token,
+        reqwest::Method::PUT,
+        "/v1/admin/employees/bulk/manager",
+        Some(&with_text(body, "reason", reason)),
+    )
+}
+
+/// Add or remove roles for many people; each person is answered.
+#[allow(clippy::too_many_arguments)]
+pub fn bulk_roles(
+    http: &Client,
+    base: &str,
+    token: &str,
+    key: &str,
+    oids: &[String],
+    add: &[String],
+    remove: &[String],
+    reason: Option<&str>,
+) -> Result<Value, DayError> {
+    let body = serde_json::json!({
+        "idempotency_key": key,
+        "oids": oids,
+        "add": add,
+        "remove": remove,
+    });
+    send(
+        http,
+        base,
+        token,
+        reqwest::Method::POST,
+        "/v1/admin/people/bulk/roles",
+        Some(&with_text(body, "reason", reason)),
+    )
+}
+
+/// Welcome emails for many people; each person is answered.
+pub fn bulk_welcome(
+    http: &Client,
+    base: &str,
+    token: &str,
+    key: &str,
+    oids: &[String],
+    note: Option<&str>,
+) -> Result<Value, DayError> {
+    let body = serde_json::json!({ "idempotency_key": key, "oids": oids });
+    send(
+        http,
+        base,
+        token,
+        reqwest::Method::POST,
+        "/v1/admin/people/bulk/welcome",
+        Some(&with_text(body, "note", note)),
+    )
+}
+
 /// Administrators: close that session at its last activity and sign
 /// the computer out. Audited server-side.
 pub fn sign_out_device(
@@ -675,6 +759,68 @@ mod tests {
         });
         set_manager(&client(), &server.base_url(), "t", id, None, None).unwrap();
         clear.assert();
+    }
+
+    #[test]
+    fn bulk_calls_send_the_key_and_trimmed_text() {
+        let server = MockServer::start();
+        let key = "22222222-2222-4222-8222-222222222222";
+        let ids = vec!["0f8e1c2a-3b4d-4e5f-8a9b-0c1d2e3f4a5b".to_string()];
+        let manager = server.mock(|when, then| {
+            when.method(PUT)
+                .path("/v1/admin/employees/bulk/manager")
+                .json_body(json!({
+                    "idempotency_key": key,
+                    "employee_ids": ids,
+                    "manager_employee_id": null,
+                    "reason": "left",
+                }));
+            then.status(200)
+                .json_body(json!({ "changed": [], "unchanged": [] }));
+        });
+        bulk_manager(
+            &client(),
+            &server.base_url(),
+            "t",
+            key,
+            &ids,
+            None,
+            Some(" left "),
+        )
+        .unwrap();
+        manager.assert();
+        let roles = server.mock(|when, then| {
+            when.method(POST)
+                .path("/v1/admin/people/bulk/roles")
+                .json_body(json!({
+                    "idempotency_key": key,
+                    "oids": ids,
+                    "add": ["Manager"],
+                    "remove": [],
+                }));
+            then.status(200).json_body(json!({ "results": [] }));
+        });
+        let add = vec!["Manager".to_string()];
+        bulk_roles(
+            &client(),
+            &server.base_url(),
+            "t",
+            key,
+            &ids,
+            &add,
+            &[],
+            Some("  "),
+        )
+        .unwrap();
+        roles.assert();
+        let welcome = server.mock(|when, then| {
+            when.method(POST)
+                .path("/v1/admin/people/bulk/welcome")
+                .json_body(json!({ "idempotency_key": key, "oids": ids, "note": "Hi" }));
+            then.status(200).json_body(json!({ "results": [] }));
+        });
+        bulk_welcome(&client(), &server.base_url(), "t", key, &ids, Some("Hi")).unwrap();
+        welcome.assert();
     }
 
     #[test]

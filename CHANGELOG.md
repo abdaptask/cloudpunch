@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Desktop 0.1.29 and web: change many people at once (ADR-0038 phase 4b)
+
+- **Tick people in the People table** (one by one, the whole page, or
+  "Select all N matching"); a **bulk bar** appears: **Set manager · Add
+  role · Remove role · Send welcome email**.
+- **A preview before Apply**, e.g. "This changes 9 people: … get Priya
+  Shah as manager. 3 people already report to her." People it can't
+  apply to are listed as left out. A loop, or the new manager being
+  among them, is shown before anything is sent.
+- **Set manager** is all or nothing; **roles** and **welcome emails**
+  are per person, and the result lists anyone it wasn't done for, and
+  why. At most 200 people at a time.
+- Each change carries an idempotency key; retrying after a lost answer
+  sends the same key, so nothing is done twice. HR still sees only
+  Employee and Manager.
+- Needs the server from phase 4a (migration 0013).
+
 ### Server: bulk changes for the admin console (ADR-0038 phase 4a; migration 0013)
 
 - **Migration 0013 `admin_bulk_request`** (append-only): one row per

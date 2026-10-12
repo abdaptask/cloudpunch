@@ -196,4 +196,36 @@ describe('the browser api for the desktop screens (ADR-0033 §5)', () => {
     await expect(api.adminActiveDevice(ID)).resolves.toBeNull();
     await expect(api.removeHoliday('2026-10-20')).resolves.toBeNull();
   });
+
+  it('sends the bulk changes with their key (ADR-0038 §5)', async () => {
+    const f = connect(json(200, {}));
+    const KEY = '22222222-2222-4222-8222-222222222222';
+    await api.adminBulkManager(KEY, [ID], null, ' left ');
+    await api.adminBulkRoles(KEY, [ID], { add: ['Manager'], remove: [] }, '');
+    await api.adminBulkWelcome(KEY, [ID], 'Hi');
+    expect(
+      (f.mock.calls as [string, RequestInit][]).map(([u, init]) => [init.method, u, init.body]),
+    ).toEqual([
+      [
+        'PUT',
+        '/v1/admin/employees/bulk/manager',
+        JSON.stringify({
+          idempotency_key: KEY,
+          employee_ids: [ID],
+          manager_employee_id: null,
+          reason: 'left',
+        }),
+      ],
+      [
+        'POST',
+        '/v1/admin/people/bulk/roles',
+        JSON.stringify({ idempotency_key: KEY, oids: [ID], add: ['Manager'], remove: [] }),
+      ],
+      [
+        'POST',
+        '/v1/admin/people/bulk/welcome',
+        JSON.stringify({ idempotency_key: KEY, oids: [ID], note: 'Hi' }),
+      ],
+    ]);
+  });
 });

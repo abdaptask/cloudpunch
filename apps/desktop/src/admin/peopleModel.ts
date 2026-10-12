@@ -187,3 +187,88 @@ export function managerChoices(
     )
     .map((r) => ({ id: r.employeeId, name: r.name }));
 }
+
+// Bulk changes (ADR-0038 §5): what Apply would do, shown before it does.
+
+/** At most this many people per bulk change (the server checks too). */
+export const MAX_BULK = 200;
+
+export interface ManagerPlan {
+  /** Will get the new manager. */
+  change: PersonRow[];
+  /** Already have them. */
+  already: PersonRow[];
+  /** No CloudPunch record, so no manager to set: left out. */
+  skipped: PersonRow[];
+  /** Why the whole batch can't go, naming who; null when it can. */
+  problem: { code: 'self_manager' | 'manager_loop'; who: PersonRow } | null;
+}
+
+/** Give everyone in `picked` the manager `managerId` (null: none). */
+export function managerPlan(
+  rows: readonly PersonRow[],
+  picked: readonly PersonRow[],
+  managerId: string | null,
+): ManagerPlan {
+  const withRecord = picked.filter((r) => r.employeeId !== null);
+  const plan: ManagerPlan = {
+    change: withRecord.filter((r) => r.managerId !== managerId),
+    already: withRecord.filter((r) => r.managerId === managerId),
+    skipped: picked.filter((r) => r.employeeId === null),
+    problem: null,
+  };
+  if (managerId === null) return plan;
+  const ids = new Set(withRecord.map((r) => r.employeeId));
+  const self = withRecord.find((r) => r.employeeId === managerId);
+  if (self) return { ...plan, problem: { code: 'self_manager', who: self } };
+  // Nobody being moved may be above the new manager.
+  const byId = new Map(rows.map((r) => [r.employeeId, r]));
+  let up = byId.get(managerId)?.managerId ?? null;
+  for (let i = 0; up && i < 50; i++) {
+    if (ids.has(up)) {
+      const who = byId.get(up);
+      if (who) return { ...plan, problem: { code: 'manager_loop', who } };
+    }
+    up = byId.get(up)?.managerId ?? null;
+  }
+  return plan;
+}
+
+export interface RolePlan {
+  change: PersonRow[];
+  already: PersonRow[];
+  /** Not linked to a Microsoft account: no roles to set. */
+  skipped: PersonRow[];
+}
+
+/** Add `role` to (or remove it from) everyone in `picked`. */
+export function rolePlan(picked: readonly PersonRow[], role: string, add: boolean): RolePlan {
+  const linked = picked.filter((r) => r.oid !== null);
+  const has = (r: PersonRow): boolean => r.roles.includes(role);
+  return {
+    change: linked.filter((r) => has(r) !== add),
+    already: linked.filter((r) => has(r) === add),
+    skipped: picked.filter((r) => r.oid === null),
+  };
+}
+
+/** Welcome emails go to those with a Microsoft account and the Employee role. */
+export function welcomePlan(picked: readonly PersonRow[]): {
+  send: PersonRow[];
+  skipped: PersonRow[];
+} {
+  const ok = (r: PersonRow): boolean => r.oid !== null && r.roles.includes('Employee');
+  return { send: picked.filter(ok), skipped: picked.filter((r) => !ok(r)) };
+}
+
+/** "Priya Shah, Roshni Sahani and 3 others". */
+export function namesText(rows: readonly PersonRow[], max = 3): string {
+  const names = rows.map((r) => r.name);
+  if (names.length <= max) {
+    return names.length <= 1
+      ? (names[0] ?? '')
+      : `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`;
+  }
+  const rest = names.length - max;
+  return `${names.slice(0, max).join(', ')} and ${rest} ${rest === 1 ? 'other' : 'others'}`;
+}

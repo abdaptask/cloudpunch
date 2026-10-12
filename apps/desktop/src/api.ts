@@ -43,6 +43,14 @@ export interface RolesSaved {
   unassigned_reports?: { id: string; name: string }[];
 }
 
+/** One person's answer in a bulk role or welcome request (ADR-0038 §5). */
+export interface BulkOutcome {
+  oid: string;
+  outcome: 'done' | 'already' | 'sent' | 'refused' | 'failed';
+  code?: string;
+  unassigned_reports?: { id: string; name: string }[];
+}
+
 /** Welcome email preview (ADR-0021). */
 export interface WelcomePreview {
   from: string;
@@ -459,6 +467,36 @@ export const api = {
   ): Promise<{ id: string; reporting_manager_id: string | null }> =>
     invoke('admin_set_manager', { employeeId, managerId, reason: reason || null }),
   adminDevices: (): Promise<{ devices: DeviceRow[] }> => invoke('admin_devices'),
+  /**
+   * Bulk (ADR-0038 §5). `key` is the request's idempotency key: send the
+   * same one again to retry, and the server answers as it did.
+   */
+  adminBulkManager: (
+    key: string,
+    employeeIds: string[],
+    managerId: string | null,
+    reason: string,
+  ): Promise<{ manager_employee_id: string | null; changed: string[]; unchanged: string[] }> =>
+    invoke('admin_bulk_manager', { key, employeeIds, managerId, reason: reason || null }),
+  adminBulkRoles: (
+    key: string,
+    oids: string[],
+    change: { add: string[]; remove: string[] },
+    reason: string,
+  ): Promise<{ add: string[]; remove: string[]; results: BulkOutcome[] }> =>
+    invoke('admin_bulk_roles', {
+      key,
+      oids,
+      add: change.add,
+      remove: change.remove,
+      reason: reason || null,
+    }),
+  adminBulkWelcome: (
+    key: string,
+    oids: string[],
+    note: string,
+  ): Promise<{ results: BulkOutcome[] }> =>
+    invoke('admin_bulk_welcome', { key, oids, note: note || null }),
   /** Where people connect from (ADR-0029); the server checks who sees whom. */
   myConnections: (): Promise<ConnectionHistory> => invoke('my_connections'),
   teamConnections: (): Promise<TeamConnections> => invoke('team_connections'),
