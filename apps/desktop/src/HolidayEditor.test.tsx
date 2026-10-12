@@ -62,7 +62,7 @@ describe('HolidayEditor', () => {
     mocks.setHoliday.mockResolvedValue({ date: '2026-11-09', name: 'Diwali' });
     mocks.removeHoliday.mockResolvedValue(null);
     const user = userEvent.setup();
-    render(<HolidayEditor />);
+    render(<HolidayEditor defaultOpen />);
     expect(await screen.findByText('Christmas')).toBeTruthy();
 
     const add = screen.getByRole('button', { name: 'Add holiday' });
@@ -84,7 +84,7 @@ describe('HolidayEditor', () => {
     mocks.holidays.mockResolvedValue({ holidays: [] });
     mocks.setHoliday.mockRejectedValue('forbidden');
     const user = userEvent.setup();
-    render(<HolidayEditor />);
+    render(<HolidayEditor defaultOpen />);
     expect(await screen.findByText('No holidays coming up.')).toBeTruthy();
     await user.type(screen.getByLabelText('holiday date'), '2026-11-09');
     await user.type(screen.getByLabelText('holiday name'), 'Diwali');

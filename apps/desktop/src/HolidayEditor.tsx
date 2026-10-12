@@ -1,6 +1,7 @@
 import { useEffect, useState, type CSSProperties } from 'react';
 import { api, type Holiday } from './api.js';
 import { Button } from './ui/Button.js';
+import { Collapsible } from './ui/Collapsible.js';
 import { useTheme, type Theme } from './ui/theme.js';
 
 /**
@@ -42,7 +43,7 @@ function input(t: Theme): CSSProperties {
   };
 }
 
-export function HolidayEditor(): JSX.Element {
+export function HolidayEditor({ defaultOpen = false }: { defaultOpen?: boolean }): JSX.Element {
   const t = useTheme();
   const [list, setList] = useState<Holiday[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -98,8 +99,11 @@ export function HolidayEditor(): JSX.Element {
   };
 
   return (
-    <section aria-label="holidays" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-      <h3 style={{ margin: '8px 0 0', fontSize: 14, fontWeight: 650 }}>Holidays</h3>
+    <Collapsible
+      title="Holidays"
+      summary={list ? `${list.length} coming up` : undefined}
+      defaultOpen={defaultOpen}
+    >
       <p style={{ margin: 0, fontSize: 12, color: t.muted }}>
         One list for everyone. On a holiday CloudPunch doesn't ask anyone to clock in, and nobody
         shows as late. Anyone who works that day can still clock in.
@@ -163,6 +167,6 @@ export function HolidayEditor(): JSX.Element {
           Add holiday
         </Button>
       </div>
-    </section>
+    </Collapsible>
   );
 }

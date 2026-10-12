@@ -1,7 +1,16 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
-import { api, type ActiveMachine, type DirectoryUser, type Person } from './api.js';
+import {
+  api,
+  type ActiveMachine,
+  type DirectoryUser,
+  type EmployeeRow,
+  type Person,
+  type ShiftRow,
+} from './api.js';
+import { shiftText } from './ShiftEditor.js';
 import { formatClock } from './timelineModel.js';
 import { Button } from './ui/Button.js';
+import { Collapsible } from './ui/Collapsible.js';
 import { WelcomePanel } from './WelcomePanel.js';
 import { useTheme, type Theme } from './ui/theme.js';
 
@@ -64,12 +73,15 @@ const errorText = (code: string): string => ERROR_TEXT[code] ?? `Something went 
 export function PeopleScreen({
   canAssignAll,
   canSignOutMachines = false,
+  listOpen = false,
   onClose,
 }: {
   /** `admin.role.assign`: every role; otherwise HR's Employee / Manager. */
   canAssignAll: boolean;
   /** Administrators: Active machine and "Sign out of this machine" (ADR-0028 §4). */
   canSignOutMachines?: boolean;
+  /** "With a CloudPunch role" starts open (tests); folded otherwise. */
+  listOpen?: boolean;
   onClose: () => void;
 }): JSX.Element {
   const t = useTheme();
@@ -86,10 +98,22 @@ export function PeopleScreen({
   const [welcome, setWelcome] = useState<{ oid: string; name: string } | null>(null);
   const searchSeq = useRef(0);
 
+  // Manager and shift beside each name (owner request, 2026-10-12).
+  // Shifts are Administrators' only: for HR that marker is left out.
+  const [employees, setEmployees] = useState<EmployeeRow[] | null>(null);
+  const [shifts, setShifts] = useState<ShiftRow[] | null>(null);
   const load = (): void => {
     api.adminPeople().then(
       (r) => setPeople(r.people),
       (e: unknown) => setStatus({ kind: 'error', text: errorText(String(e)) }),
+    );
+    api.adminEmployees().then(
+      (r) => setEmployees(r.employees),
+      () => setEmployees(null),
+    );
+    api.adminShifts().then(
+      (r) => setShifts(r.people),
+      () => setShifts(null),
     );
   };
   useEffect(load, []);
@@ -277,23 +301,29 @@ export function PeopleScreen({
               ))}
             </ul>
           )}
-          <div style={{ fontSize: 12, fontWeight: 650, color: t.muted }}>
-            With a CloudPunch role
-          </div>
           {people === null && !status && (
             <p style={{ margin: 0, fontSize: 13, color: t.muted }}>Loading…</p>
           )}
           {people && (
-            <ul aria-label="people-list" style={list}>
-              {people.map((p) => (
-                <li key={p.oid}>
-                  <button type="button" onClick={() => edit(p.oid, p.name)} style={row(t)}>
-                    <span style={{ fontWeight: 600 }}>{p.name}</span>
-                    <span style={{ color: t.muted, fontSize: 12 }}>{p.roles.join(' · ')}</span>
-                  </button>
-                </li>
-              ))}
-            </ul>
+            <Collapsible
+              title="With a CloudPunch role"
+              summary={`${people.length} ${people.length === 1 ? 'person' : 'people'}`}
+              defaultOpen={listOpen}
+            >
+              <ul aria-label="people-list" style={list}>
+                {people.map((p) => (
+                  <li key={p.oid}>
+                    <button type="button" onClick={() => edit(p.oid, p.name)} style={row(t)}>
+                      <span style={{ fontWeight: 600, flex: 1, minWidth: 0 }}>{p.name}</span>
+                      <Setup person={p} employees={employees} shifts={shifts} t={t} />
+                      <span style={{ color: t.muted, fontSize: 12, textAlign: 'right' }}>
+                        {p.roles.join(' · ')}
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </Collapsible>
           )}
         </>
       )}
@@ -312,6 +342,77 @@ export function PeopleScreen({
         </p>
       )}
     </section>
+  );
+}
+
+/**
+ * Is this person set up? Two markers beside the name, each with the
+ * detail on hover: who they report to, and their shift. Nothing shows
+ * while loading, or for someone without an employee record.
+ */
+function Setup({
+  person,
+  employees,
+  shifts,
+  t,
+}: {
+  person: Person;
+  employees: EmployeeRow[] | null;
+  shifts: ShiftRow[] | null;
+  t: Theme;
+}): JSX.Element | null {
+  const me = employees?.find((e) => e.oid === person.oid);
+  if (!employees || !me) return null;
+  const manager = employees.find((e) => e.id === me.reporting_manager_id)?.name ?? null;
+  const shift = shifts?.find((s) => s.employee_id === me.id);
+  return (
+    <span style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+      <Marker
+        ok={manager !== null}
+        label={manager !== null ? 'Manager' : 'No manager'}
+        detail={manager !== null ? `Reports to ${manager}` : 'No manager set'}
+        t={t}
+      />
+      {shift && (
+        <Marker
+          ok={shift.shift !== null}
+          label={shift.shift !== null ? 'Shift' : 'No shift'}
+          detail={shift.shift !== null ? `Shift: ${shiftText(shift.shift)}` : 'No shift set'}
+          t={t}
+        />
+      )}
+    </span>
+  );
+}
+
+function Marker({
+  ok,
+  label,
+  detail,
+  t,
+}: {
+  ok: boolean;
+  label: string;
+  detail: string;
+  t: Theme;
+}): JSX.Element {
+  return (
+    <span
+      title={detail}
+      aria-label={detail}
+      style={{
+        fontSize: 11,
+        fontWeight: 600,
+        padding: '1px 6px',
+        borderRadius: 999,
+        whiteSpace: 'nowrap',
+        border: `1px solid ${ok ? t.border : 'transparent'}`,
+        background: ok ? 'transparent' : t.warnBg,
+        color: ok ? t.muted : t.warnText,
+      }}
+    >
+      {ok ? `✓ ${label}` : label}
+    </span>
   );
 }
 
@@ -489,10 +590,9 @@ function row(t: Theme): CSSProperties {
   return {
     width: '100%',
     display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'flex-start',
-    gap: 2,
-    padding: '8px 10px',
+    alignItems: 'center',
+    gap: 8,
+    padding: '6px 10px',
     border: `1px solid ${t.border}`,
     borderRadius: 10,
     background: t.surface,

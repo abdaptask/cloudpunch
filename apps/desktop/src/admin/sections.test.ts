@@ -14,12 +14,13 @@ describe('admin console sections (ADR-0038 §1)', () => {
         'admin.device.read',
         'admin.connection.read',
       ]),
-    ).toEqual(['people', 'shifts', 'holidays', 'rules', 'computers', 'connections']);
+    ).toEqual(['people', 'managers', 'shifts', 'holidays', 'rules', 'computers', 'connections']);
   });
 
-  it('HR sees People, Holidays and Rules', () => {
+  it('HR sees People, Managers, Holidays and Rules', () => {
     expect(keys(['hr.employee.write', 'hr.holiday.write', 'hr.policy.write'])).toEqual([
       'people',
+      'managers',
       'holidays',
       'rules',
     ]);

@@ -2,6 +2,7 @@ import { useEffect, useState, type CSSProperties } from 'react';
 import { api, type Shift, type ShiftRow } from './api.js';
 import { zoneChoices } from './correctionModel.js';
 import { Button } from './ui/Button.js';
+import { Collapsible } from './ui/Collapsible.js';
 import { useTheme, type Theme } from './ui/theme.js';
 
 /**
@@ -171,12 +172,13 @@ function Editor({
 function Copier({
   from,
   shift,
-  others,
+  others: everyone,
   onCopied,
   onCancel,
 }: {
   from: string;
   shift: Shift;
+  /** Everyone else; without a shift are offered first. */
   others: ShiftRow[];
   onCopied: (employeeId: string, s: Shift | null) => void;
   onCancel: () => void;
@@ -185,6 +187,11 @@ function Copier({
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Owner request (2026-10-12): offer the people missing a shift; those
+  // who have one only when asked, as copying replaces theirs.
+  const [withShift, setWithShift] = useState(false);
+  const missing = everyone.filter((o) => !o.shift);
+  const others = withShift ? everyone : missing;
   const toggle = (id: string): void =>
     setPicked((p) => {
       const n = new Set(p);
@@ -228,18 +235,24 @@ function Copier({
       aria-label={`copy shift of ${from}`}
       style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: '8px 0' }}
     >
-      <span style={{ fontSize: 12, color: t.muted }}>Give {shiftText(shift)} to:</span>
-      <label style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 13 }}>
-        <input
-          type="checkbox"
-          checked={allPicked}
-          disabled={busy}
-          onChange={() =>
-            setPicked(allPicked ? new Set() : new Set(others.map((o) => o.employee_id)))
-          }
-        />
-        Everyone
-      </label>
+      <span style={{ fontSize: 12, color: t.muted }}>
+        Give {shiftText(shift)} to {withShift ? 'anyone' : 'people without a shift'}:
+      </span>
+      {others.length === 0 ? (
+        <span style={{ fontSize: 13, color: t.muted }}>Everyone else has a shift.</span>
+      ) : (
+        <label style={{ display: 'flex', gap: 6, alignItems: 'center', fontSize: 13 }}>
+          <input
+            type="checkbox"
+            checked={allPicked}
+            disabled={busy}
+            onChange={() =>
+              setPicked(allPicked ? new Set() : new Set(others.map((o) => o.employee_id)))
+            }
+          />
+          All {others.length} listed
+        </label>
+      )}
       {others.map((o) => (
         <label
           key={o.employee_id}
@@ -258,6 +271,34 @@ function Copier({
           </span>
         </label>
       ))}
+      {everyone.length > missing.length && (
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => {
+            if (withShift) {
+              setPicked(
+                (p) => new Set([...p].filter((id) => missing.some((m) => m.employee_id === id))),
+              );
+            }
+            setWithShift((w) => !w);
+          }}
+          style={{
+            alignSelf: 'flex-start',
+            padding: 0,
+            border: 'none',
+            background: 'none',
+            color: t.accent,
+            font: 'inherit',
+            fontSize: 12.5,
+            cursor: 'pointer',
+          }}
+        >
+          {withShift
+            ? 'Only people without a shift'
+            : `Also show the ${everyone.length - missing.length} who have a shift`}
+        </button>
+      )}
       {picked.size > 0 && others.some((o) => picked.has(o.employee_id) && o.shift) && (
         <span style={{ fontSize: 12, color: t.muted }}>
           This replaces the shift of anyone ticked who already has one.
@@ -280,7 +321,7 @@ function Copier({
   );
 }
 
-export function ShiftEditor(): JSX.Element {
+export function ShiftEditor({ defaultOpen = false }: { defaultOpen?: boolean }): JSX.Element {
   const t = useTheme();
   const [rows, setRows] = useState<ShiftRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -303,9 +344,19 @@ export function ShiftEditor(): JSX.Element {
     };
   }, []);
 
+  const unassigned = rows?.filter((r) => !r.shift).length ?? 0;
+
   return (
-    <section aria-label="shifts" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-      <h3 style={{ margin: '8px 0 0', fontSize: 14, fontWeight: 650 }}>Shifts</h3>
+    <Collapsible
+      title="Shifts"
+      summary={
+        rows
+          ? `${rows.length} ${rows.length === 1 ? 'person' : 'people'}` +
+            (unassigned > 0 ? ` · ${unassigned} without a shift` : '')
+          : undefined
+      }
+      defaultOpen={defaultOpen}
+    >
       <p style={{ margin: 0, fontSize: 12, color: t.muted }}>
         During someone's shift, CloudPunch asks them to clock in from its start, and again every 5
         minutes until they do or say they aren't working.
@@ -320,7 +371,7 @@ export function ShiftEditor(): JSX.Element {
         {rows?.map((row) => (
           <li
             key={row.employee_id}
-            style={{ borderTop: `1px solid ${t.border}`, padding: '8px 0', fontSize: 13 }}
+            style={{ borderTop: `1px solid ${t.border}`, padding: '6px 0', fontSize: 13 }}
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <span style={{ flex: 1, minWidth: 0 }}>
@@ -379,6 +430,6 @@ export function ShiftEditor(): JSX.Element {
           </li>
         ))}
       </ul>
-    </section>
+    </Collapsible>
   );
 }

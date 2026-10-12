@@ -5,7 +5,8 @@
  * hides what would be refused.
  */
 
-export type SectionKey = 'people' | 'shifts' | 'holidays' | 'rules' | 'computers' | 'connections';
+export type SectionKey =
+  'people' | 'managers' | 'shifts' | 'holidays' | 'rules' | 'computers' | 'connections';
 
 export interface Section {
   key: SectionKey;
@@ -16,6 +17,8 @@ export interface Section {
 
 export const SECTIONS: readonly Section[] = [
   { key: 'people', label: 'People', anyOf: ['admin.role.assign', 'hr.employee.write'] },
+  // Reporting lines on their own page (owner request, 2026-10-12).
+  { key: 'managers', label: 'Managers', anyOf: ['admin.role.assign', 'hr.employee.write'] },
   { key: 'shifts', label: 'Shifts', anyOf: ['admin.shift.write'] },
   { key: 'holidays', label: 'Holidays', anyOf: ['hr.holiday.write'] },
   { key: 'rules', label: 'Rules', anyOf: ['admin.policy.write', 'hr.policy.write'] },

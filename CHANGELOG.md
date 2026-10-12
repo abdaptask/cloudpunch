@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Desktop 0.1.27: folding lists, Managers on its own page, and who is set up (owner request)
+
+- **People**, **Reporting lines**, **Shifts** and **Holidays** fold to
+  one line with a count ("12 people · 2 without a manager") and open
+  on a click, in Settings and in the admin console. In the console,
+  the Managers, Shifts and Holidays pages start open.
+- **Admin console:** reporting lines move to their own **Managers**
+  page (People keeps roles).
+- **People:** one line per person, with two markers beside the name:
+  manager (✓ or "No manager") and shift (✓ or "No shift"; Administrators
+  only). Hovering shows who they report to and their shift.
+- **Reporting lines:** a "Find a person" box, shorter text, tighter
+  rows.
+- **Shifts → Copy to…** offers only people without a shift; "Also show
+  the N who have a shift" adds the rest when replacing is intended.
+
 ### Desktop 0.1.26: the admin console opens in its own wide window (ADR-0038 phase 2)
 
 - Settings has **Open admin console**: a separate window (1100 × 720,

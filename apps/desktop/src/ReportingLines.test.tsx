@@ -57,7 +57,7 @@ beforeEach(() => {
 
 describe('Reporting lines', () => {
   it('offers only Managers and HR, plus the manager someone already has', async () => {
-    render(<ReportingLines />);
+    render(<ReportingLines defaultOpen />);
     await screen.findByLabelText('manager of Roshni Sahani');
     await vi.waitFor(() =>
       expect(options('Roshni Sahani')).toEqual([
@@ -74,7 +74,7 @@ describe('Reporting lines', () => {
 
   it('a Manager without a record gets one, then can be picked', async () => {
     mocks.adminPeopleSetRoles.mockResolvedValue({ roles: ['Manager'], changed: false });
-    render(<ReportingLines />);
+    render(<ReportingLines defaultOpen />);
     const note = await screen.findByText(/Shaziya Syed has the Manager role but no CloudPunch/);
     expect(options('Roshni Sahani')).not.toContain('Shaziya Syed');
     mocks.adminEmployees.mockResolvedValue({
@@ -108,7 +108,7 @@ describe('Reporting lines', () => {
       changed: false,
       unassigned_reports: [{ id: 'e-left', name: 'Left Behind' }],
     });
-    render(<ReportingLines />);
+    render(<ReportingLines defaultOpen />);
     const remove = await screen.findByRole('button', { name: 'Remove Gone Person from this list' });
     expect(screen.queryByRole('button', { name: /Remove Nilesh D/ })).not.toBeInTheDocument();
     mocks.adminEmployees.mockResolvedValue({
@@ -126,7 +126,7 @@ describe('Reporting lines', () => {
 
   it("if roles can't load, everyone is offered as before", async () => {
     mocks.adminPeople.mockRejectedValue('offline');
-    render(<ReportingLines />);
+    render(<ReportingLines defaultOpen />);
     await screen.findByLabelText('manager of Roshni Sahani');
     expect(options('Roshni Sahani')).toContain('Farheen Khanam');
   });
