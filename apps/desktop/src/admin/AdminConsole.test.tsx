@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AdminConsole } from './AdminConsole.js';
 
 // Today's screens stand in as labels: this tests the console, not them.
-vi.mock('../PeopleScreen.js', () => ({ PeopleScreen: () => <p>people screen</p> }));
+vi.mock('./PeopleTable.js', () => ({ PeopleTable: () => <p>people screen</p> }));
 vi.mock('../ReportingLines.js', () => ({ ReportingLines: () => <p>reporting lines</p> }));
 vi.mock('../ShiftEditor.js', () => ({ ShiftEditor: () => <p>shift editor</p> }));
 vi.mock('../HolidayEditor.js', () => ({ HolidayEditor: () => <p>holiday editor</p> }));

@@ -1,12 +1,12 @@
 import { useState, type CSSProperties, type ReactNode } from 'react';
 import { EveryoneConnections } from '../ConnectionsView.js';
 import { HolidayEditor } from '../HolidayEditor.js';
-import { PeopleScreen } from '../PeopleScreen.js';
 import { ReportingLines } from '../ReportingLines.js';
 import { SettingsScreen } from '../SettingsScreen.js';
 import { ShiftEditor } from '../ShiftEditor.js';
 import { useTheme, type Theme } from '../ui/theme.js';
 import { VersionsScreen } from '../VersionsScreen.js';
+import { PeopleTable } from './PeopleTable.js';
 import { pickSection, sectionsFor, type SectionKey } from './sections.js';
 
 /** The section last open, per computer (a convenience; may be unavailable). */
@@ -30,9 +30,9 @@ function remember(key: SectionKey): void {
 
 /**
  * The admin console (ADR-0038 §1): a sidebar and a wide content area,
- * shown in the desktop's admin window and on the web at `/app/admin/`. Each
- * section is today's screen, unchanged; later phases replace them one
- * by one. The sidebar only offers what the capabilities allow; the
+ * shown in the desktop's admin window and on the web at `/app/admin/`.
+ * People is the table and panel (phase 3); the other sections are
+ * today's screens until later phases replace them. The sidebar only offers what the capabilities allow; the
  * server checks every request again.
  */
 export function AdminConsole({
@@ -60,7 +60,7 @@ export function AdminConsole({
     switch (key) {
       case 'people':
         return (
-          <PeopleScreen
+          <PeopleTable
             canAssignAll={has('admin.role.assign')}
             canSignOutMachines={has('admin.device.revoke')}
             onClose={onClose}
@@ -104,7 +104,8 @@ export function AdminConsole({
       <main aria-label="admin-content" style={{ flex: 1, minWidth: 0, overflowY: 'auto' }}>
         <div
           style={{
-            maxWidth: 760,
+            // People is a table with a panel beside it: it takes the width.
+            maxWidth: section === 'people' ? 1400 : 760,
             padding: '20px 28px 40px',
             display: 'flex',
             flexDirection: 'column',
