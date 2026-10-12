@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Desktop 0.1.28 and web: People is one table with a person panel (ADR-0038 phase 3)
+
+- **Admin console → People** is now one table of everyone: name and
+  email, role chips, manager, shift (Administrators only) and a status
+  ("No manager", "No shift", "No role", "Needs Manager role", "No
+  record"). Sort by any column; the header row stays put; 50 a page.
+- **Needs attention** counts above the table ("2 without a manager",
+  "1 without a shift", "1 manager without the Manager role", "1 with a
+  record but no role"); click one to show just those people.
+- **Find** by name or email, and filter by role or by manager.
+- **Clicking a person opens a panel beside the table**, so the list
+  keeps its place: roles, manager, shift, welcome email and (for
+  Administrators) the active machine. Each saves with the same call as
+  before; the table refreshes after.
+- **Picking a manager by typing:** two letters, then pick from the
+  matches (people with the Manager or HR role), or "No manager". If
+  their manager lacks the Manager role, "Give them the Manager role".
+- **Add person** searches the company directory and opens the panel
+  with Employee ticked; the welcome email follows, as before.
+- The Managers page and the small Settings window are unchanged.
+
 ### Web: the admin console at /app/admin/ (ADR-0038 phase 2)
 
 - **`https://cloudpunch.aptask.com/app/admin/`** shows the same admin

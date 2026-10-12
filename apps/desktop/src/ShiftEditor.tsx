@@ -50,7 +50,8 @@ function input(t: Theme): CSSProperties {
   };
 }
 
-function Editor({
+/** One person's shift: days, start, end and zone (also the person panel's, ADR-0038 §3). */
+export function ShiftForm({
   row,
   onSaved,
   onCancel,
@@ -409,7 +410,7 @@ export function ShiftEditor({ defaultOpen = false }: { defaultOpen?: boolean }):
               )}
             </div>
             {editing === row.employee_id && (
-              <Editor
+              <ShiftForm
                 row={row}
                 onCancel={() => setEditing(null)}
                 onSaved={(shift) => {

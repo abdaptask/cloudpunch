@@ -15,7 +15,7 @@ import { WelcomePanel } from './WelcomePanel.js';
 import { useTheme, type Theme } from './ui/theme.js';
 
 /** Every CloudPunch role, with what it's for (ADR-0002 §2). */
-const ROLES: [string, string][] = [
+export const ROLES: [string, string][] = [
   ['Employee', 'Clocks in and out; sees their own time'],
   ['Manager', 'Approves their team’s timesheets'],
   ['HR', 'Department settings; people with Employee / Manager'],
@@ -24,9 +24,9 @@ const ROLES: [string, string][] = [
   ['Administrator', 'Company settings and all roles'],
 ];
 /** What HR may give or remove (ADR-0020 §3); the server enforces it too. */
-const HR_ASSIGNABLE = ['Employee', 'Manager'];
+export const HR_ASSIGNABLE = ['Employee', 'Manager'];
 
-const ERROR_TEXT: Record<string, string> = {
+export const ERROR_TEXT: Record<string, string> = {
   offline: "Can't reach CloudPunch right now.",
   sign_in_again: 'Your sign-in has expired. Sign in again to see this.',
   people_not_configured: 'People is not set up on the server yet.',
@@ -422,7 +422,7 @@ function Marker({
  * or lost. The server closes the session at its last activity (no time
  * is invented), audits it, and signs that computer out.
  */
-function ActiveMachineSection({ oid, name }: { oid: string; name: string }): JSX.Element {
+export function ActiveMachineSection({ oid, name }: { oid: string; name: string }): JSX.Element {
   const t = useTheme();
   // undefined: loading; null: no employee record.
   const [employeeId, setEmployeeId] = useState<string | null | undefined>(undefined);
