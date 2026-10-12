@@ -4,6 +4,8 @@ import type {
   PeopleRepo,
   AppUser,
   AppUserRepo,
+  BulkRecord,
+  BulkRequestRepo,
   ConnectionRepo,
   CorrectionDecision,
   CorrectionRepo,
@@ -69,8 +71,20 @@ export class PostgresDb implements DbRepositories {
   readonly shiftAlerts: ShiftAlertRepo;
   readonly roles: RoleDirectoryRepo;
   readonly weeklyReports: WeeklyReportRepo;
+  readonly bulkRequests: BulkRequestRepo;
 
   constructor(private readonly sql: postgres.Sql) {
+    this.bulkRequests = {
+      find: async (actorUserId, key) => {
+        const [row] = await this.sql<
+          { kind: BulkRecord['kind']; requestHash: string; result: unknown }[]
+        >`
+          SELECT kind, request_hash, result FROM admin_bulk_request
+          WHERE actor_user_id = ${actorUserId} AND idempotency_key = ${key}`;
+        return row ?? null;
+      },
+      save: async (r) => await this.saveBulk(this.sql, r),
+    };
     this.shifts = this.buildShiftRepo();
     this.holidays = this.buildHolidayRepo();
     this.shiftAlerts = this.buildShiftAlertRepo();
@@ -680,6 +694,27 @@ export class PostgresDb implements DbRepositories {
                     ${i.reason}, ${i.correlationId}, ${i.at})`;
         });
       },
+      setReportingManagers: async (i, record) =>
+        this.sql.begin(async (tx) => {
+          // The key first: a retry racing this one changes nothing.
+          if (!(await this.saveBulk(tx, record))) return false;
+          for (const employeeId of i.employeeIds) {
+            const [before] = await tx<{ managerId: string | null }[]>`
+              SELECT reporting_manager_id AS "managerId" FROM employee
+              WHERE id = ${employeeId} FOR UPDATE`;
+            await tx`
+              UPDATE employee SET reporting_manager_id = ${i.managerId}, updated_at = now()
+              WHERE id = ${employeeId}`;
+            await tx`
+              INSERT INTO audit_log (actor_type, actor_user_id, entity_type, entity_id, action,
+                                     previous_value, new_value, reason, correlation_id, occurred_at)
+              VALUES ('user', ${i.actorUserId}, 'employee', ${employeeId}, 'reporting_manager_set',
+                      ${tx.json({ manager_employee_id: before?.managerId ?? null })},
+                      ${tx.json({ manager_employee_id: i.managerId })},
+                      ${i.reason}, ${i.correlationId}, ${i.at})`;
+          }
+          return true;
+        }),
       auditView: async (v) => {
         await this.sql`
           INSERT INTO audit_log (actor_type, actor_user_id, entity_type, entity_id, action,
@@ -688,6 +723,21 @@ export class PostgresDb implements DbRepositories {
                   NULL, ${this.sql.json(v.detail)}, NULL, ${v.correlationId}, ${v.at})`;
       },
     };
+  }
+
+  /** Keep a bulk answer (ADR-0038 §5); false when its key was already used. */
+  private async saveBulk(
+    sql: postgres.Sql | postgres.TransactionSql,
+    r: BulkRecord,
+  ): Promise<boolean> {
+    const rows = await sql`
+      INSERT INTO admin_bulk_request (actor_user_id, idempotency_key, kind, request_hash,
+                                      result, correlation_id, created_at)
+      VALUES (${r.actorUserId}, ${r.key}, ${r.kind}, ${r.requestHash},
+              ${sql.json(r.result as postgres.JSONValue)}, ${r.correlationId}, ${r.at})
+      ON CONFLICT (actor_user_id, idempotency_key) DO NOTHING
+      RETURNING idempotency_key`;
+    return rows.length > 0;
   }
 
   // -------------------------------------------------------------------

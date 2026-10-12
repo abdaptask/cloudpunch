@@ -53,6 +53,30 @@ export interface SetManagerInput {
   at: Date;
 }
 
+/** One manager for many people at once (ADR-0038 §5). */
+export interface SetManagersInput {
+  employeeIds: readonly string[];
+  managerId: string | null;
+  actorUserId: string;
+  reason: string | null;
+  /** The batch's id, on every person's audit row. */
+  correlationId: string;
+  at: Date;
+}
+
+export type BulkKind = 'manager' | 'roles' | 'welcome';
+
+/** A bulk request's answer, kept by its idempotency key (ADR-0038 §5). */
+export interface BulkRecord {
+  actorUserId: string;
+  key: string;
+  kind: BulkKind;
+  requestHash: string;
+  result: unknown;
+  correlationId: string;
+  at: Date;
+}
+
 /** Someone opened another person's day or exceptions (ADR-0025 §4). */
 export interface ViewAudit {
   actorUserId: string;
@@ -234,6 +258,12 @@ export interface EmployeeRepo {
   listActive(): Promise<Employee[]>;
   /** Set or clear `employeeId`'s manager and write the audit row. */
   setReportingManager(input: SetManagerInput): Promise<void>;
+  /**
+   * Bulk (ADR-0038 §5): `managerId` for all of `employeeIds`, each with
+   * its own audit row, and `record` kept, in one transaction. False,
+   * changing nothing, when `record`'s key was already used.
+   */
+  setReportingManagers(input: SetManagersInput, record: BulkRecord): Promise<boolean>;
   /** Write a read-audit row (ADR-0025 §4). */
   auditView(entry: ViewAudit): Promise<void>;
 }
@@ -677,6 +707,16 @@ export interface RoleDirectoryRepo {
   holders(roles: readonly string[]): Promise<RoleHolder[]>;
 }
 
+export interface BulkRequestRepo {
+  /** The answer kept for this caller's key, if any. */
+  find(
+    actorUserId: string,
+    key: string,
+  ): Promise<{ kind: BulkKind; requestHash: string; result: unknown } | null>;
+  /** Keep an answer; false when the key was already used (a race). */
+  save(record: BulkRecord): Promise<boolean>;
+}
+
 export interface DbRepositories {
   people: PeopleRepo;
   employees: EmployeeRepo;
@@ -693,4 +733,5 @@ export interface DbRepositories {
   shiftAlerts: ShiftAlertRepo;
   roles: RoleDirectoryRepo;
   weeklyReports: WeeklyReportRepo;
+  bulkRequests: BulkRequestRepo;
 }

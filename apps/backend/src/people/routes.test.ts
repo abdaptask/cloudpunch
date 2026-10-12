@@ -399,3 +399,157 @@ describe('People (ADR-0020)', () => {
     expect(off.res.json()).toMatchObject({ code: 'welcome_not_configured' });
   });
 });
+
+describe('bulk roles and welcome emails (ADR-0038 §5)', () => {
+  const ROSHNI: DirectoryUser = {
+    oid: '2c4e6a8b-1d3f-4a5b-8c7d-9e0f1a2b3c4d',
+    name: 'Roshni Sahani',
+    email: 'roshni@aptask.com',
+    givenName: 'Roshni',
+    surname: 'Sahani',
+  };
+  const NOBODY = '5f5f5f5f-1d3f-4a5b-8c7d-9e0f1a2b3c4d';
+  beforeEach(() => {
+    graph.users.set(ROSHNI.oid, ROSHNI);
+  });
+  const rolesBody = (b: Record<string, unknown>) => ({
+    idempotency_key: randomUUID(),
+    add: [],
+    remove: [],
+    ...b,
+  });
+
+  it('adds a role for many, each answered and audited with a shared batch id', async () => {
+    graph.add(ROSHNI.oid, ROSHNI.name, AppRole.Manager);
+    const { res } = await call(
+      ADMIN,
+      'POST',
+      '/v1/admin/people/bulk/roles',
+      rolesBody({ oids: [FARHEEN.oid, ROSHNI.oid], add: ['Manager'], reason: 'leads' }),
+    );
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({
+      add: ['Manager'],
+      remove: [],
+      results: [
+        { oid: FARHEEN.oid, outcome: 'done' },
+        { oid: ROSHNI.oid, outcome: 'already' },
+      ],
+    });
+    expect(roles(FARHEEN.oid)).toEqual(['Manager']);
+    // Records follow roles: Farheen's was made from the directory.
+    expect(await db.employees.findByEntraObjectId(FARHEEN.oid)).not.toBeNull();
+    expect(db.roleAudit).toHaveLength(1);
+    expect(db.roleAudit[0]).toMatchObject({ targetOid: FARHEEN.oid, reason: 'leads' });
+  });
+
+  it('removes a role, keeping the rest; a retry with the same key changes nothing', async () => {
+    graph.add(FARHEEN.oid, FARHEEN.name, AppRole.Employee);
+    graph.add(FARHEEN.oid, FARHEEN.name, AppRole.Manager);
+    const body = rolesBody({ oids: [FARHEEN.oid], remove: ['Manager'] });
+    const first = await call(HR, 'POST', '/v1/admin/people/bulk/roles', body);
+    expect(first.res.json()).toMatchObject({ results: [{ oid: FARHEEN.oid, outcome: 'done' }] });
+    expect(roles(FARHEEN.oid)).toEqual(['Employee']);
+    graph.add(FARHEEN.oid, FARHEEN.name, AppRole.Manager);
+    const again = await call(HR, 'POST', '/v1/admin/people/bulk/roles', body);
+    expect(again.res.json()).toEqual(first.res.json());
+    expect(roles(FARHEEN.oid)).toEqual(['Employee', 'Manager']);
+    expect(db.roleAudit).toHaveLength(1);
+  });
+
+  it('per person: one failing does not stop the others', async () => {
+    const { res } = await call(
+      ADMIN,
+      'POST',
+      '/v1/admin/people/bulk/roles',
+      rolesBody({ oids: [NOBODY, FARHEEN.oid], add: ['Employee'] }),
+    );
+    expect(res.json()).toMatchObject({
+      results: [
+        { oid: NOBODY, outcome: 'failed', code: 'unknown_person' },
+        { oid: FARHEEN.oid, outcome: 'done' },
+      ],
+    });
+  });
+
+  it('the one-person rules hold: HR, own Administrator, the last Administrator', async () => {
+    const hr = await call(
+      HR,
+      'POST',
+      '/v1/admin/people/bulk/roles',
+      rolesBody({ oids: [FARHEEN.oid], add: ['Auditor'] }),
+    );
+    expect(hr.res.statusCode).toBe(403);
+    expect(hr.res.json()).toMatchObject({ code: 'not_allowed_for_role' });
+
+    // The caller is the only Administrator: refused for them, nothing removed.
+    const own = await call(
+      ADMIN,
+      'POST',
+      '/v1/admin/people/bulk/roles',
+      rolesBody({ oids: [callerOid], remove: ['Administrator'] }),
+    );
+    expect(own.res.json()).toMatchObject({
+      results: [{ oid: callerOid, outcome: 'refused', code: 'cannot_remove_own_admin' }],
+    });
+
+    // Removing every other Administrator while the caller isn't one.
+    graph.assignments = [];
+    graph.add(FARHEEN.oid, FARHEEN.name, AppRole.Administrator);
+    graph.add(ROSHNI.oid, ROSHNI.name, AppRole.Administrator);
+    const last = await call(
+      ADMIN,
+      'POST',
+      '/v1/admin/people/bulk/roles',
+      rolesBody({ oids: [FARHEEN.oid, ROSHNI.oid], remove: ['Administrator'] }),
+    );
+    expect(last.res.json()).toMatchObject({ code: 'last_administrator' });
+    expect(roles(ROSHNI.oid)).toEqual(['Administrator']);
+  });
+
+  it('rejects bad input: nothing to do, both ways, unknown role, over 200', async () => {
+    const post = (b: Record<string, unknown>) =>
+      call(ADMIN, 'POST', '/v1/admin/people/bulk/roles', rolesBody(b));
+    expect((await post({ oids: [FARHEEN.oid] })).res.statusCode).toBe(400);
+    expect(
+      (await post({ oids: [FARHEEN.oid], add: ['Manager'], remove: ['Manager'] })).res.statusCode,
+    ).toBe(400);
+    expect((await post({ oids: [FARHEEN.oid], add: ['Owner'] })).res.statusCode).toBe(400);
+    const many = Array.from({ length: 201 }, () => randomUUID());
+    expect((await post({ oids: many, add: ['Employee'] })).res.statusCode).toBe(400);
+  });
+
+  it('sends welcome emails one each; recently sent and no email are listed', async () => {
+    graph.users.set(NOBODY, { ...ROSHNI, oid: NOBODY, email: null });
+    const body = {
+      idempotency_key: randomUUID(),
+      oids: [FARHEEN.oid, ROSHNI.oid, NOBODY],
+      note: 'Welcome!',
+    };
+    const { res } = await call(HR, 'POST', '/v1/admin/people/bulk/welcome', body);
+    expect(res.json()).toEqual({
+      results: [
+        { oid: FARHEEN.oid, outcome: 'sent' },
+        { oid: ROSHNI.oid, outcome: 'sent' },
+        { oid: NOBODY, outcome: 'failed', code: 'no_email' },
+      ],
+    });
+    expect(sent.map((m) => m.to)).toEqual(['farheen@aptask.com', 'roshni@aptask.com']);
+    expect(db.welcomeAudit).toHaveLength(2);
+
+    // The same key: the same answer, nothing sent.
+    const again = await call(HR, 'POST', '/v1/admin/people/bulk/welcome', body);
+    expect(again.res.json()).toEqual(res.json());
+    expect(sent).toHaveLength(2);
+    // A new request within 10 minutes: recently sent.
+    const fresh = await call(HR, 'POST', '/v1/admin/people/bulk/welcome', {
+      ...body,
+      idempotency_key: randomUUID(),
+      oids: [FARHEEN.oid],
+    });
+    expect(fresh.res.json()).toEqual({
+      results: [{ oid: FARHEEN.oid, outcome: 'refused', code: 'welcome_recently_sent' }],
+    });
+    expect(sent).toHaveLength(2);
+  });
+});
