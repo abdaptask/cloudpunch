@@ -2,10 +2,10 @@ import { useState, type CSSProperties, type ReactNode } from 'react';
 import { EveryoneConnections } from '../ConnectionsView.js';
 import { HolidayEditor } from '../HolidayEditor.js';
 import { ReportingLines } from '../ReportingLines.js';
-import { SettingsScreen } from '../SettingsScreen.js';
 import { useTheme, type Theme } from '../ui/theme.js';
 import { VersionsScreen } from '../VersionsScreen.js';
 import { PeopleTable } from './PeopleTable.js';
+import { RulesPage } from './RulesPage.js';
 import { ShiftsPage } from './ShiftsPage.js';
 import { pickSection, sectionsFor, type SectionKey } from './sections.js';
 
@@ -50,9 +50,19 @@ export function AdminConsole({
   const offered = sectionsFor(capabilities);
   const [chosen, setChosen] = useState<string | null>(remembered);
   const section = pickSection(offered, chosen);
-  const choose = (key: SectionKey): void => {
+  // Rules with unsaved changes: leaving asks first (ADR-0038 §8).
+  const [dirty, setDirty] = useState(false);
+  const [leavingTo, setLeavingTo] = useState<SectionKey | null>(null);
+  const go = (key: SectionKey): void => {
     setChosen(key);
     remember(key);
+    setDirty(false);
+    setLeavingTo(null);
+  };
+  const choose = (key: SectionKey): void => {
+    if (key === section) return;
+    if (dirty) setLeavingTo(key);
+    else go(key);
   };
   const has = (c: string): boolean => capabilities.includes(c);
 
@@ -74,7 +84,7 @@ export function AdminConsole({
       case 'holidays':
         return <HolidayEditor defaultOpen />;
       case 'rules':
-        return <SettingsScreen canEditCompany={has('admin.policy.write')} onClose={onClose} />;
+        return <RulesPage canEditCompany={has('admin.policy.write')} onDirtyChange={setDirty} />;
       case 'computers':
         return <VersionsScreen onClose={onClose} />;
       case 'connections':
@@ -105,13 +115,37 @@ export function AdminConsole({
         <div
           style={{
             // People is a table with a panel beside it: it takes the width.
-            maxWidth: section === 'people' ? 1400 : 760,
+            maxWidth: section === 'people' ? 1400 : section === 'rules' ? 960 : 760,
             padding: '20px 28px 40px',
             display: 'flex',
             flexDirection: 'column',
             gap: 16,
           }}
         >
+          {leavingTo !== null && (
+            <div
+              role="alertdialog"
+              aria-label="leave-with-changes"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                padding: 10,
+                borderRadius: 10,
+                background: t.warnBg,
+                color: t.warnText,
+                fontSize: 13,
+              }}
+            >
+              <span style={{ flex: 1 }}>Rules has unsaved changes. Leave without saving?</span>
+              <button type="button" onClick={() => go(leavingTo)} style={item(t, false)}>
+                Leave
+              </button>
+              <button type="button" onClick={() => setLeavingTo(null)} style={item(t, true)}>
+                Stay
+              </button>
+            </div>
+          )}
           {section === null ? (
             <p style={{ margin: 0, fontSize: 13, color: t.muted }}>
               Your CloudPunch role has no admin screens.

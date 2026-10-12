@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Desktop 0.1.31 and web: Rules by section (ADR-0038 phase 6)
+
+- **Admin console → Rules** shows one section at a time from a menu:
+  Idle, Clock-in popup, Long days, Breaks, Away, and (company-wide
+  only) Connection location and Shift-start emails. **Company or a
+  department** at the top.
+- **On a department**, each value that differs from the company shows
+  **Overridden**, the company value, and **Reset to company value**.
+- **Breaks as a table:** Type | On | Name | Pay | Limit.
+- **A save bar that stays on screen** while anything is unsaved: "3
+  unsaved changes · Why · Save · Discard", across sections; the menu
+  marks sections with unsaved changes. Switching department or
+  leaving Rules with unsaved changes asks first (and closing the web
+  tab).
+- **A department now saves only what differs from the company.** A
+  value reset to the company's is left out, so the department follows
+  the company for it again. Settings the screen doesn't show are kept.
+  The server, the policy shape and the save call are unchanged.
+- The small Settings window is unchanged (removed in phase 8).
+
 ### Desktop 0.1.30 and web: named shifts in the admin console (ADR-0038 phase 5b)
 
 - **Shifts page:** each named shift with its pattern, how many people
