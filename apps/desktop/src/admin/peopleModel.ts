@@ -20,6 +20,8 @@ export interface PersonRow {
   managerName: string | null;
   /** Undefined: shifts not known to this role (HR); null: no shift. */
   shift: Shift | null | undefined;
+  /** The named shift they're on (ADR-0038 §6); null: custom or none. */
+  template: { id: string; name: string } | null;
 }
 
 /** Roles that can see others' time, so can be someone's manager (ADR-0025). */
@@ -36,6 +38,8 @@ export function buildRows(
     if (employeeId === null) return null;
     return shifts.find((s) => s.employee_id === employeeId)?.shift ?? null;
   };
+  const templateOf = (employeeId: string | null) =>
+    (employeeId && shifts?.find((s) => s.employee_id === employeeId)?.template) || null;
   const row = (p: Person | null, e: EmployeeRow | null): PersonRow => {
     const managerId = e?.reporting_manager_id ?? null;
     return {
@@ -48,6 +52,7 @@ export function buildRows(
       managerId,
       managerName: managerId ? (byId.get(managerId)?.name ?? null) : null,
       shift: shiftOf(e?.id ?? null),
+      template: templateOf(e?.id ?? null),
     };
   };
   const rows = people.map((p) => row(p, employees.find((e) => e.oid === p.oid) ?? null));
@@ -271,4 +276,22 @@ export function namesText(rows: readonly PersonRow[], max = 3): string {
   }
   const rest = names.length - max;
   return `${names.slice(0, max).join(', ')} and ${rest} ${rest === 1 ? 'other' : 'others'}`;
+}
+
+export interface ShiftPlan {
+  change: PersonRow[];
+  /** Already on that named shift. */
+  already: PersonRow[];
+  /** No CloudPunch record, so no shift to set: left out. */
+  skipped: PersonRow[];
+}
+
+/** Give everyone in `picked` the named shift `templateId`. */
+export function shiftPlan(picked: readonly PersonRow[], templateId: string): ShiftPlan {
+  const withRecord = picked.filter((r) => r.employeeId !== null);
+  return {
+    change: withRecord.filter((r) => r.template?.id !== templateId),
+    already: withRecord.filter((r) => r.template?.id === templateId),
+    skipped: picked.filter((r) => r.employeeId === null),
+  };
 }

@@ -1,5 +1,6 @@
 import { useRef, useState, type CSSProperties, type ReactNode } from 'react';
-import { api, type BulkOutcome } from '../api.js';
+import { api, type BulkOutcome, type ShiftTemplate } from '../api.js';
+import { shiftText } from '../ShiftEditor.js';
 import { ERROR_TEXT, HR_ASSIGNABLE, ROLES } from '../PeopleScreen.js';
 import { Button } from '../ui/Button.js';
 import { useTheme, type Theme } from '../ui/theme.js';
@@ -7,16 +8,18 @@ import { ManagerPicker } from './ManagerPicker.js';
 import {
   MANAGING_ROLES,
   managerPlan,
+  shiftPlan,
   namesText,
   rolePlan,
   welcomePlan,
   type PersonRow,
 } from './peopleModel.js';
 
-export type BulkAction = 'manager' | 'addRole' | 'removeRole' | 'welcome';
+export type BulkAction = 'manager' | 'shift' | 'addRole' | 'removeRole' | 'welcome';
 
 export const BULK_LABEL: Record<BulkAction, string> = {
   manager: 'Set manager',
+  shift: 'Set shift',
   addRole: 'Add role',
   removeRole: 'Remove role',
   welcome: 'Send welcome email',
@@ -49,7 +52,7 @@ const OUTCOME_TEXT: Record<string, string> = {
 };
 
 type Result =
-  | { kind: 'manager'; changed: number; unchanged: number }
+  | { kind: 'manager'; changed: number; unchanged: number; what?: 'shift' }
   | { kind: 'outcomes'; outcomes: BulkOutcome[] };
 
 /**
@@ -63,6 +66,7 @@ export function BulkPanel({
   picked,
   rows,
   canAssignAll,
+  templates = null,
   onChanged,
   onClose,
 }: {
@@ -70,6 +74,8 @@ export function BulkPanel({
   picked: readonly PersonRow[];
   rows: readonly PersonRow[];
   canAssignAll: boolean;
+  /** Named shifts to offer for "Set shift" (ADR-0038 §6). */
+  templates?: readonly ShiftTemplate[] | null;
   onChanged: () => void;
   onClose: () => void;
 }): JSX.Element {
@@ -78,6 +84,8 @@ export function BulkPanel({
   const [managerId, setManagerId] = useState<string | null | undefined>(undefined);
   const [role, setRole] = useState('');
   const [text, setText] = useState('');
+  const [templateId, setTemplateId] = useState('');
+  const [from, setFrom] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<Result | null>(null);
@@ -240,6 +248,83 @@ export function BulkPanel({
           (r) => ({ kind: 'outcomes', outcomes: r.results }),
         );
     }
+  } else if (action === 'shift') {
+    const offered = templates?.filter((x) => !x.retired) ?? [];
+    const chosen = offered.find((x) => x.id === templateId);
+    const plan = chosen ? shiftPlan(picked, chosen.id) : null;
+    body = (
+      <>
+        <select
+          aria-label="bulk-shift"
+          value={templateId}
+          onChange={(e) => setTemplateId(e.target.value)}
+          style={input(t)}
+        >
+          <option value="">
+            {offered.length > 0 ? 'Choose a named shift' : 'No named shifts yet'}
+          </option>
+          {offered.map((x) => (
+            <option key={x.id} value={x.id}>
+              {x.name}
+            </option>
+          ))}
+        </select>
+        {chosen && (
+          <span style={{ fontSize: 12, color: t.muted }}>
+            {shiftText({
+              days: chosen.days,
+              start: chosen.start,
+              end: chosen.end,
+              tz_iana: chosen.tz_iana,
+            })}
+          </span>
+        )}
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12.5 }}>
+          From
+          <input
+            aria-label="bulk-from"
+            type="date"
+            value={from}
+            onChange={(e) => setFrom(e.target.value)}
+            style={input(t)}
+          />
+          <span style={{ color: t.muted }}>{from ? '' : 'today'}</span>
+        </label>
+        {plan && chosen && (
+          <Preview t={t}>
+            This changes {count(plan.change.length)}
+            {plan.change.length > 0 &&
+              `: ${namesText(plan.change)} ${one(plan.change.length, 'goes', 'go')} on ${chosen.name}`}
+            {` from ${from || 'today'}.`}
+            {plan.already.length > 0 &&
+              ` ${count(plan.already.length)} ${one(plan.already.length, 'is', 'are')} already on it.`}
+            {plan.skipped.length > 0 && (
+              <Skipped
+                t={t}
+                rows={plan.skipped}
+                why={['has no CloudPunch record', 'have no CloudPunch record']}
+              />
+            )}
+          </Preview>
+        )}
+      </>
+    );
+    if (plan && chosen && plan.change.length > 0) {
+      const ids = plan.change.map((r) => r.employeeId as string);
+      const target = { templateId: chosen.id };
+      const date = from || null;
+      apply = () =>
+        run(
+          () =>
+            api.adminBulkShift(keyFor(['shift', ids, target, date, text]), ids, target, date, text),
+          (r) => ({
+            kind: 'manager',
+            changed: r.changed.length,
+            unchanged: r.unchanged.length,
+            what: 'shift',
+          }),
+        );
+    }
   } else {
     const plan = welcomePlan(picked);
     body = (
@@ -361,7 +446,9 @@ function ResultView({
     return (
       <p role="status" style={{ margin: 0, fontSize: 13 }}>
         Done. {count(result.changed)} changed
-        {result.unchanged > 0 && `; ${result.unchanged} already had that manager`}.
+        {result.unchanged > 0 &&
+          `; ${result.unchanged} already had that ${result.what === 'shift' ? 'shift' : 'manager'}`}
+        .
       </p>
     );
   }

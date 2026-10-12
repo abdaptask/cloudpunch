@@ -271,6 +271,93 @@ pub fn set_shift(
     )
 }
 
+// Named shifts (ADR-0038 §6): Administrators only; the server checks
+// the role and every field.
+
+/// Every named shift, with how many people are on it.
+pub fn shift_templates(http: &Client, base: &str, token: &str) -> Result<Value, DayError> {
+    send(
+        http,
+        base,
+        token,
+        reqwest::Method::GET,
+        "/v1/admin/shift-templates",
+        None,
+    )
+}
+
+/// Make a named shift: `{name, days, start, end, tz_iana, reason?}`.
+pub fn create_shift_template(
+    http: &Client,
+    base: &str,
+    token: &str,
+    body: &Value,
+) -> Result<Value, DayError> {
+    send(
+        http,
+        base,
+        token,
+        reqwest::Method::POST,
+        "/v1/admin/shift-templates",
+        Some(body),
+    )
+}
+
+/// A new version of a named shift from a date (`dry_run` counts first).
+pub fn save_shift_template(
+    http: &Client,
+    base: &str,
+    token: &str,
+    id: &str,
+    body: &Value,
+) -> Result<Value, DayError> {
+    if !is_uuid(id) {
+        return Err(DayError::Refused("invalid_argument".into()));
+    }
+    send(
+        http,
+        base,
+        token,
+        reqwest::Method::PUT,
+        &format!("/v1/admin/shift-templates/{id}"),
+        Some(body),
+    )
+}
+
+/// Retire a named shift: no longer offered; people on it keep it.
+pub fn retire_shift_template(
+    http: &Client,
+    base: &str,
+    token: &str,
+    id: &str,
+    reason: Option<&str>,
+) -> Result<Value, DayError> {
+    if !is_uuid(id) {
+        return Err(DayError::Refused("invalid_argument".into()));
+    }
+    send(
+        http,
+        base,
+        token,
+        reqwest::Method::POST,
+        &format!("/v1/admin/shift-templates/{id}/retire"),
+        Some(&with_text(serde_json::json!({}), "reason", reason)),
+    )
+}
+
+/// One shift for many people, all or nothing (ADR-0038 §5); the body
+/// carries the idempotency key.
+pub fn bulk_shift(http: &Client, base: &str, token: &str, body: &Value) -> Result<Value, DayError> {
+    send(
+        http,
+        base,
+        token,
+        reqwest::Method::PUT,
+        "/v1/admin/employees/bulk/shift",
+        Some(body),
+    )
+}
+
 /// The company holidays (ADR-0037 §1), last month to a year ahead.
 pub fn holidays(http: &Client, base: &str, token: &str) -> Result<Value, DayError> {
     send(
@@ -821,6 +908,26 @@ mod tests {
         });
         bulk_welcome(&client(), &server.base_url(), "t", key, &ids, Some("Hi")).unwrap();
         welcome.assert();
+    }
+
+    #[test]
+    fn named_shift_calls_refuse_a_bad_id_before_sending() {
+        let bad = |r: Result<Value, DayError>| matches!(r, Err(DayError::Refused(c)) if c == "invalid_argument");
+        let base = "http://127.0.0.1:9";
+        assert!(bad(save_shift_template(
+            &client(),
+            base,
+            "t",
+            "../x",
+            &json!({})
+        )));
+        assert!(bad(retire_shift_template(
+            &client(),
+            base,
+            "t",
+            "x/retire",
+            None
+        )));
     }
 
     #[test]

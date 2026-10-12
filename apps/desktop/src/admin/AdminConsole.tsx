@@ -3,10 +3,10 @@ import { EveryoneConnections } from '../ConnectionsView.js';
 import { HolidayEditor } from '../HolidayEditor.js';
 import { ReportingLines } from '../ReportingLines.js';
 import { SettingsScreen } from '../SettingsScreen.js';
-import { ShiftEditor } from '../ShiftEditor.js';
 import { useTheme, type Theme } from '../ui/theme.js';
 import { VersionsScreen } from '../VersionsScreen.js';
 import { PeopleTable } from './PeopleTable.js';
+import { ShiftsPage } from './ShiftsPage.js';
 import { pickSection, sectionsFor, type SectionKey } from './sections.js';
 
 /** The section last open, per computer (a convenience; may be unavailable). */
@@ -70,7 +70,7 @@ export function AdminConsole({
       case 'managers':
         return <ReportingLines defaultOpen />;
       case 'shifts':
-        return <ShiftEditor defaultOpen />;
+        return <ShiftsPage />;
       case 'holidays':
         return <HolidayEditor defaultOpen />;
       case 'rules':
