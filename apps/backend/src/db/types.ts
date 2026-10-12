@@ -64,7 +64,7 @@ export interface SetManagersInput {
   at: Date;
 }
 
-export type BulkKind = 'manager' | 'roles' | 'welcome';
+export type BulkKind = 'manager' | 'roles' | 'welcome' | 'shift';
 
 /** A bulk request's answer, kept by its idempotency key (ADR-0038 §5). */
 export interface BulkRecord {
@@ -586,9 +586,45 @@ export interface ShiftAssignment {
   reason: string | null;
   assignedByUserId: string;
   assignedAt: Date;
+  /**
+   * Follows this named shift from `effectiveFrom` (ADR-0038 §6); its own
+   * days and times are a snapshot. Null: a custom pattern.
+   */
+  templateId: string | null;
 }
 
-export interface NewShiftAssignment extends Omit<ShiftAssignment, 'id' | 'assignedAt'> {
+export interface NewShiftAssignment extends Omit<
+  ShiftAssignment,
+  'id' | 'assignedAt' | 'templateId'
+> {
+  templateId?: string | null;
+  correlationId: string;
+  at: Date;
+}
+
+/** A named shift's name and pattern from a date (ADR-0038 §6). */
+export interface ShiftTemplateVersion {
+  id: string;
+  templateId: string;
+  name: string;
+  days: number[];
+  start: string;
+  end: string;
+  tzIana: string;
+  /** No longer offered; people on it keep it until moved. */
+  retired: boolean;
+  effectiveFrom: string;
+  reason: string | null;
+  createdByUserId: string;
+  createdAt: Date;
+}
+
+export interface NewShiftTemplateVersion extends Omit<
+  ShiftTemplateVersion,
+  'id' | 'createdAt' | 'templateId'
+> {
+  /** Null: a new named shift. */
+  templateId: string | null;
   correlationId: string;
   at: Date;
 }
@@ -614,6 +650,19 @@ export interface ShiftRepo {
   declareNotWorking(input: NotWorkingDeclaration): Promise<boolean>;
   /** `${employeeId}:${shiftDate}` for each declaration among these dates. */
   notWorking(employeeIds: readonly string[], dates: readonly string[]): Promise<Set<string>>;
+  /** Every named-shift version, newest first (effective_from, then created_at). */
+  templates(): Promise<ShiftTemplateVersion[]>;
+  /**
+   * A new version of a named shift (or a new named shift, `templateId`
+   * null) with an audit_log row, in one transaction.
+   */
+  saveTemplateVersion(input: NewShiftTemplateVersion): Promise<ShiftTemplateVersion>;
+  /**
+   * Bulk (ADR-0038 §5): store these shifts, each with its audit row, and
+   * `record`, in one transaction. False, storing nothing, when
+   * `record`'s key was already used.
+   */
+  assignMany(rows: readonly NewShiftAssignment[], record: BulkRecord): Promise<boolean>;
 }
 
 // ---------------------------------------------------------------------

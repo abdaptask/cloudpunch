@@ -4,6 +4,7 @@ import { MAX_GAP_MS, totals, type DaySegment, type WorkingDay } from '../days/bu
 import { daysAround, rulesFor } from '../days/service.js';
 import { effectivePolicyFor } from '../policy/service.js';
 import { activeWindow, shiftDate, type ShiftWindow } from '../shifts/model.js';
+import { shiftHistory } from '../shifts/resolve.js';
 import { alertSettings } from '../alerts/settings.js';
 
 /**
@@ -165,7 +166,10 @@ export async function teamNow(
 ): Promise<PersonNow[]> {
   const today = now.toISOString().slice(0, 10);
   const yesterday = new Date(now.getTime() - 86_400_000).toISOString().slice(0, 10);
-  const shiftRows = await db.shifts.history(people.map((p) => p.id));
+  const shiftRows = await shiftHistory(
+    db,
+    people.map((p) => p.id),
+  );
   // Shift dates are within a day of the UTC date, whatever the zone.
   const holidays = new Map(
     (await db.holidays.between(yesterday, shiftDate(today, 1))).map((h) => [h.date, h.name]),

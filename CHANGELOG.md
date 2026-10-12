@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Server: named shifts and bulk shift (ADR-0038 phase 5a; migration 0014)
+
+- **Migration 0014** (append-only): `shift_template` and
+  `shift_template_version` (name, days, start, end, zone, `retired`,
+  from a date), `shift_assignment.template_id`, and the `shift` kind
+  for bulk requests. Existing shifts are untouched and stay custom.
+- **One shift resolver** (`shifts/resolve.ts`): someone on a named
+  shift follows each of its versions from its date until their next
+  shift change. `/v1/me/shift`, "Not working today", Team, the
+  shift-start emails and the Monday email all read shifts through it.
+- **Named shifts** (Administrators): `GET /v1/admin/shift-templates`
+  (each with how many people are on it, what's coming, and how many
+  are on a custom shift or none), `POST` to make one, `PUT …/:id` for a
+  new version from a date (`dry_run` first: "this changes 14 people
+  from 19 Oct"), `POST …/:id/retire` (not offered any more; people
+  keep it until moved). Names are unique among those not retired.
+- **Setting a shift** (`PUT /v1/admin/employees/:id/shift`) takes a
+  named shift (`template_id`) or a pattern, and `effective_from`
+  (today by default, never in the past).
+- **`PUT /v1/admin/employees/bulk/shift`**: one shift for up to 200,
+  all or nothing, once per idempotency key; people already on it are
+  left as they are. `GET /v1/admin/shifts` shows each person's named
+  shift.
+
 ### Desktop 0.1.29 and web: change many people at once (ADR-0038 phase 4b)
 
 - **Tick people in the People table** (one by one, the whole page, or

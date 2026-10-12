@@ -103,6 +103,8 @@ describe('appendOnlyViolations', () => {
     expect(appendOnlyViolations('DELETE FROM shift_alert WHERE id = $1')).toHaveLength(1);
     expect(appendOnlyViolations('DELETE FROM weekly_report_sent')).toHaveLength(1);
     expect(appendOnlyViolations('UPDATE admin_bulk_request SET result = $1')).toHaveLength(1);
+    expect(appendOnlyViolations('DELETE FROM shift_template_version')).toHaveLength(1);
+    expect(appendOnlyViolations('UPDATE shift_template SET id = $1')).toHaveLength(1);
     // Trigger definitions and other tables are fine.
     expect(appendOnlyViolations('CREATE TRIGGER t BEFORE UPDATE ON time_event')).toEqual([]);
     expect(appendOnlyViolations('UPDATE time_session SET closed_at = now()')).toEqual([]);

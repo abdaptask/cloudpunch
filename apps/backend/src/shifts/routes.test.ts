@@ -14,6 +14,8 @@ import { authPlugin } from '../auth/plugin.js';
 import { InMemoryDb } from '../db/in-memory.js';
 import type { Employee } from '../db/index.js';
 import { teamNow } from '../team/service.js';
+import { shiftOn } from './model.js';
+import { shiftHistory } from './resolve.js';
 import { shiftRoutes } from './routes.js';
 
 const TENANT_ID = '12345678-1234-1234-1234-123456789012';
@@ -305,5 +307,162 @@ describe('holidays (ADR-0037)', () => {
     expect(r?.holiday).toBe('Diwali');
     // No shift, no holiday status.
     expect(h?.status).toBe('clocked_out');
+  });
+});
+
+describe('named shifts (ADR-0038 §6)', () => {
+  const INDIA = {
+    name: 'India day',
+    days: [1, 2, 3, 4, 5],
+    start: '09:00',
+    end: '18:00',
+    tz_iana: 'Asia/Kolkata',
+  };
+  const todayIst = () =>
+    new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date());
+  const plus = (days: number) =>
+    new Date(Date.parse(`${todayIst()}T00:00:00Z`) + days * 86_400_000).toISOString().slice(0, 10);
+  type Listed = {
+    id: string;
+    name: string;
+    start: string;
+    people: number;
+    retired: boolean;
+    next: { start: string; effective_from: string } | null;
+  };
+  const list = async () =>
+    (await call(admin, ADMIN, 'GET', '/v1/admin/shift-templates')).json() as {
+      templates: Listed[];
+      custom: number;
+      none: number;
+    };
+  const create = async () => {
+    const res = await call(admin, ADMIN, 'POST', '/v1/admin/shift-templates', INDIA);
+    expect(res.statusCode).toBe(201);
+    return (res.json() as { id: string }).id;
+  };
+
+  it('an Administrator makes one, gives it by name, and it is what the person gets', async () => {
+    expect((await call(hema, HR, 'POST', '/v1/admin/shift-templates', INDIA)).statusCode).toBe(403);
+    const id = await create();
+    const dup = await call(admin, ADMIN, 'POST', '/v1/admin/shift-templates', {
+      ...INDIA,
+      name: 'india DAY ',
+    });
+    expect(dup.statusCode).toBe(409);
+
+    const set = await call(admin, ADMIN, 'PUT', `/v1/admin/employees/${roshni}/shift`, {
+      template_id: id,
+    });
+    expect(set.statusCode).toBe(200);
+    expect(set.json()).toMatchObject({
+      template_id: id,
+      shift: { start: '09:00', tz_iana: 'Asia/Kolkata' },
+    });
+
+    const shifts = (await call(admin, ADMIN, 'GET', '/v1/admin/shifts')).json() as {
+      people: { employee_id: string; template: { name: string } | null }[];
+    };
+    expect(shifts.people.find((p) => p.employee_id === roshni)?.template).toEqual({
+      id,
+      name: 'India day',
+    });
+    const l = await list();
+    expect(l.templates).toMatchObject([{ id, name: 'India day', people: 1, retired: false }]);
+    expect(l.none).toBe(2);
+  });
+
+  it('editing it moves everyone on it from the chosen date, after a count', async () => {
+    const id = await create();
+    await call(admin, ADMIN, 'PUT', '/v1/admin/employees/bulk/shift', {
+      idempotency_key: randomUUID(),
+      employee_ids: [roshni, hema],
+      template_id: id,
+    });
+    const change = { ...INDIA, start: '08:00', end: '17:00', effective_from: plus(7) };
+    const dry = await call(admin, ADMIN, 'PUT', `/v1/admin/shift-templates/${id}`, {
+      ...change,
+      dry_run: true,
+    });
+    expect(dry.json()).toEqual({ people: 2, effective_from: plus(7) });
+    expect((await list()).templates[0]?.next).toBeNull();
+
+    const past = await call(admin, ADMIN, 'PUT', `/v1/admin/shift-templates/${id}`, {
+      ...change,
+      effective_from: plus(-1),
+    });
+    expect(past.json()).toMatchObject({ code: 'past_date' });
+
+    const saved = await call(admin, ADMIN, 'PUT', `/v1/admin/shift-templates/${id}`, change);
+    expect(saved.json()).toMatchObject({ people: 2, start: '08:00', effective_from: plus(7) });
+    const l = await list();
+    // Still 09:00 today; 08:00 is coming.
+    expect(l.templates[0]).toMatchObject({
+      start: '09:00',
+      next: { start: '08:00', effective_from: plus(7) },
+    });
+    // Every reader gets the resolved shift: today's, then the new one.
+    const rows = await shiftHistory(db, [roshni]);
+    expect(shiftOn(rows, plus(1))?.start).toBe('09:00');
+    expect(shiftOn(rows, plus(8))?.start).toBe('08:00');
+  });
+
+  it('retired: not offered, but people keep it', async () => {
+    const id = await create();
+    await call(admin, ADMIN, 'PUT', `/v1/admin/employees/${roshni}/shift`, { template_id: id });
+    const r = await call(admin, ADMIN, 'POST', `/v1/admin/shift-templates/${id}/retire`, {});
+    expect(r.json()).toEqual({ id, retired: true });
+    expect((await list()).templates[0]).toMatchObject({ retired: true, people: 1 });
+    expect(shiftOn(await shiftHistory(db, [roshni]), plus(1))?.start).toBe('09:00');
+    const again = await call(admin, ADMIN, 'PUT', `/v1/admin/employees/${hema}/shift`, {
+      template_id: id,
+    });
+    expect(again.json()).toMatchObject({ code: 'template_retired' });
+  });
+
+  it('bulk shift: all or nothing, once per key, unchanged left as they are', async () => {
+    const id = await create();
+    await call(admin, ADMIN, 'PUT', `/v1/admin/employees/${roshni}/shift`, { template_id: id });
+    const body = {
+      idempotency_key: randomUUID(),
+      employee_ids: [roshni, hema],
+      template_id: id,
+      reason: 'new team',
+    };
+    const res = await call(admin, ADMIN, 'PUT', '/v1/admin/employees/bulk/shift', body);
+    expect(res.json()).toEqual({
+      template_id: id,
+      effective_from: todayIst(),
+      changed: [hema],
+      unchanged: [roshni],
+    });
+    const rows = db.shiftRows.length;
+    const again = await call(admin, ADMIN, 'PUT', '/v1/admin/employees/bulk/shift', body);
+    expect(again.json()).toEqual(res.json());
+    expect(db.shiftRows).toHaveLength(rows);
+
+    const missing = await call(admin, ADMIN, 'PUT', '/v1/admin/employees/bulk/shift', {
+      ...body,
+      idempotency_key: randomUUID(),
+      employee_ids: [hema, randomUUID()],
+    });
+    expect(missing.statusCode).toBe(404);
+    expect(db.shiftRows).toHaveLength(rows);
+
+    // A custom pattern for many, from a later date.
+    const custom = await call(admin, ADMIN, 'PUT', '/v1/admin/employees/bulk/shift', {
+      idempotency_key: randomUUID(),
+      employee_ids: [roshni, hema],
+      days: [1, 2, 3],
+      start: '10:00',
+      end: '19:00',
+      tz_iana: 'Asia/Kolkata',
+      effective_from: plus(3),
+    });
+    expect(custom.json()).toMatchObject({ template_id: null, changed: [roshni, hema] });
+    expect(shiftOn(await shiftHistory(db, [hema]), plus(4))?.start).toBe('10:00');
+    expect((await call(hema, HR, 'PUT', '/v1/admin/employees/bulk/shift', body)).statusCode).toBe(
+      403,
+    );
   });
 });
