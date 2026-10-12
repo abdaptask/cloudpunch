@@ -1,5 +1,7 @@
 import { Capability } from '@cloudpunch/shared';
 import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
+import { AdminConsole } from '../../desktop/src/admin/AdminConsole.js';
+import { sectionsFor } from '../../desktop/src/admin/sections.js';
 import {
   CorrectionsBanner,
   CorrectionsQueue,
@@ -13,10 +15,11 @@ import { connectApi } from './desktopApi.js';
 
 /**
  * The web dashboard shell (ADR-0033): sign in with Microsoft, then the
- * server says who you are. Only people who can already see others' time
- * (`team.timeline.read`: Managers and HR) get past the gate; the server
- * still checks every request. Past the gate: the desktop's own Team
- * screen (ADR-0033 §5), view only.
+ * server says who you are. People who can see others' time
+ * (`team.timeline.read`: Managers and HR) or use an admin screen
+ * (ADR-0038 §2) get past the gate; the server still checks every
+ * request. Past the gate: the desktop's own Team screen (ADR-0033 §5)
+ * at `/app/`, and its admin console at `/app/admin/`.
  */
 
 export interface Me {
@@ -47,6 +50,22 @@ async function load(deps: AppDeps): Promise<View> {
   return whoAmI(deps, await deps.startAuth((await res.json()) as WebConfig));
 }
 
+const seesTeam = (me: Me): boolean => me.capabilities.includes(Capability.TeamTimelineRead);
+const seesAdmin = (me: Me): boolean => sectionsFor(me.capabilities).length > 0;
+
+/** The admin console's address (ADR-0038 §2); the server serves the app there too. */
+export const ADMIN_PATH = '/app/admin/';
+const TEAM_PATH = '/app/';
+
+type Page = 'team' | 'admin';
+
+/** The page this address asks for, if this person can have it. */
+function pageFor(path: string, me: Me): Page {
+  const wantsAdmin = path === ADMIN_PATH || path === '/app/admin';
+  if (wantsAdmin && seesAdmin(me)) return 'admin';
+  return seesTeam(me) ? 'team' : 'admin';
+}
+
 async function whoAmI(deps: AppDeps, auth: Auth): Promise<View> {
   if (!auth.account) return { kind: 'signed_out', auth };
   const me = await deps.fetch('/v1/me', {
@@ -55,7 +74,7 @@ async function whoAmI(deps: AppDeps, auth: Auth): Promise<View> {
   if (me.status === 403) return { kind: 'not_set_up', auth };
   if (!me.ok) return { kind: 'error', message: `/v1/me HTTP ${me.status}` };
   const body = (await me.json()) as Me;
-  return body.capabilities.includes(Capability.TeamTimelineRead)
+  return seesTeam(body) || seesAdmin(body)
     ? { kind: 'ready', auth, me: body }
     : { kind: 'not_allowed', auth, me: body };
 }
@@ -201,8 +220,8 @@ export function App({ deps = realDeps }: { deps?: AppDeps }): JSX.Element {
         {view.kind === 'not_allowed' && (
           <>
             <p style={p}>
-              CloudPunch on the web is for managers and HR. To track your own time, use the
-              CloudPunch app.
+              CloudPunch on the web is for managers, HR and administrators. To track your own time,
+              use the CloudPunch app.
             </p>
             <p style={p}>
               <a href="/" style={{ color: C.accent, fontWeight: 600 }}>
@@ -251,26 +270,97 @@ function Dashboard({
   });
   const corrections = useCorrectionsQueue(connected && reviewsCorrections(me));
   const [queueOpen, setQueueOpen] = useState(false);
+  const [page, setPage] = useState<Page>(() => pageFor(window.location.pathname, me));
+  // Back and forward move between Team and Admin.
+  useEffect(() => {
+    const onPop = (): void => setPage(pageFor(window.location.pathname, me));
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
+  }, [me]);
+  const go = (to: Page): void => {
+    if (to === page) return;
+    window.history.pushState(null, '', to === 'admin' ? ADMIN_PATH : TEAM_PATH);
+    setPage(to);
+  };
+  const both = seesTeam(me) && seesAdmin(me);
+
+  const header = (
+    <header
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 12,
+        padding: '12px 16px',
+        borderBottom: `1px solid ${t.border}`,
+        background: t.surface,
+      }}
+    >
+      <img src="/brand/logo.png" alt="CloudPunch" width={60} height={32} />
+      {both && (
+        <nav aria-label="pages" style={{ display: 'flex', gap: 4 }}>
+          {(['team', 'admin'] as const).map((p) => (
+            <a
+              key={p}
+              href={p === 'admin' ? ADMIN_PATH : TEAM_PATH}
+              aria-current={p === page ? 'page' : undefined}
+              onClick={(e) => {
+                e.preventDefault();
+                go(p);
+              }}
+              style={{
+                padding: '4px 10px',
+                borderRadius: 6,
+                fontSize: 14,
+                fontWeight: p === page ? 650 : 500,
+                color: p === page ? t.text : t.muted,
+                background: p === page ? t.surfaceAlt : 'transparent',
+                textDecoration: 'none',
+              }}
+            >
+              {p === 'admin' ? 'Admin' : 'Team'}
+            </a>
+          ))}
+        </nav>
+      )}
+      <span style={{ flex: 1, color: t.muted, fontSize: 14 }}>
+        {me.user.display_name ?? me.user.work_email}
+      </span>
+      <SignOut auth={auth} onDone={onSignedOut} />
+    </header>
+  );
+
+  if (page === 'admin') {
+    return (
+      <div
+        style={{
+          height: '100vh',
+          display: 'flex',
+          flexDirection: 'column',
+          background: t.bg,
+          color: t.text,
+          font: `15px/1.5 ${t.font}`,
+        }}
+      >
+        {header}
+        <div style={{ flex: 1, minHeight: 0 }}>
+          {/* "Done" goes back to Team, for those who have it. */}
+          <AdminConsole
+            capabilities={me.capabilities}
+            height="100%"
+            onClose={() => {
+              if (seesTeam(me)) go('team');
+            }}
+          />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
       style={{ minHeight: '100vh', background: t.bg, color: t.text, font: `15px/1.5 ${t.font}` }}
     >
-      <header
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 12,
-          padding: '12px 16px',
-          borderBottom: `1px solid ${t.border}`,
-          background: t.surface,
-        }}
-      >
-        <img src="/brand/logo.png" alt="CloudPunch" width={60} height={32} />
-        <span style={{ flex: 1, color: t.muted, fontSize: 14 }}>
-          {me.user.display_name ?? me.user.work_email}
-        </span>
-        <SignOut auth={auth} onDone={onSignedOut} />
-      </header>
+      {header}
       <main style={{ maxWidth: 720, margin: '0 auto', padding: '20px 16px 40px' }}>
         {queueOpen ? (
           <CorrectionsQueue

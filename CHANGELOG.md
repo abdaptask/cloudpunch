@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Web: the admin console at /app/admin/ (ADR-0038 phase 2)
+
+- **`https://cloudpunch.aptask.com/app/admin/`** shows the same admin
+  console as the desktop's admin window, with the same sidebar
+  sections per role. The server checks every request as before.
+- **Wider gate:** the web now lets in anyone who can see a team **or**
+  use an admin screen (an Auditor gets Computers). Employees still see
+  "use the CloudPunch app".
+- **Team / Admin** links in the header for those who have both; Back
+  and Forward move between them. A manager asking for `/app/admin/`
+  gets Team.
+- The browser api gains the console's 19 calls, each the same `/v1`
+  request as the desktop's Rust core, with the same id and date checks.
+  Role changes go through Graph on behalf of the web sign-in
+  (ADR-0038 §7), not yet tried on the live server.
+- No desktop release: the console only gains a `height` option.
+
 ### Desktop 0.1.27: folding lists, Managers on its own page, and who is set up (owner request)
 
 - **People**, **Reporting lines**, **Shifts** and **Holidays** fold to

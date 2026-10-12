@@ -30,7 +30,7 @@ function remember(key: SectionKey): void {
 
 /**
  * The admin console (ADR-0038 §1): a sidebar and a wide content area,
- * shown in the desktop's admin window (and, later, on the web). Each
+ * shown in the desktop's admin window and on the web at `/app/admin/`. Each
  * section is today's screen, unchanged; later phases replace them one
  * by one. The sidebar only offers what the capabilities allow; the
  * server checks every request again.
@@ -38,10 +38,13 @@ function remember(key: SectionKey): void {
 export function AdminConsole({
   capabilities,
   onClose,
+  height = '100vh',
 }: {
   capabilities: readonly string[];
   /** The screens' "Done". */
   onClose: () => void;
+  /** The whole window on the desktop; below the header on the web. */
+  height?: string;
 }): JSX.Element {
   const t = useTheme();
   const offered = sectionsFor(capabilities);
@@ -80,7 +83,7 @@ export function AdminConsole({
   };
 
   return (
-    <div style={{ display: 'flex', height: '100vh', background: t.bg, color: t.text }}>
+    <div style={{ display: 'flex', height, background: t.bg, color: t.text }}>
       <nav aria-label="admin-sections" style={sidebar(t)}>
         <div style={{ padding: '4px 12px 14px' }}>
           <div style={{ fontSize: 15, fontWeight: 700 }}>CloudPunch</div>

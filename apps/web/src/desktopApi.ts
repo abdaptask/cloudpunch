@@ -9,9 +9,10 @@ import type { api as DesktopApi } from '../../desktop/src/api.js';
  * screens read `String(e)` as a code (`offline`, `sign_in_again`, or the
  * server's `code`), which `ApiRefusal` gives them.
  *
- * Managers decide corrections here too (ADR-0033, amended 2026-10-08);
- * everything else that changes data refuses with `view_only` before
- * sending anything.
+ * Managers decide corrections here too (ADR-0033, amended 2026-10-08),
+ * and the admin console's screens make their changes here as in the
+ * desktop (ADR-0038 §2); asking for a correction still refuses with
+ * `view_only` before sending anything.
  */
 
 type Api = typeof DesktopApi;
@@ -29,6 +30,25 @@ export type WebApi = Pick<
   | 'requestCorrection'
   | 'correctionsQueue'
   | 'decideCorrection'
+  // The admin console (ADR-0038).
+  | 'adminPeople'
+  | 'adminPeopleSearch'
+  | 'adminPeopleSetRoles'
+  | 'adminWelcomePreview'
+  | 'adminWelcomeSend'
+  | 'adminEmployees'
+  | 'adminSetManager'
+  | 'adminActiveDevice'
+  | 'adminActiveDeviceSignOut'
+  | 'adminShifts'
+  | 'adminSetShift'
+  | 'holidays'
+  | 'setHoliday'
+  | 'removeHoliday'
+  | 'adminDepartments'
+  | 'adminPolicyGet'
+  | 'adminPolicyPut'
+  | 'adminDevices'
 >;
 
 export interface Transport {
@@ -62,7 +82,11 @@ const DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 const get = <T>(path: string): Promise<T> => send<T>('GET', path);
 
-async function send<T>(method: 'GET' | 'POST', path: string, body?: unknown): Promise<T> {
+async function send<T>(
+  method: 'GET' | 'POST' | 'PUT' | 'DELETE',
+  path: string,
+  body?: unknown,
+): Promise<T> {
   if (!transport) throw refuse('sign_in_again');
   let token: string;
   try {
@@ -75,7 +99,9 @@ async function send<T>(method: 'GET' | 'POST', path: string, body?: unknown): Pr
     res = await transport.fetch(
       path,
       body === undefined
-        ? { headers: { authorization: `Bearer ${token}` } }
+        ? method === 'GET'
+          ? { headers: { authorization: `Bearer ${token}` } }
+          : { method, headers: { authorization: `Bearer ${token}` } }
         : {
             method,
             headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
@@ -85,7 +111,8 @@ async function send<T>(method: 'GET' | 'POST', path: string, body?: unknown): Pr
   } catch {
     throw refuse('offline');
   }
-  if (res.ok) return (await res.json()) as T;
+  // As the Rust core: an empty answer (204) is `null`.
+  if (res.ok) return (res.status === 204 ? null : await res.json().catch(() => null)) as T;
   if (res.status === 401) throw refuse('sign_in_again');
   if (res.status >= 400 && res.status < 500 && res.status !== 429) {
     const body = (await res.json().catch(() => null)) as { code?: unknown } | null;
@@ -97,6 +124,19 @@ async function send<T>(method: 'GET' | 'POST', path: string, body?: unknown): Pr
 /** Same checks as the Rust core: ids and dates go into the URL path. */
 function check(ok: boolean): void {
   if (!ok) throw refuse('invalid_argument');
+}
+
+/** The optional reason or note, trimmed, as the Rust core sends it. */
+function withText(body: Record<string, unknown>, key: string, text: string | null): unknown {
+  const t = text?.trim();
+  return t ? { ...body, [key]: t } : body;
+}
+
+/** `("global", null)` or `("department", uuid)`, as `Scope::parse`. */
+function policyPath(scope: 'global' | 'department', id: string | null): string {
+  if (scope === 'global' && id === null) return '/v1/admin/policy/global';
+  check(scope === 'department' && id !== null && UUID.test(id));
+  return `/v1/admin/policy/departments/${id}`;
 }
 
 const viewOnly = (): Promise<never> => Promise.reject(refuse('view_only'));
@@ -134,4 +174,64 @@ export const api: WebApi = {
       text ? { decision, note: text } : { decision },
     );
   },
+
+  // The admin console (ADR-0038 §2): the same requests as the Rust
+  // core's `admin.rs`. The server checks the role on each one.
+  adminPeople: () => get('/v1/admin/people'),
+  adminPeopleSearch: (q) => get(`/v1/admin/people/search?${new URLSearchParams({ q }).toString()}`),
+  adminPeopleSetRoles: async (oid, roles, reason) => {
+    check(UUID.test(oid));
+    return send('PUT', `/v1/admin/people/${oid}/roles`, withText({ roles }, 'reason', reason));
+  },
+  adminWelcomePreview: async (oid) => {
+    check(UUID.test(oid));
+    return get(`/v1/admin/people/${oid}/welcome`);
+  },
+  adminWelcomeSend: async (oid, note) => {
+    check(UUID.test(oid));
+    return send('POST', `/v1/admin/people/${oid}/welcome`, withText({}, 'note', note));
+  },
+  adminEmployees: () => get('/v1/admin/employees'),
+  adminSetManager: async (employeeId, managerId, reason) => {
+    check(UUID.test(employeeId) && (managerId === null || UUID.test(managerId)));
+    return send(
+      'PUT',
+      `/v1/admin/employees/${employeeId}/manager`,
+      withText({ manager_employee_id: managerId }, 'reason', reason),
+    );
+  },
+  adminActiveDevice: async (employeeId) => {
+    check(UUID.test(employeeId));
+    return get(`/v1/people/${employeeId}/active-device`);
+  },
+  adminActiveDeviceSignOut: async (employeeId, deviceId) => {
+    check(UUID.test(employeeId) && UUID.test(deviceId));
+    return send('POST', `/v1/people/${employeeId}/active-device/sign-out`, {
+      device_id: deviceId,
+    });
+  },
+  adminShifts: () => get('/v1/admin/shifts'),
+  adminSetShift: async (employeeId, s) => {
+    check(UUID.test(employeeId));
+    return send('PUT', `/v1/admin/employees/${employeeId}/shift`, {
+      days: s.days,
+      start: s.start,
+      end: s.end,
+      tz_iana: s.tzIana,
+    });
+  },
+  holidays: () => get('/v1/holidays'),
+  setHoliday: async (date, name) => {
+    check(DATE.test(date));
+    return send('PUT', `/v1/admin/holidays/${date}`, { name });
+  },
+  removeHoliday: async (date) => {
+    check(DATE.test(date));
+    return send('DELETE', `/v1/admin/holidays/${date}`);
+  },
+  adminDepartments: () => get('/v1/admin/departments'),
+  adminPolicyGet: async (scope, id) => get(policyPath(scope, id)),
+  adminPolicyPut: async (scope, id, document, reason) =>
+    send('PUT', policyPath(scope, id), withText({ document }, 'reason', reason)),
+  adminDevices: () => get('/v1/admin/devices'),
 };
