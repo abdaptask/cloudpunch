@@ -2,6 +2,7 @@ import type { FastifyBaseLogger } from 'fastify';
 import type { DbRepositories, Employee, ShiftAlertKind } from '../db/index.js';
 import { daysAround } from '../days/service.js';
 import { activeWindow, dateIn, isoWeekday, shiftDate, type ShiftWindow } from '../shifts/model.js';
+import { shiftHistory } from '../shifts/resolve.js';
 import { nameOf } from '../team/service.js';
 import { clockIn as clockAt, shiftMailText, weeklyMailText, type ShiftMail } from './mail.js';
 import { dueAlerts, firstClockInFor, needsClockIn } from './rules.js';
@@ -79,7 +80,10 @@ export class ShiftAlertJob {
     const now = this.now();
     const weekly = await this.weekly(now, settings);
     const people = await db.employees.listActive();
-    const rows = await db.shifts.history(people.map((p) => p.id));
+    const rows = await shiftHistory(
+      db,
+      people.map((p) => p.id),
+    );
     const inShift: { person: Employee; window: ShiftWindow }[] = [];
     for (const person of people) {
       const window = activeWindow(

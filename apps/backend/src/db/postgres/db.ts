@@ -18,8 +18,10 @@ import type {
   ShiftAlertRepo,
   StartCounts,
   WeeklyReportRepo,
+  NewShiftAssignment,
   ShiftAssignment,
   ShiftRepo,
+  ShiftTemplateVersion,
   DeviceConnection,
   Device,
   DeviceEnrollInput,
@@ -258,32 +260,90 @@ export class PostgresDb implements DbRepositories {
                           to_char(start_time, 'HH24:MI') AS start,
                           to_char(end_time, 'HH24:MI') AS "end",
                           tz_iana, to_char(effective_from, 'YYYY-MM-DD') AS effective_from,
-                          reason, assigned_by_user_id, assigned_at`;
+                          reason, assigned_by_user_id, assigned_at, template_id`;
+    const assignIn = async (
+      tx: postgres.TransactionSql,
+      i: NewShiftAssignment,
+    ): Promise<ShiftAssignment> => {
+      const [row] = await tx<ShiftAssignment[]>`
+        INSERT INTO shift_assignment (employee_id, days, start_time, end_time, tz_iana,
+                                      effective_from, reason, assigned_by_user_id, assigned_at,
+                                      template_id)
+        VALUES (${i.employeeId}, ${i.days}::smallint[], ${i.start}::time, ${i.end}::time,
+                ${i.tzIana}, ${i.effectiveFrom}::date, ${i.reason}, ${i.assignedByUserId},
+                ${i.at}, ${i.templateId ?? null})
+        RETURNING ${cols}`;
+      if (!row) throw new Error('shift_assignment insert returned no row');
+      await tx`
+        INSERT INTO audit_log (actor_type, actor_user_id, entity_type, entity_id, action,
+                               previous_value, new_value, reason, correlation_id, occurred_at)
+        VALUES ('user', ${i.assignedByUserId}, 'employee', ${i.employeeId}, 'shift_assigned',
+                NULL,
+                ${tx.json({
+                  days: i.days,
+                  start: i.start,
+                  end: i.end,
+                  tz_iana: i.tzIana,
+                  effective_from: i.effectiveFrom,
+                  ...(i.templateId ? { template_id: i.templateId } : {}),
+                })},
+                ${i.reason}, ${i.correlationId}, ${i.at})`;
+      return row;
+    };
+    const templateCols = this.sql`id, template_id, name, days::int[] AS days,
+                          to_char(start_time, 'HH24:MI') AS start,
+                          to_char(end_time, 'HH24:MI') AS "end",
+                          tz_iana, retired, to_char(effective_from, 'YYYY-MM-DD') AS effective_from,
+                          reason, created_by_user_id, created_at`;
     return {
-      assign: async (i) =>
+      assign: async (i) => this.sql.begin(async (tx) => assignIn(tx, i)),
+      assignMany: async (rows, record) =>
         this.sql.begin(async (tx) => {
-          const [row] = await tx<ShiftAssignment[]>`
-            INSERT INTO shift_assignment (employee_id, days, start_time, end_time, tz_iana,
-                                          effective_from, reason, assigned_by_user_id, assigned_at)
-            VALUES (${i.employeeId}, ${i.days}::smallint[], ${i.start}::time, ${i.end}::time,
-                    ${i.tzIana}, ${i.effectiveFrom}::date, ${i.reason}, ${i.assignedByUserId},
-                    ${i.at})
-            RETURNING ${cols}`;
-          if (!row) throw new Error('shift_assignment insert returned no row');
+          // The key first: a retry racing this one stores nothing.
+          if (!(await this.saveBulk(tx, record))) return false;
+          for (const r of rows) await assignIn(tx, r);
+          return true;
+        }),
+      templates: async () =>
+        this.sql<ShiftTemplateVersion[]>`
+          SELECT ${templateCols} FROM shift_template_version
+          ORDER BY effective_from DESC, created_at DESC`,
+      saveTemplateVersion: async (i) =>
+        this.sql.begin(async (tx) => {
+          let templateId = i.templateId;
+          if (!templateId) {
+            const [t] = await tx<{ id: string }[]>`
+              INSERT INTO shift_template (created_by_user_id, created_at)
+              VALUES (${i.createdByUserId}, ${i.at}) RETURNING id`;
+            if (!t) throw new Error('shift_template insert returned no row');
+            templateId = t.id;
+          }
+          const [v] = await tx<ShiftTemplateVersion[]>`
+            INSERT INTO shift_template_version (template_id, name, days, start_time, end_time,
+                                                tz_iana, retired, effective_from, reason,
+                                                created_by_user_id, created_at)
+            VALUES (${templateId}, ${i.name}, ${i.days}::smallint[], ${i.start}::time,
+                    ${i.end}::time, ${i.tzIana}, ${i.retired}, ${i.effectiveFrom}::date,
+                    ${i.reason}, ${i.createdByUserId}, ${i.at})
+            RETURNING ${templateCols}`;
+          if (!v) throw new Error('shift_template_version insert returned no row');
           await tx`
             INSERT INTO audit_log (actor_type, actor_user_id, entity_type, entity_id, action,
                                    previous_value, new_value, reason, correlation_id, occurred_at)
-            VALUES ('user', ${i.assignedByUserId}, 'employee', ${i.employeeId}, 'shift_assigned',
+            VALUES ('user', ${i.createdByUserId}, 'shift_template', ${templateId},
+                    ${i.templateId ? 'shift_template_changed' : 'shift_template_created'},
                     NULL,
                     ${tx.json({
+                      name: i.name,
                       days: i.days,
                       start: i.start,
                       end: i.end,
                       tz_iana: i.tzIana,
+                      retired: i.retired,
                       effective_from: i.effectiveFrom,
                     })},
                     ${i.reason}, ${i.correlationId}, ${i.at})`;
-          return row;
+          return v;
         }),
       history: async (ids) => {
         if (ids.length === 0) return [];

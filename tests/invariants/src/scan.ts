@@ -154,12 +154,12 @@ export function cargoDependencies(toml: string): string[] {
 /**
  * CLAUDE.md invariant 2: `time_event` (and `audit_log`, the ADR-0030
  * correction tables, the ADR-0031 shift tables and the ADR-0037
- * holiday and shift_alert tables, and ADR-0038's admin_bulk_request) are
- * append-only.
+ * holiday and shift_alert tables, and ADR-0038's admin_bulk_request and
+ * named-shift tables) are append-only.
  * Returns each offending statement fragment.
  */
 export function appendOnlyViolations(source: string): string[] {
   const re =
-    /\b(UPDATE\s+(?:ONLY\s+)?"?(time_event|audit_log|time_correction_decision|time_correction|shift_assignment|not_working_day|holiday|shift_alert|weekly_report_sent|admin_bulk_request)"?\s+SET\b|DELETE\s+FROM\s+(?:ONLY\s+)?"?(time_event|audit_log|time_correction_decision|time_correction|shift_assignment|not_working_day|holiday|shift_alert|weekly_report_sent|admin_bulk_request)"?\b|TRUNCATE\s+(?:TABLE\s+)?"?(time_event|audit_log|time_correction_decision|time_correction|shift_assignment|not_working_day|holiday|shift_alert|weekly_report_sent|admin_bulk_request)"?\b)/gi;
+    /\b(UPDATE\s+(?:ONLY\s+)?"?(time_event|audit_log|time_correction_decision|time_correction|shift_assignment|not_working_day|holiday|shift_alert|weekly_report_sent|admin_bulk_request|shift_template_version|shift_template)"?\s+SET\b|DELETE\s+FROM\s+(?:ONLY\s+)?"?(time_event|audit_log|time_correction_decision|time_correction|shift_assignment|not_working_day|holiday|shift_alert|weekly_report_sent|admin_bulk_request|shift_template_version|shift_template)"?\b|TRUNCATE\s+(?:TABLE\s+)?"?(time_event|audit_log|time_correction_decision|time_correction|shift_assignment|not_working_day|holiday|shift_alert|weekly_report_sent|admin_bulk_request|shift_template_version|shift_template)"?\b)/gi;
   return [...source.matchAll(re)].map((m) => m[0]);
 }

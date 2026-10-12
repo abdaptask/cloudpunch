@@ -20,8 +20,10 @@ import type {
   ShiftAlertRepo,
   StartCounts,
   WeeklyReportRepo,
+  NewShiftAssignment,
   ShiftAssignment,
   ShiftRepo,
+  ShiftTemplateVersion,
   Device,
   DeviceConnection,
   DeviceEnrollInput,
@@ -89,6 +91,8 @@ export class InMemoryDb implements DbRepositories {
   readonly holidayAudit: string[] = [];
   /** shift_assignment rows (ADR-0031), for tests. */
   readonly shiftRows: ShiftAssignment[] = [];
+  /** shift_template_version (ADR-0038 §6). */
+  readonly templateRows: ShiftTemplateVersion[] = [];
   /** not_working_day rows (ADR-0031), for tests. */
   readonly notWorkingRows: NotWorkingDeclaration[] = [];
   /** audit_log actions for shifts, for tests. */
@@ -232,24 +236,58 @@ export class InMemoryDb implements DbRepositories {
         return out;
       },
     };
+    const assignOne = (i: NewShiftAssignment): ShiftAssignment => {
+      const row: ShiftAssignment = {
+        id: randomUUID(),
+        employeeId: i.employeeId,
+        days: [...i.days],
+        start: i.start,
+        end: i.end,
+        tzIana: i.tzIana,
+        effectiveFrom: i.effectiveFrom,
+        reason: i.reason,
+        assignedByUserId: i.assignedByUserId,
+        assignedAt: i.at,
+        templateId: i.templateId ?? null,
+      };
+      this.shiftRows.push(row);
+      this.shiftAudit.push('shift_assigned');
+      return { ...row };
+    };
     this.shifts = {
-      assign: async (i) => {
-        const row: ShiftAssignment = {
+      templates: async () =>
+        [...this.templateRows]
+          .sort(
+            (a, b) =>
+              b.effectiveFrom.localeCompare(a.effectiveFrom) ||
+              b.createdAt.getTime() - a.createdAt.getTime(),
+          )
+          .map((v) => ({ ...v, days: [...v.days] })),
+      saveTemplateVersion: async (i) => {
+        const v: ShiftTemplateVersion = {
           id: randomUUID(),
-          employeeId: i.employeeId,
+          templateId: i.templateId ?? randomUUID(),
+          name: i.name,
           days: [...i.days],
           start: i.start,
           end: i.end,
           tzIana: i.tzIana,
+          retired: i.retired,
           effectiveFrom: i.effectiveFrom,
           reason: i.reason,
-          assignedByUserId: i.assignedByUserId,
-          assignedAt: i.at,
+          createdByUserId: i.createdByUserId,
+          createdAt: i.at,
         };
-        this.shiftRows.push(row);
-        this.shiftAudit.push('shift_assigned');
-        return { ...row };
+        this.templateRows.push(v);
+        this.shiftAudit.push(i.templateId ? 'shift_template_changed' : 'shift_template_created');
+        return { ...v };
       },
+      assignMany: async (rows, record) => {
+        if (!(await this.bulkRequests.save(record))) return false;
+        for (const r of rows) assignOne(r);
+        return true;
+      },
+      assign: async (i) => assignOne(i),
       history: async (ids) =>
         this.shiftRows
           .filter((r) => ids.includes(r.employeeId))

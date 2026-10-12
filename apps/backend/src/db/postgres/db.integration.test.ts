@@ -52,7 +52,7 @@ beforeEach(async () => {
   // dependencies: event → session → device/employee → user.
   // time_event and audit_log are append-only (row triggers reject
   // DELETE); TRUNCATE is DDL and resets them between tests.
-  await sql`TRUNCATE audit_log, policy_override, time_event, time_session, device, employee_override, time_correction_decision, time_correction, shift_assignment, not_working_day, holiday, shift_alert, role_seen, weekly_report_sent, admin_bulk_request RESTART IDENTITY CASCADE`;
+  await sql`TRUNCATE audit_log, policy_override, time_event, time_session, device, employee_override, time_correction_decision, time_correction, shift_assignment, not_working_day, holiday, shift_alert, role_seen, weekly_report_sent, admin_bulk_request, shift_template_version, shift_template RESTART IDENTITY CASCADE`;
   await sql`DELETE FROM admin_review_case`;
   await sql`UPDATE app_user SET employee_id = NULL`;
   await sql`DELETE FROM employee`;
@@ -143,6 +143,70 @@ describe('PostgresDb — employees + users', () => {
     expect(rows[0]?.before).toEqual({ manager_employee_id: null });
     expect(rows[0]?.after).toEqual({ manager_employee_id: mgr });
     expect(rows[1]?.after).toEqual({ date: '2026-09-29' });
+  });
+
+  it('ADR-0038 §6: named shifts, versions and bulk shift rows; append-only', async () => {
+    const a = await seedEmployee();
+    const b = await seedEmployee();
+    const { userId } = await seedUser({ employeeId: a });
+    const at = new Date();
+    const base = {
+      name: 'India day',
+      days: [1, 2, 3, 4, 5],
+      start: '09:00',
+      end: '18:00',
+      tzIana: 'Asia/Kolkata',
+      retired: false,
+      reason: null,
+      createdByUserId: userId,
+      correlationId: randomUUID(),
+      at,
+    };
+    const v1 = await db.shifts.saveTemplateVersion({
+      ...base,
+      templateId: null,
+      effectiveFrom: '2026-10-12',
+    });
+    const v2 = await db.shifts.saveTemplateVersion({
+      ...base,
+      templateId: v1.templateId,
+      start: '08:00',
+      end: '17:00',
+      effectiveFrom: '2026-10-20',
+    });
+    expect((await db.shifts.templates()).map((v) => [v.id, v.start, v.effectiveFrom])).toEqual([
+      [v2.id, '08:00', '2026-10-20'],
+      [v1.id, '09:00', '2026-10-12'],
+    ]);
+    const key = randomUUID();
+    const row = (employeeId: string) => ({
+      employeeId,
+      days: [1, 2, 3, 4, 5],
+      start: '09:00',
+      end: '18:00',
+      tzIana: 'Asia/Kolkata',
+      templateId: v1.templateId,
+      effectiveFrom: '2026-10-13',
+      reason: 'new team',
+      assignedByUserId: userId,
+      correlationId: randomUUID(),
+      at,
+    });
+    const record = {
+      actorUserId: userId,
+      key,
+      kind: 'shift' as const,
+      requestHash: 'h',
+      result: {},
+      correlationId: randomUUID(),
+      at,
+    };
+    expect(await db.shifts.assignMany([row(a), row(b)], record)).toBe(true);
+    expect(await db.shifts.assignMany([row(a)], record)).toBe(false);
+    const rows = await db.shifts.history([a, b]);
+    expect(rows).toHaveLength(2);
+    expect(rows.every((r) => r.templateId === v1.templateId)).toBe(true);
+    await expect(sql`DELETE FROM shift_template_version`).rejects.toThrow(/append-only/);
   });
 
   it('ADR-0038 §5: bulk manager in one transaction, once per key; the table is append-only', async () => {

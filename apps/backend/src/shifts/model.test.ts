@@ -13,6 +13,7 @@ const row = (over: Partial<ShiftAssignment> = {}): ShiftAssignment => ({
   reason: null,
   assignedByUserId: 'u',
   assignedAt: new Date('2026-10-01T00:00:00Z'),
+  templateId: null,
   ...over,
 });
 
