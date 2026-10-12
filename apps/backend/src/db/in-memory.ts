@@ -5,6 +5,8 @@ import type {
   WelcomeAudit,
   AppUser,
   AppUserRepo,
+  BulkRecord,
+  BulkRequestRepo,
   ConnectionRepo,
   CorrectionDecision,
   CorrectionRepo,
@@ -72,6 +74,9 @@ export class InMemoryDb implements DbRepositories {
   readonly shiftAlerts: ShiftAlertRepo;
   readonly roles: RoleDirectoryRepo;
   readonly weeklyReports: WeeklyReportRepo;
+  readonly bulkRequests: BulkRequestRepo;
+  /** admin_bulk_request (ADR-0038 §5). */
+  readonly bulkRows: BulkRecord[] = [];
   /** weekly_report_sent (ADR-0037 §4) as `${weekStart}:${recipient}`, for tests. */
   readonly weeklyReportRows: string[] = [];
   /** shift_alert rows (ADR-0037 §3), for tests. */
@@ -183,6 +188,19 @@ export class InMemoryDb implements DbRepositories {
           out.set(r.employeeId, c);
         }
         return out;
+      },
+    };
+    const bulkFind = (actorUserId: string, key: string): BulkRecord | undefined =>
+      this.bulkRows.find((r) => r.actorUserId === actorUserId && r.key === key);
+    this.bulkRequests = {
+      find: async (actorUserId, key) => {
+        const r = bulkFind(actorUserId, key);
+        return r ? { kind: r.kind, requestHash: r.requestHash, result: r.result } : null;
+      },
+      save: async (record) => {
+        if (bulkFind(record.actorUserId, record.key)) return false;
+        this.bulkRows.push(record);
+        return true;
       },
     };
     this.weeklyReports = {
@@ -473,6 +491,15 @@ export class InMemoryDb implements DbRepositories {
         const e = this.employeeById.get(input.employeeId);
         if (e) this.employeeById.set(e.id, { ...e, reportingManagerId: input.managerId });
         this.managerAudit.push(input);
+      },
+      setReportingManagers: async (input, record) => {
+        if (!(await this.bulkRequests.save(record))) return false;
+        for (const employeeId of input.employeeIds) {
+          const e = this.employeeById.get(employeeId);
+          if (e) this.employeeById.set(e.id, { ...e, reportingManagerId: input.managerId });
+          this.managerAudit.push({ ...input, employeeId });
+        }
+        return true;
       },
       auditView: async (entry) => {
         this.viewAudit.push(entry);

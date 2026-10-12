@@ -52,7 +52,7 @@ beforeEach(async () => {
   // dependencies: event → session → device/employee → user.
   // time_event and audit_log are append-only (row triggers reject
   // DELETE); TRUNCATE is DDL and resets them between tests.
-  await sql`TRUNCATE audit_log, policy_override, time_event, time_session, device, employee_override, time_correction_decision, time_correction, shift_assignment, not_working_day, holiday, shift_alert, role_seen, weekly_report_sent RESTART IDENTITY CASCADE`;
+  await sql`TRUNCATE audit_log, policy_override, time_event, time_session, device, employee_override, time_correction_decision, time_correction, shift_assignment, not_working_day, holiday, shift_alert, role_seen, weekly_report_sent, admin_bulk_request RESTART IDENTITY CASCADE`;
   await sql`DELETE FROM admin_review_case`;
   await sql`UPDATE app_user SET employee_id = NULL`;
   await sql`DELETE FROM employee`;
@@ -143,6 +143,50 @@ describe('PostgresDb — employees + users', () => {
     expect(rows[0]?.before).toEqual({ manager_employee_id: null });
     expect(rows[0]?.after).toEqual({ manager_employee_id: mgr });
     expect(rows[1]?.after).toEqual({ date: '2026-09-29' });
+  });
+
+  it('ADR-0038 §5: bulk manager in one transaction, once per key; the table is append-only', async () => {
+    const mgr = await seedEmployee();
+    const a = await seedEmployee();
+    const b = await seedEmployee();
+    const { userId } = await seedUser({ employeeId: mgr });
+    const key = randomUUID();
+    const correlationId = randomUUID();
+    const at = new Date();
+    const record = {
+      actorUserId: userId,
+      key,
+      kind: 'manager' as const,
+      requestHash: 'h1',
+      result: { changed: [a, b] },
+      correlationId,
+      at,
+    };
+    const input = {
+      employeeIds: [a, b],
+      managerId: mgr,
+      actorUserId: userId,
+      reason: 'new team',
+      correlationId,
+      at,
+    };
+    expect(await db.employees.setReportingManagers(input, record)).toBe(true);
+    expect((await db.employees.findById(b))?.reportingManagerId).toBe(mgr);
+    expect(await db.bulkRequests.find(userId, key)).toEqual({
+      kind: 'manager',
+      requestHash: 'h1',
+      result: { changed: [a, b] },
+    });
+    // The same key again: nothing changes, no more audit rows.
+    expect(await db.employees.setReportingManagers({ ...input, managerId: null }, record)).toBe(
+      false,
+    );
+    expect((await db.employees.findById(a))?.reportingManagerId).toBe(mgr);
+    const rows = await sql<{ entityId: string }[]>`
+      SELECT entity_id FROM audit_log WHERE correlation_id = ${correlationId}`;
+    expect(rows.map((r) => r.entityId).sort()).toEqual([a, b].sort());
+    expect(await db.bulkRequests.save(record)).toBe(false);
+    await expect(sql`DELETE FROM admin_bulk_request`).rejects.toThrow(/append-only/);
   });
 
   it('ADR-0020 §4: a record turned off frees its reports (audited); turned on again', async () => {

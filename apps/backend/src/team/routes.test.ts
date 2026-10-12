@@ -448,3 +448,82 @@ describe('reporting lines (ADR-0025 §1)', () => {
     expect(admin.statusCode).toBe(200);
   });
 });
+
+describe('bulk manager (ADR-0038 §5)', () => {
+  const URL = '/v1/admin/employees/bulk/manager';
+  const body = (ids: string[], managerId: string | null, key = randomUUID()) => ({
+    idempotency_key: key,
+    employee_ids: ids,
+    manager_employee_id: managerId,
+    reason: 'new team',
+  });
+
+  it('sets one manager for many, one audit row each with a shared batch id', async () => {
+    const res = await call(hr, HR, 'PUT', URL, body([stranger, report, hr], manager));
+    expect(res.statusCode).toBe(200);
+    // Farheen already reports to Mona: unchanged, not audited again.
+    expect(res.json()).toEqual({
+      manager_employee_id: manager,
+      changed: [stranger, hr],
+      unchanged: [report],
+    });
+    expect((await db.employees.findById(stranger))?.reportingManagerId).toBe(manager);
+    expect((await db.employees.findById(hr))?.reportingManagerId).toBe(manager);
+    const rows = db.managerAudit.filter((a) => a.reason === 'new team');
+    expect(rows.map((a) => a.employeeId)).toEqual([stranger, hr]);
+    expect(new Set(rows.map((a) => a.correlationId)).size).toBe(1);
+  });
+
+  it('a retry with the same key answers the same and changes nothing', async () => {
+    const key = randomUUID();
+    const first = await call(hr, HR, 'PUT', URL, body([stranger], manager, key));
+    await db.employees.setReportingManager({
+      employeeId: stranger,
+      managerId: null,
+      actorUserId: 'x',
+      reason: null,
+      correlationId: randomUUID(),
+      at: new Date(),
+    });
+    const audits = db.managerAudit.length;
+    const again = await call(hr, HR, 'PUT', URL, body([stranger], manager, key));
+    expect(again.statusCode).toBe(200);
+    expect(again.json()).toEqual(first.json());
+    expect(db.managerAudit).toHaveLength(audits);
+    expect((await db.employees.findById(stranger))?.reportingManagerId).toBeNull();
+    // The same key for a different request is refused.
+    const other = await call(hr, HR, 'PUT', URL, body([hr], manager, key));
+    expect(other.statusCode).toBe(409);
+    expect((other.json() as { code: string }).code).toBe('idempotency_key_reused');
+  });
+
+  it('all or nothing: a missing person, the manager among them or a loop refuses, naming who', async () => {
+    const before = db.managerAudit.length;
+    const ghost = randomUUID();
+    const missing = await call(hr, HR, 'PUT', URL, body([stranger, ghost], manager));
+    expect(missing.statusCode).toBe(404);
+    expect(missing.json()).toMatchObject({ code: 'unknown_people', employee_ids: [ghost] });
+
+    const self = await call(hr, HR, 'PUT', URL, body([stranger, manager], manager));
+    expect(self.json()).toMatchObject({ code: 'self_manager', employee_ids: [manager] });
+
+    // Farheen reports to Mona: moving Mona under Farheen is a loop.
+    const loop = await call(hr, HR, 'PUT', URL, body([stranger, manager], report));
+    expect(loop.statusCode).toBe(400);
+    expect(loop.json()).toMatchObject({ code: 'manager_loop', employee_ids: [manager] });
+
+    expect(db.managerAudit).toHaveLength(before);
+    expect((await db.employees.findById(stranger))?.reportingManagerId).toBeNull();
+    expect(db.bulkRows).toHaveLength(0);
+  });
+
+  it('clears managers; at most 200; HR and Administrators only', async () => {
+    const res = await call(hr, HR, 'PUT', URL, body([report, report2], null));
+    expect(res.json()).toMatchObject({ changed: [report, report2], unchanged: [] });
+    expect((await db.employees.findById(report))?.reportingManagerId).toBeNull();
+
+    const many = Array.from({ length: 201 }, () => randomUUID());
+    expect((await call(hr, HR, 'PUT', URL, body(many, null))).statusCode).toBe(400);
+    expect((await call(manager, MANAGER, 'PUT', URL, body([stranger], null))).statusCode).toBe(403);
+  });
+});

@@ -49,6 +49,9 @@ export type WebApi = Pick<
   | 'adminPolicyGet'
   | 'adminPolicyPut'
   | 'adminDevices'
+  | 'adminBulkManager'
+  | 'adminBulkRoles'
+  | 'adminBulkWelcome'
 >;
 
 export interface Transport {
@@ -234,4 +237,31 @@ export const api: WebApi = {
   adminPolicyPut: async (scope, id, document, reason) =>
     send('PUT', policyPath(scope, id), withText({ document }, 'reason', reason)),
   adminDevices: () => get('/v1/admin/devices'),
+  // Bulk (ADR-0038 §5): the server checks the ids and keeps the answer by key.
+  adminBulkManager: async (key, employeeIds, managerId, reason) =>
+    send(
+      'PUT',
+      '/v1/admin/employees/bulk/manager',
+      withText(
+        { idempotency_key: key, employee_ids: employeeIds, manager_employee_id: managerId },
+        'reason',
+        reason,
+      ),
+    ),
+  adminBulkRoles: async (key, oids, change, reason) =>
+    send(
+      'POST',
+      '/v1/admin/people/bulk/roles',
+      withText(
+        { idempotency_key: key, oids, add: change.add, remove: change.remove },
+        'reason',
+        reason,
+      ),
+    ),
+  adminBulkWelcome: async (key, oids, note) =>
+    send(
+      'POST',
+      '/v1/admin/people/bulk/welcome',
+      withText({ idempotency_key: key, oids }, 'note', note),
+    ),
 };

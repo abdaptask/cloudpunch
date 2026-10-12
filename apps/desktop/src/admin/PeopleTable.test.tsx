@@ -13,6 +13,8 @@ const mocks = vi.hoisted(() => ({
   adminSetShift: vi.fn(),
   adminActiveDevice: vi.fn(),
   adminWelcomePreview: vi.fn(),
+  adminBulkManager: vi.fn(),
+  adminBulkRoles: vi.fn(),
 }));
 vi.mock('../api.js', () => ({ api: mocks }));
 
@@ -175,5 +177,96 @@ describe('People table (ADR-0038 §3)', () => {
     // A new Employee: the welcome email is offered next, as today.
     expect(await within(panel).findByRole('group', { name: 'Welcome email' })).toBeInTheDocument();
     expect(mocks.adminWelcomePreview).toHaveBeenCalledWith('o-new');
+  });
+});
+
+describe('bulk changes (ADR-0038 §5)', () => {
+  it('ticks people, previews a new manager, and applies with one key, kept for a retry', async () => {
+    mocks.adminBulkManager.mockRejectedValueOnce('offline').mockResolvedValueOnce({
+      manager_employee_id: 'e-priya',
+      changed: ['e-roshni'],
+      unchanged: ['e-hr'],
+    });
+    const user = userEvent.setup();
+    render(<PeopleTable canAssignAll onClose={() => undefined} />);
+    await user.click(await screen.findByRole('checkbox', { name: 'select Roshni Sahani' }));
+    await user.click(screen.getByRole('checkbox', { name: 'select Hema R' }));
+    const bar = screen.getByRole('toolbar', { name: 'bulk-actions' });
+    expect(bar).toHaveTextContent('2 selected');
+    await user.click(within(bar).getByRole('button', { name: 'Set manager' }));
+
+    const panel = screen.getByRole('complementary', { name: 'bulk Set manager' });
+    expect(within(panel).getByRole('button', { name: 'Apply' })).toBeDisabled();
+    await user.type(within(panel).getByLabelText('find a manager for 2 people'), 'pri');
+    await user.click(within(panel).getByRole('button', { name: 'Priya Shah' }));
+    expect(within(panel).getByLabelText('bulk-preview')).toHaveTextContent(
+      'This changes 1 person: Roshni Sahani gets Priya Shah as manager. 1 person already reports to Priya Shah.',
+    );
+    await user.type(within(panel).getByLabelText('bulk-reason'), 'new team');
+    await user.click(within(panel).getByRole('button', { name: 'Apply' }));
+    expect(await within(panel).findByRole('alert')).toHaveTextContent("Can't reach CloudPunch");
+    await user.click(within(panel).getByRole('button', { name: 'Apply' }));
+    expect(
+      await within(panel).findByText(/Done\. 1 person changed; 1 already had that manager/),
+    ).toBeInTheDocument();
+
+    const [first, second] = mocks.adminBulkManager.mock.calls;
+    expect(first).toEqual([expect.any(String), ['e-roshni'], 'e-priya', 'new team']);
+    // The retry is the same request, so the same key: the server answers once.
+    expect(second?.[0]).toBe(first?.[0]);
+  });
+
+  it('a loop is shown before anything is sent', async () => {
+    const user = userEvent.setup();
+    render(<PeopleTable canAssignAll onClose={() => undefined} />);
+    // Hema reports to Priya: putting Priya under Hema is a loop.
+    await user.click(await screen.findByRole('checkbox', { name: 'select Priya Shah' }));
+    await user.click(screen.getByRole('button', { name: 'Set manager' }));
+    const panel = screen.getByRole('complementary', { name: 'bulk Set manager' });
+    await user.type(within(panel).getByLabelText('find a manager for 1 person'), 'hem');
+    await user.click(within(panel).getByRole('button', { name: 'Hema R' }));
+    expect(within(panel).getByLabelText('bulk-preview')).toHaveTextContent(
+      'Priya Shah is above Hema R: that would make a reporting loop.',
+    );
+    expect(within(panel).getByRole('button', { name: 'Apply' })).toBeDisabled();
+  });
+
+  it('adds a role to everyone on the page, listing who it was not done for', async () => {
+    mocks.adminBulkRoles.mockResolvedValue({
+      add: ['Manager'],
+      remove: [],
+      results: [
+        { oid: 'o-hr', outcome: 'done' },
+        { oid: 'o-roshni', outcome: 'failed', code: 'directory_forbidden' },
+      ],
+    });
+    const user = userEvent.setup();
+    render(<PeopleTable canAssignAll={false} onClose={() => undefined} />);
+    await user.click(await screen.findByRole('checkbox', { name: 'select this page' }));
+    expect(screen.getByRole('toolbar', { name: 'bulk-actions' })).toHaveTextContent('3 selected');
+    await user.click(screen.getByRole('button', { name: 'Add role' }));
+    const panel = screen.getByRole('complementary', { name: 'bulk Add role' });
+    // HR: Employee and Manager only.
+    expect(
+      within(within(panel).getByLabelText('bulk-role'))
+        .getAllByRole('option')
+        .map((o) => o.textContent),
+    ).toEqual(['Choose a role', 'Employee', 'Manager']);
+    await user.selectOptions(within(panel).getByLabelText('bulk-role'), 'Manager');
+    expect(within(panel).getByLabelText('bulk-preview')).toHaveTextContent(
+      'This changes 2 people: Hema R and Roshni Sahani get Manager. 1 person already has it.',
+    );
+    await user.click(within(panel).getByRole('button', { name: 'Apply' }));
+    expect(mocks.adminBulkRoles).toHaveBeenCalledWith(
+      expect.any(String),
+      ['o-hr', 'o-roshni'],
+      { add: ['Manager'], remove: [] },
+      '',
+    );
+    expect(await within(panel).findByLabelText('bulk-not-done')).toHaveTextContent(
+      'Roshni Sahani: Microsoft refused',
+    );
+    // The table reloads after.
+    expect(mocks.adminPeople).toHaveBeenCalledTimes(2);
   });
 });

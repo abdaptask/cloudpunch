@@ -7,6 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Desktop 0.1.29 and web: change many people at once (ADR-0038 phase 4b)
+
+- **Tick people in the People table** (one by one, the whole page, or
+  "Select all N matching"); a **bulk bar** appears: **Set manager · Add
+  role · Remove role · Send welcome email**.
+- **A preview before Apply**, e.g. "This changes 9 people: … get Priya
+  Shah as manager. 3 people already report to her." People it can't
+  apply to are listed as left out. A loop, or the new manager being
+  among them, is shown before anything is sent.
+- **Set manager** is all or nothing; **roles** and **welcome emails**
+  are per person, and the result lists anyone it wasn't done for, and
+  why. At most 200 people at a time.
+- Each change carries an idempotency key; retrying after a lost answer
+  sends the same key, so nothing is done twice. HR still sees only
+  Employee and Manager.
+- Needs the server from phase 4a (migration 0013).
+
+### Server: bulk changes for the admin console (ADR-0038 phase 4a; migration 0013)
+
+- **Migration 0013 `admin_bulk_request`** (append-only): one row per
+  bulk request, keyed by the caller and an idempotency key, holding the
+  answer. A retry with the same key gets that answer and changes
+  nothing; the same key with a different request is refused (409
+  `idempotency_key_reused`). Added to the append-only CI check.
+- **`PUT /v1/admin/employees/bulk/manager`** (HR, Administrators): one
+  manager (or none) for up to 200 people, **all or nothing** in one
+  transaction. A missing person, the manager among them, or a loop
+  refuses the whole batch and names who. Answers who changed and who
+  already had that manager.
+- **`POST /v1/admin/people/bulk/roles`**: add or remove roles for up
+  to 200 people, per person (Graph is one call each), each answered
+  done, already, refused or failed. HR may only touch Employee and
+  Manager; nobody removes their own Administrator role; the last
+  Administrator is checked against the whole batch.
+- **`POST /v1/admin/people/bulk/welcome`**: welcome emails for up to
+  200 people, per person; the 10-minute gap still applies.
+- Each person changed gets their own audit row, with the shared reason
+  and the batch's correlation id. The one-person role and email code is
+  shared with these, unchanged in behaviour.
+
 ### Desktop 0.1.28 and web: People is one table with a person panel (ADR-0038 phase 3)
 
 - **Admin console → People** is now one table of everyone: name and

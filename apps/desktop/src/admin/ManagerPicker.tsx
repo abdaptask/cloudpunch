@@ -13,6 +13,8 @@ export function ManagerPicker({
   current,
   choices,
   disabled = false,
+  startOpen = false,
+  emptyText = 'No manager',
   onPick,
 }: {
   /** Whose manager this is, for the labels. */
@@ -20,10 +22,14 @@ export function ManagerPicker({
   current: { id: string; name: string } | null;
   choices: readonly { id: string; name: string }[];
   disabled?: boolean;
+  /** Open on the search box (a bulk change starts by picking). */
+  startOpen?: boolean;
+  /** Shown when there's no manager. */
+  emptyText?: string;
   onPick: (managerId: string | null) => void;
 }): JSX.Element {
   const t = useTheme();
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(startOpen);
   const [q, setQ] = useState('');
   const needle = q.trim().toLowerCase();
   const matches =
@@ -43,7 +49,7 @@ export function ManagerPicker({
           {current ? (
             <>Reports to {current.name}</>
           ) : (
-            <span style={{ color: t.warnText }}>No manager</span>
+            <span style={{ color: t.warnText }}>{emptyText}</span>
           )}
         </span>
         <button

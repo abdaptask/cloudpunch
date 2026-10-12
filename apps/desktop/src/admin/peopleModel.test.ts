@@ -2,6 +2,10 @@ import { describe, expect, it } from 'vitest';
 import type { EmployeeRow, Person, ShiftRow } from '../api.js';
 import {
   NO_FILTER,
+  managerPlan,
+  namesText,
+  rolePlan,
+  welcomePlan,
   PAGE_SIZE,
   applyFilter,
   attention,
@@ -130,5 +134,54 @@ describe('People table model (ADR-0038 §3)', () => {
     ]);
     const priya = rows.find((r) => r.name === 'Priya Shah')!;
     expect(managerChoices(rows, priya)).toEqual([]);
+  });
+});
+
+describe('bulk plans (ADR-0038 §5)', () => {
+  const rows = buildRows(people, employees, shifts);
+  const by = (...names: string[]) => rows.filter((r) => names.includes(r.name));
+  const names = (rs: readonly { name: string }[]) => rs.map((r) => r.name);
+
+  it('manager: who changes, who already has them, who has no record', () => {
+    const plan = managerPlan(
+      rows,
+      by('Roshni Sahani', 'Old Hand', 'Nilesh D', 'New Person'),
+      'e-priya',
+    );
+    expect(names(plan.change)).toEqual(['Nilesh D']);
+    expect(names(plan.already)).toEqual(['Old Hand', 'Roshni Sahani']);
+    expect(names(plan.skipped)).toEqual(['New Person']);
+    expect(plan.problem).toBeNull();
+  });
+
+  it('manager: spots the manager among them, and a loop, naming who', () => {
+    expect(managerPlan(rows, by('Priya Shah', 'Nilesh D'), 'e-priya').problem).toMatchObject({
+      code: 'self_manager',
+      who: { name: 'Priya Shah' },
+    });
+    // Nilesh reports to Roshni, who reports to Priya: Priya under Nilesh is a loop.
+    expect(managerPlan(rows, by('Priya Shah'), 'e-nilesh').problem).toMatchObject({
+      code: 'manager_loop',
+      who: { name: 'Priya Shah' },
+    });
+    expect(managerPlan(rows, by('Priya Shah', 'Nilesh D'), null).problem).toBeNull();
+  });
+
+  it('roles and welcome', () => {
+    const add = rolePlan(by('Priya Shah', 'Roshni Sahani', 'Old Hand'), 'Manager', true);
+    expect(names(add.change)).toEqual(['Old Hand', 'Roshni Sahani']);
+    expect(names(add.already)).toEqual(['Priya Shah']);
+    const remove = rolePlan(by('Priya Shah', 'Roshni Sahani'), 'Manager', false);
+    expect(names(remove.change)).toEqual(['Priya Shah']);
+    const w = welcomePlan(by('Priya Shah', 'Old Hand', 'New Person'));
+    expect(names(w.send)).toEqual(['New Person', 'Priya Shah']);
+    expect(names(w.skipped)).toEqual(['Old Hand']);
+  });
+
+  it('names a few, then counts the rest', () => {
+    const r = by('Priya Shah', 'Roshni Sahani', 'Old Hand', 'Nilesh D', 'New Person');
+    expect(namesText(r.slice(0, 1))).toBe('New Person');
+    expect(namesText(r.slice(0, 2))).toBe('New Person and Nilesh D');
+    expect(namesText(r)).toBe('New Person, Nilesh D, Old Hand and 2 others');
   });
 });

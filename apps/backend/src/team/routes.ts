@@ -5,6 +5,7 @@ import fp from 'fastify-plugin';
 import { z } from 'zod';
 import { requireCapability } from '../auth/require.js';
 import type { AppUser, DbRepositories, Employee } from '../db/index.js';
+import { MAX_BULK, replay, requestHash } from '../people/bulk.js';
 import { LOOKBACK_DAYS, daySummaries, dayView, inLookback, spanDays } from '../days/service.js';
 import {
   inScope,
@@ -25,6 +26,7 @@ import {
  *   GET /v1/team/:employeeId/days?from&to     a person's day totals
  *   GET /v1/admin/employees                   everyone, with their manager (People)
  *   PUT /v1/admin/employees/:id/manager       {manager_employee_id | null, reason?}
+ *   PUT /v1/admin/employees/bulk/manager      the same for up to 200 at once (ADR-0038 §5)
  *
  * Every team request checks the caller's scope (a Manager: direct
  * reports; HR: everyone). Anyone outside it is 404, so the API doesn't
@@ -42,6 +44,15 @@ const MAX_CHAIN = 50;
 
 const managerBody = z
   .object({
+    manager_employee_id: z.string().regex(UUID).nullable(),
+    reason: z.string().trim().max(500).optional().nullable(),
+  })
+  .strict();
+
+const bulkManagerBody = z
+  .object({
+    idempotency_key: z.string().uuid(),
+    employee_ids: z.array(z.string().regex(UUID)).min(1).max(MAX_BULK),
     manager_employee_id: z.string().regex(UUID).nullable(),
     reason: z.string().trim().max(500).optional().nullable(),
   })
@@ -245,6 +256,105 @@ const teamRoutesImpl: FastifyPluginAsync<TeamRoutesOptions> = async (app, opts) 
         at: new Date(),
       });
       return reply.code(200).send({ id: employee.id, reporting_manager_id: managerId });
+    },
+  );
+
+  // Bulk (ADR-0038 §5): one manager for many, all or nothing. Any
+  // missing person, a manager among them or a loop refuses the whole
+  // batch and names who; each person changed gets their own audit row.
+  app.put(
+    '/v1/admin/employees/bulk/manager',
+    { preHandler: [requireCapability([Capability.HrEmployeeWrite])] },
+    async (req, reply) => {
+      const body = bulkManagerBody.safeParse(req.body);
+      if (!body.success) {
+        return problem(
+          reply,
+          400,
+          'validation',
+          `body must be {idempotency_key, employee_ids (1–${MAX_BULK}), manager_employee_id, reason?}`,
+        );
+      }
+      const actor = req.auth ? await db.users.findByEntraObjectId(req.auth.oid) : null;
+      if (!actor)
+        return problem(reply, 403, 'no_user_for_oid', 'your account has no CloudPunch user');
+      const key = body.data.idempotency_key.toLowerCase();
+      const hash = requestHash('manager', body.data);
+      if (await replay(db, reply, actor.id, key, 'manager', hash)) return reply;
+
+      const named = (status: number, code: string, message: string, ids: string[]) =>
+        reply
+          .code(status)
+          .type('application/problem+json')
+          .send({ code, message, employee_ids: ids });
+      const ids = [...new Set(body.data.employee_ids.map((x) => x.toLowerCase()))];
+      const employees = await Promise.all(ids.map((id) => db.employees.findById(id)));
+      const missing = ids.filter((_, i) => employees[i]?.status !== 'active');
+      if (missing.length > 0) {
+        return named(404, 'unknown_people', 'no such active employees', missing);
+      }
+      const managerId = body.data.manager_employee_id?.toLowerCase() ?? null;
+      if (managerId !== null) {
+        if (ids.includes(managerId)) {
+          return named(400, 'self_manager', "someone can't be their own manager", [managerId]);
+        }
+        const manager = await db.employees.findById(managerId);
+        if (!manager || manager.status !== 'active') {
+          return problem(
+            reply,
+            404,
+            'manager_not_found',
+            'no such active employee to be the manager',
+          );
+        }
+        // No loops: nobody being moved may be above the new manager.
+        let up: string | null | undefined = manager.reportingManagerId;
+        for (let i = 0; up && i < MAX_CHAIN; i++) {
+          if (ids.includes(up)) {
+            return named(400, 'manager_loop', 'that would make a reporting loop', [up]);
+          }
+          up = (await db.employees.findById(up))?.reportingManagerId;
+        }
+      }
+
+      const already = (i: number): boolean =>
+        (employees[i]?.reportingManagerId ?? null) === managerId;
+      const result = {
+        manager_employee_id: managerId,
+        changed: ids.filter((_, i) => !already(i)),
+        unchanged: ids.filter((_, i) => already(i)),
+      };
+      const correlationId = randomUUID();
+      const at = new Date();
+      const saved = await db.employees.setReportingManagers(
+        {
+          employeeIds: result.changed,
+          managerId,
+          actorUserId: actor.id,
+          reason: body.data.reason?.trim() || null,
+          correlationId,
+          at,
+        },
+        {
+          actorUserId: actor.id,
+          key,
+          kind: 'manager',
+          requestHash: hash,
+          result,
+          correlationId,
+          at,
+        },
+      );
+      // Lost a race with a retry of itself: answer as that one did.
+      if (!saved) {
+        await replay(db, reply, actor.id, key, 'manager', hash);
+        return reply;
+      }
+      req.log.info(
+        { changed: result.changed.length, unchanged: result.unchanged.length, correlationId },
+        'team: bulk manager set (ADR-0038)',
+      );
+      return reply.code(200).send(result);
     },
   );
 };
