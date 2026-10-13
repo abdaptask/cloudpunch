@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Docs: ADR-0040 day-end summary and overall report (proposed)
+
+- A day-end email for each manager (their team) and Administrators
+  (everyone), at a set time (default 08:00 India time), also in the
+  admin console; and an overview for any range: hours and attendance,
+  lateness and missed starts, idle/breaks/away, adoption and health,
+  with charts and CSV. Two questions for the owner.
 ### Docs: ADR-0039 in-office days (proposed)
 
 - Hybrid workers: admins set each person's usual office weekdays and
