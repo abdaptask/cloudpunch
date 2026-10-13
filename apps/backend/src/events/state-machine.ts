@@ -228,6 +228,14 @@ export function nextState(
       const explanation = payload?.['explanation'];
       if (typeof explanation !== 'string' || !IDLE_EXPLANATIONS.has(explanation)) return null;
       if (!isTimestamp(payload?.['idle_since'])) return null;
+      // ADR-0042: which break, for a break answer.
+      const kind = payload?.['break_kind'];
+      if (
+        kind !== undefined &&
+        (explanation !== 'break' || typeof kind !== 'string' || !BREAK_KINDS.has(kind))
+      ) {
+        return null;
+      }
       return current;
     }
 

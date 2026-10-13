@@ -228,12 +228,13 @@ pub struct AwayCheck {
 
 /// The person's account of an idle stretch (ADR-0018 §2). An
 /// annotation for the manager; it never turns idle into worked time.
+/// "On a break" makes the stretch that break (ADR-0042; `None`: Other).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum IdleExplanation {
     WorkingAway,
     Meeting,
     PhoneCall,
-    Break,
+    Break(Option<BreakKind>),
     Idle,
 }
 
@@ -243,7 +244,7 @@ impl IdleExplanation {
             IdleExplanation::WorkingAway => "working_away",
             IdleExplanation::Meeting => "meeting",
             IdleExplanation::PhoneCall => "phone_call",
-            IdleExplanation::Break => "break",
+            IdleExplanation::Break(_) => "break",
             IdleExplanation::Idle => "idle",
         }
     }
@@ -253,7 +254,7 @@ impl IdleExplanation {
             IdleExplanation::WorkingAway,
             IdleExplanation::Meeting,
             IdleExplanation::PhoneCall,
-            IdleExplanation::Break,
+            IdleExplanation::Break(None),
             IdleExplanation::Idle,
         ]
         .into_iter()
@@ -541,10 +542,17 @@ impl CoreEvent {
                 stretch,
                 explanation,
                 ..
-            } => json!({
-                "explanation": explanation.as_str(),
-                "idle_since": utc_rfc3339(stretch.since),
-            }),
+            } => match explanation {
+                IdleExplanation::Break(Some(kind)) => json!({
+                    "explanation": explanation.as_str(),
+                    "idle_since": utc_rfc3339(stretch.since),
+                    "break_kind": kind.as_str(),
+                }),
+                _ => json!({
+                    "explanation": explanation.as_str(),
+                    "idle_since": utc_rfc3339(stretch.since),
+                }),
+            },
             _ => json!({}),
         }
     }

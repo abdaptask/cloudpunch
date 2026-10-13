@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Server and desktop 0.1.38: "On a break" after idle counts as a break (ADR-0042)
+
+- The "Welcome back, what were you doing?" question now asks **which
+  break** when the answer is "On a break", and that idle stretch
+  becomes the break: on the timeline, in day history, totals, Team and
+  reports, with that break's pay rule. The answer stays attached.
+- Breaks answered this way before now count as **Other break** (the
+  server builds days from the events, so no data changes).
+- The other answers (working away, meeting, phone call) still leave
+  the time idle for the manager (ADR-0018 §2).
+- `USER_IDLE_EXPLAINED` takes an optional `break_kind`.
+
 ### Desktop 0.1.37 and web: Reports → Overview (ADR-0040 §3)
 
 - **Reports** now has two tabs, **Day summary** and **Overview**. The

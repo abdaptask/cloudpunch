@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { IdleExplanation, IdleReturn } from './api.js';
+import type { BreakId, BreakOption, IdleExplanation, IdleReturn } from './api.js';
 import { formatClock } from './timelineModel.js';
 import { Button } from './ui/Button.js';
 import { useTheme } from './ui/theme.js';
@@ -21,21 +21,27 @@ function minutes(ms: number): string {
 
 /**
  * Welcome back after logged idle (ADR-0018 §2): what were you doing?
- * The answer is attached for the manager; the time stays idle unless
- * they accept it at approval. Skipping leaves it unexplained.
+ * "On a break" asks which break and makes the time that break
+ * (ADR-0042). Other answers are attached for the manager and the time
+ * stays idle unless they correct it. Skipping leaves it unexplained.
  */
 export function IdleReturnDialog({
   stretch,
+  breaks,
   onExplain,
   onSkip,
 }: {
   stretch: IdleReturn;
-  onExplain: (explanation: IdleExplanation, note: string | null) => void;
+  /** The break types on the menu. */
+  breaks: readonly BreakOption[];
+  onExplain: (explanation: IdleExplanation, note: string | null, breakKind: BreakId | null) => void;
   onSkip: () => void;
 }): JSX.Element {
   const t = useTheme();
   const [choice, setChoice] = useState<IdleExplanation | null>(null);
+  const [breakKind, setBreakKind] = useState<BreakId | null>(null);
   const [note, setNote] = useState('');
+  const needsBreak = choice === 'break' && breaks.length > 0 && breakKind === null;
   return (
     <section
       role="dialog"
@@ -76,6 +82,31 @@ export function IdleReturnDialog({
           </Button>
         ))}
       </div>
+      {choice === 'break' && breaks.length > 0 && (
+        <div
+          role="radiogroup"
+          aria-label="idle-break-kind"
+          style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}
+        >
+          <span style={{ width: '100%', fontSize: 13, color: t.muted }}>Which break?</span>
+          {breaks.map((b) => (
+            <Button
+              key={b.id}
+              role="radio"
+              aria-checked={breakKind === b.id}
+              variant="chip"
+              onClick={() => setBreakKind(b.id)}
+              style={
+                breakKind === b.id
+                  ? { background: t.accent, color: t.onAccent, borderColor: t.accent }
+                  : undefined
+              }
+            >
+              {b.label}
+            </Button>
+          ))}
+        </div>
+      )}
       <input
         aria-label="idle-note"
         placeholder="Add a note (optional)"
@@ -93,12 +124,21 @@ export function IdleReturnDialog({
         }}
       />
       <p style={{ margin: 0, fontSize: 11, lineHeight: 1.4, color: t.muted }}>
-        Your manager sees this next to the idle time when approving your timesheet.
+        {choice === 'break'
+          ? 'This time counts as that break.'
+          : 'Your manager sees this next to the idle time when approving your timesheet.'}
       </p>
       <Button
         variant="primary"
-        disabled={choice === null}
-        onClick={() => choice && onExplain(choice, note.trim() === '' ? null : note.trim())}
+        disabled={choice === null || needsBreak}
+        onClick={() =>
+          choice &&
+          onExplain(
+            choice,
+            note.trim() === '' ? null : note.trim(),
+            choice === 'break' ? breakKind : null,
+          )
+        }
       >
         Send
       </Button>

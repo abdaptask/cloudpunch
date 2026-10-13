@@ -1,6 +1,7 @@
 # ADR-0018 — Log idle time instead of clocking out; clock in from Windows sign-in
 
-- **Status:** Accepted (2026-09-28, decisions set by the project owner)
+- **Status:** Accepted (2026-09-28, decisions set by the project owner);
+  §2 amended by ADR-0042 ("On a break" counts as a break)
 - **Date:** 2026-09-28
 - **Deciders:** Abdulla Sheikh (project owner), Architecture (Claude)
 - **Supersedes in part:** ADR-0003 §4.5 and ADR-0008 §3, but only the

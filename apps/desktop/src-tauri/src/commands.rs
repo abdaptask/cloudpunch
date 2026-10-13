@@ -27,7 +27,7 @@ use crate::backend_http;
 use crate::days::{self, DayCache, DayError};
 use crate::enroll::{self, EnrollError, Enroller, Enrollment, EnrollmentStatus};
 use crate::keystore::{OsStore, Secrets};
-use crate::machine::{CoreState, IdleExplanation, Input, PromptResponse};
+use crate::machine::{BreakKind, CoreState, IdleExplanation, Input, PromptResponse};
 use crate::policy::{self, FetchError, FetchOutcome, PolicyDoc};
 use crate::recorder::{Recorder, Target};
 use crate::strip::{self, Pin};
@@ -1715,16 +1715,31 @@ async fn fetch_as_user(
 }
 
 /// "What were you doing?" after an idle stretch (ADR-0018 §2).
-/// `explanation`: working_away | meeting | phone_call | break | idle.
+/// `explanation`: working_away | meeting | phone_call | break | idle;
+/// `break_kind` (bio | meal | rest | personal | other) only with break,
+/// which makes the stretch that break (ADR-0042).
 #[tauri::command]
 pub fn explain_idle(
     agent: State<'_, Arc<Agent>>,
     explanation: String,
     note: Option<String>,
+    break_kind: Option<String>,
 ) -> CommandResult {
-    let explanation =
-        IdleExplanation::parse(&explanation).ok_or_else(|| "invalid_argument".to_string())?;
+    let explanation = idle_explanation(&explanation, break_kind.as_deref())
+        .ok_or_else(|| "invalid_argument".to_string())?;
     run(&agent, Input::ExplainIdle { explanation, note })
+}
+
+/// The answer and its break type, if they go together.
+fn idle_explanation(explanation: &str, break_kind: Option<&str>) -> Option<IdleExplanation> {
+    let parsed = IdleExplanation::parse(explanation)?;
+    match (parsed, break_kind) {
+        (_, None) => Some(parsed),
+        (IdleExplanation::Break(_), Some(k)) => {
+            Some(IdleExplanation::Break(Some(BreakKind::from_wire(k)?)))
+        }
+        _ => None,
+    }
 }
 
 /// Skip that question; the stretch stays unexplained idle.
@@ -1896,6 +1911,45 @@ pub fn respond_to_prompt(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_break_type_goes_only_with_a_break_answer() {
+        // ADR-0042.
+        assert_eq!(
+            idle_explanation("break", Some("meal")),
+            Some(IdleExplanation::Break(Some(BreakKind::Meal)))
+        );
+        assert_eq!(
+            idle_explanation("break", None),
+            Some(IdleExplanation::Break(None))
+        );
+        assert_eq!(
+            idle_explanation("meeting", None),
+            Some(IdleExplanation::Meeting)
+        );
+        assert_eq!(idle_explanation("meeting", Some("bio")), None);
+        assert_eq!(idle_explanation("break", Some("nap")), None);
+        assert_eq!(idle_explanation("lunch", None), None);
+    }
+
+    #[test]
+    fn the_break_type_is_sent_with_the_answer() {
+        use crate::machine::{CoreEvent, IdleStretch};
+        let stretch = IdleStretch {
+            since: std::time::UNIX_EPOCH,
+            until: std::time::UNIX_EPOCH,
+        };
+        let event = |explanation| CoreEvent::UserIdleExplained {
+            stretch,
+            explanation,
+            note: None,
+        };
+        let p = event(IdleExplanation::Break(Some(BreakKind::Rest))).transition_payload();
+        assert_eq!(p["explanation"], "break");
+        assert_eq!(p["break_kind"], "rest");
+        let p = event(IdleExplanation::Break(None)).transition_payload();
+        assert!(p.get("break_kind").is_none());
+    }
 
     #[test]
     fn clamp_height_bounds() {

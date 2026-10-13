@@ -1579,7 +1579,7 @@ describe('logged idle (ADR-0018)', () => {
     await user.click(within(dialog).getByRole('radio', { name: 'In a meeting' }));
     await user.type(within(dialog).getByLabelText('idle-note'), '  standup  ');
     await user.click(send);
-    expect(mocks.explainIdle).toHaveBeenCalledWith('meeting', 'standup');
+    expect(mocks.explainIdle).toHaveBeenCalledWith('meeting', 'standup', null);
     expect(screen.queryByRole('dialog', { name: 'idle-return' })).not.toBeInTheDocument();
   });
 

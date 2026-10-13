@@ -581,7 +581,10 @@ export function App(): JSX.Element {
           {signedIn && view?.idleReturn && (
             <IdleReturnDialog
               stretch={view.idleReturn}
-              onExplain={(explanation, note) => run(() => api.explainIdle(explanation, note))}
+              breaks={view.breakOptions}
+              onExplain={(explanation, note, breakKind) =>
+                run(() => api.explainIdle(explanation, note, breakKind))
+              }
               onSkip={() => run(api.dismissIdleReturn)}
             />
           )}

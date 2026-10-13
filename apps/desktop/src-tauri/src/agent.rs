@@ -29,8 +29,8 @@ use crate::active_device::BlockedView;
 use crate::call_type::{self, Rules};
 use crate::machine::driver::Driver;
 use crate::machine::{
-    AwayReason, BreakKind, CallType, Core, CoreConfig, CoreState, Effect, IdleStretch, Input,
-    Rejected,
+    AwayReason, BreakKind, CallType, Core, CoreConfig, CoreState, Effect, IdleExplanation,
+    IdleStretch, Input, Rejected,
 };
 use crate::policy::PolicyDoc;
 use crate::recorder::{OutboxSink, Recorder};
@@ -982,7 +982,24 @@ impl<U: Ui> Agent<U> {
             }
             let before = inner.driver.state();
             let call_before = inner.driver.core().call_type();
+            // "On a break" after idle: that stretch becomes the break (ADR-0042).
+            let idle_break = match input {
+                Input::ExplainIdle {
+                    explanation: IdleExplanation::Break(kind),
+                    ..
+                } => inner
+                    .driver
+                    .core()
+                    .idle_return()
+                    .map(|s| (s.since, kind.unwrap_or(BreakKind::Other))),
+                _ => None,
+            };
             let outcome = inner.driver.handle(input, now)?;
+            if let Some((since, kind)) = idle_break {
+                if inner.timeline.idle_to_break(since, kind) {
+                    self.recorder.save_day(&inner.timeline.to_json());
+                }
+            }
             let after = inner.driver.state();
             match (after, planned_in) {
                 (CoreState::OnBreak { .. }, Some(p)) => inner.planned_break = p,
@@ -2122,6 +2139,40 @@ mod tests {
             )
             .unwrap();
         assert!(view.idle_return.is_none());
+        // Any answer but a break leaves it idle (ADR-0018 §2).
+        let kinds: Vec<_> = view.timeline.iter().map(|s| s.kind).collect();
+        assert_eq!(kinds, ["idle", "working"]);
+    }
+
+    #[test]
+    fn on_a_break_after_idle_makes_the_stretch_that_break() {
+        // ADR-0042.
+        let (agent, _ui) = agent_with_ui();
+        let base = SystemTime::now();
+        agent.handle_at(Input::ClockIn, base).unwrap();
+        tick_at(&agent, base, 300);
+        assert_eq!(tick_at(&agent, base, 330).status, "idle");
+        let back = base + Duration::from_secs(900);
+        agent
+            .handle_at(
+                Input::Tick {
+                    last_input_at: back,
+                },
+                back,
+            )
+            .unwrap();
+        let view = agent
+            .handle_at(
+                Input::ExplainIdle {
+                    explanation: IdleExplanation::Break(Some(BreakKind::Meal)),
+                    note: None,
+                },
+                back,
+            )
+            .unwrap();
+        let kinds: Vec<_> = view.timeline.iter().map(|s| s.kind).collect();
+        assert_eq!(kinds, ["meal_break", "working"]);
+        assert_eq!(view.timeline[0].started_at, epoch_ms(base));
     }
 
     #[test]
