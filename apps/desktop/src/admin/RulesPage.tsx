@@ -21,6 +21,7 @@ import {
   type SettingsForm,
 } from '../settingsModel.js';
 import { Button } from '../ui/Button.js';
+import { HistoryList } from './HistoryList.js';
 import { useTheme, type Theme } from '../ui/theme.js';
 
 const ERROR_TEXT: Record<string, string> = {
@@ -64,6 +65,8 @@ export function RulesPage({
   const [section, setSection] = useState<RuleSectionKey>('idle');
   const [reason, setReason] = useState('');
   const [status, setStatus] = useState<{ kind: 'error' | 'saved'; text: string } | null>(null);
+  // Saves made here: What changed starts again after each one.
+  const [saves, setSaves] = useState(0);
   const [saving, setSaving] = useState(false);
   // A scope switch waiting on "discard your changes?".
   const [leavingTo, setLeavingTo] = useState<string | null>(null);
@@ -162,6 +165,7 @@ export function RulesPage({
         setSaving(false);
         setLoaded({ ...loaded, override: r.override?.document ?? document, form });
         setReason('');
+        setSaves((n) => n + 1);
         setStatus({
           kind: 'saved',
           text: "Saved. Each person's app picks this up within 15 minutes, and it applies from their next clock-in.",
@@ -549,6 +553,24 @@ export function RulesPage({
         >
           {status.text}
         </p>
+      )}
+
+      {scope !== null && (
+        <section
+          aria-label="what-changed"
+          style={{ display: 'flex', flexDirection: 'column', gap: 6 }}
+        >
+          <h3 style={{ margin: '8px 0 0', fontSize: 14 }}>What changed</h3>
+          <HistoryList
+            key={`${scope}-${saves}`}
+            label="settings changes"
+            load={() =>
+              scope === 'global'
+                ? api.adminPolicyHistory('global', null)
+                : api.adminPolicyHistory('department', scope)
+            }
+          />
+        </section>
       )}
 
       {dirty && (

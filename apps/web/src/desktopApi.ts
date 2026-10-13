@@ -52,6 +52,8 @@ export type WebApi = Pick<
   | 'removeHoliday'
   | 'adminDepartments'
   | 'adminPolicyGet'
+  | 'adminPolicyHistory'
+  | 'adminPersonHistory'
   | 'adminPolicyPut'
   | 'adminDevices'
   | 'adminBulkManager'
@@ -252,6 +254,11 @@ export const api: WebApi = {
   },
   adminDepartments: () => get('/v1/admin/departments'),
   adminPolicyGet: async (scope, id) => get(policyPath(scope, id)),
+  adminPolicyHistory: async (scope, id) => get(`${policyPath(scope, id)}/history`),
+  adminPersonHistory: async (employeeId) => {
+    check(UUID.test(employeeId));
+    return get(`/v1/admin/employees/${employeeId}/history`);
+  },
   adminPolicyPut: async (scope, id, document, reason) =>
     send('PUT', policyPath(scope, id), withText({ document }, 'reason', reason)),
   adminDevices: () => get('/v1/admin/devices'),

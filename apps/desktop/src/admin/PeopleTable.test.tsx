@@ -1,6 +1,7 @@
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { formatClock } from '../timelineModel.js';
 import { PeopleTable } from './PeopleTable.js';
 
 const mocks = vi.hoisted(() => ({
@@ -12,7 +13,10 @@ const mocks = vi.hoisted(() => ({
   adminShifts: vi.fn(),
   adminSetShift: vi.fn(),
   adminActiveDevice: vi.fn(),
+  adminActiveDeviceSignOut: vi.fn(),
   adminWelcomePreview: vi.fn(),
+  adminWelcomeSend: vi.fn(),
+  adminPersonHistory: vi.fn(),
   adminBulkManager: vi.fn(),
   adminBulkRoles: vi.fn(),
   adminShiftTemplates: vi.fn(),
@@ -452,5 +456,145 @@ describe('in-office days in People (ADR-0039)', () => {
     expect(
       await within(panel).findByText(/2 people changed; 1 already had those office days/),
     ).toBeInTheDocument();
+  });
+});
+
+// Moved from the small window's People when it left (ADR-0038 phase 8).
+describe('the person panel: roles, welcome email, active machine', () => {
+  const open = async (user: ReturnType<typeof userEvent.setup>, name: string) => {
+    await user.click(await screen.findByRole('button', { name }));
+    return screen.getByRole('complementary', { name: `person ${name}` });
+  };
+
+  it('HR can tick Employee and Manager only; a refusal is said in plain words', async () => {
+    mocks.adminShifts.mockRejectedValue('forbidden');
+    mocks.adminPeopleSetRoles.mockRejectedValue('not_allowed_for_role');
+    const user = userEvent.setup();
+    render(<PeopleTable canAssignAll={false} onClose={() => undefined} />);
+    const panel = await open(user, 'Roshni Sahani');
+    expect(within(panel).getByRole('checkbox', { name: 'role-Manager' })).toBeEnabled();
+    for (const r of ['HR', 'Payroll', 'Auditor', 'Administrator']) {
+      expect(within(panel).getByRole('checkbox', { name: `role-${r}` })).toBeDisabled();
+    }
+    await user.click(within(panel).getByRole('checkbox', { name: 'role-Manager' }));
+    await user.click(within(panel).getByRole('button', { name: 'Save roles' }));
+    expect(await within(panel).findByRole('alert')).toHaveTextContent(
+      'HR can give or remove Employee and Manager only.',
+    );
+  });
+
+  it('removing every role says so, and who has no manager now', async () => {
+    mocks.adminPeopleSetRoles.mockResolvedValue({
+      roles: [],
+      changed: true,
+      unassigned_reports: [{ id: 'e-hr', name: 'Hema R' }],
+    });
+    const user = userEvent.setup();
+    render(<PeopleTable canAssignAll onClose={() => undefined} />);
+    const panel = await open(user, 'Priya Shah');
+    await user.click(within(panel).getByRole('checkbox', { name: 'role-Manager' }));
+    await user.click(within(panel).getByRole('button', { name: 'Save roles' }));
+    expect(mocks.adminPeopleSetRoles).toHaveBeenCalledWith('o-priya', [], '');
+    expect(await within(panel).findByRole('status')).toHaveTextContent(
+      'Saved. Priya Shah has no CloudPunch roles now; their history is kept. Hema R has no manager now.',
+    );
+  });
+
+  it('sends the welcome email with a note; a refused send says why and stays open', async () => {
+    mocks.adminWelcomePreview.mockResolvedValue({
+      from: 'noreply@aptask.com',
+      to: 'roshni@aptask.com',
+      cc: ['support@aptask.com'],
+      subject: 'Welcome to CloudPunch: how to get started',
+    });
+    mocks.adminWelcomeSend
+      .mockRejectedValueOnce('welcome_not_permitted')
+      .mockResolvedValueOnce({ to: 'roshni@aptask.com', cc: ['support@aptask.com'] });
+    const user = userEvent.setup();
+    render(<PeopleTable canAssignAll onClose={() => undefined} />);
+    const panel = await open(user, 'Roshni Sahani');
+    await user.click(within(panel).getByRole('button', { name: 'Send welcome email' }));
+    const welcome = await within(panel).findByRole('group', { name: 'welcome-email' });
+    await within(welcome).findByText('ApTask CloudPunch <noreply@aptask.com>');
+    await user.type(within(welcome).getByLabelText('welcome-note'), 'Welcome aboard!');
+    await user.click(within(welcome).getByRole('button', { name: 'Send welcome email' }));
+    expect(await within(welcome).findByRole('alert')).toHaveTextContent('Exchange refused');
+    await user.click(within(welcome).getByRole('button', { name: 'Send welcome email' }));
+    expect(mocks.adminWelcomeSend).toHaveBeenLastCalledWith('o-roshni', 'Welcome aboard!');
+    expect(await within(panel).findByRole('status')).toHaveTextContent(
+      'Welcome email sent to roshni@aptask.com',
+    );
+  });
+
+  it('an Administrator sees the active machine and signs it out after confirming', async () => {
+    const opened = new Date(Date.now() - 2 * 3_600_000).toISOString();
+    const last = new Date(Date.now() - 10 * 60_000).toISOString();
+    mocks.adminActiveDevice
+      .mockResolvedValueOnce({
+        device_id: 'd-1',
+        os: 'windows',
+        enrolled_at: '2026-09-01T04:00:00Z',
+        opened_at: opened,
+        last_event_at: last,
+      })
+      .mockResolvedValueOnce(null);
+    mocks.adminActiveDeviceSignOut.mockResolvedValue({ closed_at: last });
+    const user = userEvent.setup();
+    render(<PeopleTable canAssignAll canSignOutMachines onClose={() => undefined} />);
+    const panel = await open(user, 'Roshni Sahani');
+    const section = within(panel).getByRole('group', { name: 'active-machine' });
+    expect(await within(section).findByLabelText('active-machine-details')).toHaveTextContent(
+      `Windows computer · clocked in since ${formatClock(Date.parse(opened))} · last activity ${formatClock(Date.parse(last))}`,
+    );
+    await user.click(within(section).getByRole('button', { name: 'Sign out of this machine' }));
+    await user.click(within(section).getByRole('button', { name: 'Cancel' }));
+    expect(mocks.adminActiveDeviceSignOut).not.toHaveBeenCalled();
+    await user.click(within(section).getByRole('button', { name: 'Sign out of this machine' }));
+    await user.click(within(section).getByRole('button', { name: 'Continue' }));
+    expect(mocks.adminActiveDeviceSignOut).toHaveBeenCalledWith('e-roshni', 'd-1');
+    expect(await within(section).findByText('Not clocked in on any computer.')).toBeInTheDocument();
+  });
+
+  it('HR (no sign-out right) sees no active machine', async () => {
+    const user = userEvent.setup();
+    render(<PeopleTable canAssignAll={false} onClose={() => undefined} />);
+    const panel = await open(user, 'Roshni Sahani');
+    expect(within(panel).queryByRole('group', { name: 'active-machine' })).toBeNull();
+    expect(mocks.adminActiveDevice).not.toHaveBeenCalled();
+  });
+});
+
+describe('change history in the panel (ADR-0038 §8)', () => {
+  it('loads only when asked, newest first, with who, when and why', async () => {
+    mocks.adminPersonHistory.mockResolvedValue({
+      entries: [
+        {
+          at: '2026-10-13T09:30:00Z',
+          by: 'Abdulla Sheikh',
+          action: 'reporting_manager_set',
+          summary: 'Manager: none → Priya Shah',
+          reason: 'new team',
+        },
+        {
+          at: '2026-10-12T09:30:00Z',
+          by: null,
+          action: 'roles_set',
+          summary: 'Roles: none → Employee',
+          reason: null,
+        },
+      ],
+    });
+    const user = userEvent.setup();
+    render(<PeopleTable canAssignAll onClose={() => undefined} />);
+    await user.click(await screen.findByRole('button', { name: 'Roshni Sahani' }));
+    const panel = screen.getByRole('complementary', { name: 'person Roshni Sahani' });
+    expect(mocks.adminPersonHistory).not.toHaveBeenCalled();
+    await user.click(within(panel).getByRole('button', { name: 'Show changes' }));
+    expect(mocks.adminPersonHistory).toHaveBeenCalledWith('e-roshni');
+    const list = await within(panel).findByRole('list', { name: 'changes to Roshni Sahani' });
+    const items = within(list).getAllByRole('listitem');
+    expect(items[0]).toHaveTextContent('Manager: none → Priya Shah');
+    expect(items[0]).toHaveTextContent('Abdulla Sheikh · “new team”');
+    expect(items[1]).toHaveTextContent('CloudPunch');
   });
 });

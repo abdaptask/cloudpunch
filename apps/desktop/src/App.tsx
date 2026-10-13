@@ -5,8 +5,6 @@ import { BlockedElsewherePanel } from './BlockedElsewhere.js';
 import { BreakPicker, callName } from './BreakPicker.js';
 import { ClockInPrompt } from './ClockInPrompt.js';
 import { ClockOutDialog } from './ClockOutDialog.js';
-import { HolidayEditor } from './HolidayEditor.js';
-import { ShiftEditor } from './ShiftEditor.js';
 import { BreakOverBanner } from './BreakOverBanner.js';
 import {
   CorrectionForm,
@@ -32,10 +30,8 @@ import {
 } from './dayHistory.js';
 import { CloseDialog, LongShiftBanner, rememberedKeepRunning } from './CloseDialog.js';
 import { TimelineView } from './TimelineView.js';
-import { EveryoneConnections, MyConnections } from './ConnectionsView.js';
+import { MyConnections } from './ConnectionsView.js';
 import { TeamScreen } from './TeamScreen.js';
-import { ReportingLines } from './ReportingLines.js';
-import { VersionsScreen } from './VersionsScreen.js';
 import { TripCard } from './TripCard.js';
 import { tripSummary, type TripSummary } from './tripModel.js';
 import {
@@ -57,9 +53,8 @@ import {
 import { Button } from './ui/Button.js';
 import { Logo } from './ui/Logo.js';
 import { SevenSegment } from './ui/SevenSegment.js';
+import { sectionsFor } from './admin/sections.js';
 import { dark, useTheme, type Theme } from './ui/theme.js';
-import { PeopleScreen } from './PeopleScreen.js';
-import { SettingsScreen } from './SettingsScreen.js';
 import { SignIn } from './SignIn.js';
 import { Strip } from './Strip.js';
 import { useAgentState } from './useAgentState.js';
@@ -262,10 +257,9 @@ export function App(): JSX.Element {
   // Past days (ADR-0016): null shows today, live.
   const [viewDate, setViewDate] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
-  // Settings for HR / Administrators (ADR-0018 §5). The server checks
-  // the role on every call; this only decides whether to offer it.
+  // What the role may do, to decide what to offer (ADR-0018 §5); the
+  // server checks the role on every call.
   const [capabilities, setCapabilities] = useState<string[]>([]);
-  const [settingsOpen, setSettingsOpen] = useState(false);
   // The Team tab for Managers and HR (ADR-0025).
   const [teamOpen, setTeamOpen] = useState(false);
   // "Where you connect from" (ADR-0029 §5), from the account menu.
@@ -277,7 +271,6 @@ export function App(): JSX.Element {
   useEffect(() => {
     if (!signedIn) {
       setCapabilities([]);
-      setSettingsOpen(false);
       setTeamOpen(false);
       setConnectionsOpen(false);
       return;
@@ -293,42 +286,19 @@ export function App(): JSX.Element {
       current = false;
     };
   }, [signedIn]);
-  const canEditCompany = capabilities.includes('admin.policy.write');
-  const canEditRules = canEditCompany || capabilities.includes('hr.policy.write');
-  // People (ADR-0020): Administrators assign any role, HR Employee / Manager.
-  const canAssignAll = capabilities.includes('admin.role.assign');
-  const canManagePeople = canAssignAll || capabilities.includes('hr.employee.write');
-  // Versions (ADR-0025 §3): Administrators and Auditors.
-  const canReadDevices = capabilities.includes('admin.device.read');
-  // ADR-0028 §4: Administrators only (not HR, not Auditor); the server
-  // checks the role again.
-  const canSignOutMachines = capabilities.includes('admin.device.revoke');
   // ADR-0029 §5: Administrators everyone, Managers their reports; not HR.
-  const canSeeAllConnections = capabilities.includes('admin.connection.read');
-  const canSeeConnections = canSeeAllConnections || capabilities.includes('team.connection.read');
+  const canSeeConnections =
+    capabilities.includes('admin.connection.read') || capabilities.includes('team.connection.read');
   const canSeeOwnConnections = capabilities.includes('self.connection.read');
-  const canEditSettings = canEditRules || canManagePeople || canSeeAllConnections;
+  // Settings opens the admin console (ADR-0038 §1); the old screens left
+  // this window in phase 8.
+  const canOpenConsole = sectionsFor(capabilities).length > 0;
   const canSeeTeam = capabilities.includes('team.timeline.read');
-  const canSetShifts = capabilities.includes('admin.shift.write');
-  // ADR-0037 §1: HR and Administrators keep the holiday list.
-  const canEditHolidays = capabilities.includes('hr.holiday.write');
   const canCorrectTeam = capabilities.includes('team.correction.review');
   const canAskCorrection = capabilities.includes('self.correction.request');
   const reviewsCorrections = canCorrectTeam || capabilities.includes('admin.correction.approve');
   const corrections = useCorrectionsQueue(signedIn && reviewsCorrections);
   const waiting = queueCount(corrections.queue);
-  const adminTabs = (
-    [
-      ['rules', 'Rules', canEditRules],
-      ['people', 'People', canManagePeople],
-      ['versions', 'Versions', canReadDevices],
-      ['connections', 'Connections', canSeeAllConnections],
-    ] as const
-  ).filter(([, , on]) => on);
-  const [adminTab, setAdminTab] = useState<'rules' | 'people' | 'versions' | 'connections'>(
-    'rules',
-  );
-  const tab = adminTabs.some(([k]) => k === adminTab) ? adminTab : (adminTabs[0]?.[0] ?? 'rules');
   const queueShown = correctionsOpen && reviewsCorrections;
   const mineShown = connectionsOpen && canSeeOwnConnections && !queueShown;
   const teamShown = teamOpen && canSeeTeam && !mineShown && !queueShown;
@@ -484,21 +454,16 @@ export function App(): JSX.Element {
               <TeamButton
                 open={teamOpen}
                 onClick={() => {
-                  setSettingsOpen(false);
                   setConnectionsOpen(false);
                   setCorrectionsOpen(false);
                   setTeamOpen((o) => !o);
                 }}
               />
             )}
-            {canEditSettings && (
+            {canOpenConsole && (
               <SettingsButton
-                open={settingsOpen}
                 onClick={() => {
-                  setTeamOpen(false);
-                  setConnectionsOpen(false);
-                  setCorrectionsOpen(false);
-                  setSettingsOpen((o) => !o);
+                  api.openAdminWindow().catch(() => undefined);
                 }}
               />
             )}
@@ -515,7 +480,6 @@ export function App(): JSX.Element {
                 canSeeOwnConnections
                   ? () => {
                       setTeamOpen(false);
-                      setSettingsOpen(false);
                       setCorrectionsOpen(false);
                       setConnectionsOpen(true);
                     }
@@ -657,7 +621,6 @@ export function App(): JSX.Element {
               count={waiting}
               onReview={() => {
                 setTeamOpen(false);
-                setSettingsOpen(false);
                 setConnectionsOpen(false);
                 setCorrectionsOpen(true);
               }}
@@ -750,331 +713,265 @@ export function App(): JSX.Element {
               onClose={() => setTeamOpen(false)}
             />
           )}
-          {signedIn &&
-            !queueShown &&
-            !mineShown &&
-            !teamShown &&
-            settingsOpen &&
-            canEditSettings && (
-              <>
-                <Button
-                  variant="secondary"
-                  onClick={() => {
-                    api.openAdminWindow().catch(() => undefined);
-                  }}
+          {signedIn && !queueShown && !mineShown && !teamShown && (
+            <>
+              {/* Status and actions stay put; the details below scroll. */}
+              <div
+                style={{
+                  position: 'sticky',
+                  top: 0,
+                  zIndex: 1,
+                  background: t.bg,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 12,
+                  paddingBottom: 2,
+                }}
+              >
+                <section
+                  aria-label="current-status"
+                  style={{ ...card(t), padding: '8px 12px 12px', textAlign: 'center' }}
                 >
-                  Open admin console
-                </Button>
-                {adminTabs.length > 1 && (
-                  <div role="tablist" aria-label="admin-tabs" style={{ display: 'flex', gap: 6 }}>
-                    {adminTabs.map(([key, label]) => (
-                      <Button
-                        key={key}
-                        role="tab"
-                        aria-selected={tab === key}
-                        variant="chip"
-                        onClick={() => setAdminTab(key)}
-                        style={
-                          tab === key
-                            ? { borderColor: t.accent, color: t.accent, fontWeight: 650 }
-                            : {}
-                        }
-                      >
-                        {label}
-                      </Button>
-                    ))}
-                  </div>
-                )}
-                {tab === 'rules' ? (
-                  <SettingsScreen
-                    canEditCompany={canEditCompany}
-                    onClose={() => setSettingsOpen(false)}
+                  <DayNav
+                    date={pastDate ?? todayDate}
+                    today={todayDate}
+                    pickerOpen={pickerOpen}
+                    onTogglePicker={() => setPickerOpen((o) => !o)}
+                    onChange={(d) => {
+                      setPickerOpen(false);
+                      showDate(d);
+                    }}
                   />
-                ) : tab === 'people' ? (
-                  <>
-                    <PeopleScreen
-                      canAssignAll={canAssignAll}
-                      canSignOutMachines={canSignOutMachines}
-                      onClose={() => setSettingsOpen(false)}
-                    />
-                    <ReportingLines />
-                    {canSetShifts && <ShiftEditor />}
-                    {canEditHolidays && <HolidayEditor />}
-                  </>
-                ) : tab === 'versions' ? (
-                  <VersionsScreen onClose={() => setSettingsOpen(false)} />
-                ) : (
-                  <EveryoneConnections />
-                )}
-              </>
-            )}
-          {signedIn &&
-            !queueShown &&
-            !mineShown &&
-            !teamShown &&
-            !(settingsOpen && canEditSettings) && (
-              <>
-                {/* Status and actions stay put; the details below scroll. */}
-                <div
-                  style={{
-                    position: 'sticky',
-                    top: 0,
-                    zIndex: 1,
-                    background: t.bg,
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: 12,
-                    paddingBottom: 2,
-                  }}
-                >
-                  <section
-                    aria-label="current-status"
-                    style={{ ...card(t), padding: '8px 12px 12px', textAlign: 'center' }}
-                  >
-                    <DayNav
-                      date={pastDate ?? todayDate}
+                  {pickerOpen ? (
+                    <DayPicker
                       today={todayDate}
-                      pickerOpen={pickerOpen}
-                      onTogglePicker={() => setPickerOpen((o) => !o)}
-                      onChange={(d) => {
+                      selected={pastDate ?? todayDate}
+                      onPick={(d) => {
+                        // A tap opens the day with its sessions and totals (owner request).
                         setPickerOpen(false);
+                        setDetailsOpen(true);
                         showDate(d);
                       }}
+                      onClose={() => setPickerOpen(false)}
                     />
-                    {pickerOpen ? (
-                      <DayPicker
-                        today={todayDate}
-                        selected={pastDate ?? todayDate}
-                        onPick={(d) => {
-                          // A tap opens the day with its sessions and totals (owner request).
-                          setPickerOpen(false);
-                          setDetailsOpen(true);
-                          showDate(d);
-                        }}
-                        onClose={() => setPickerOpen(false)}
-                      />
-                    ) : pastDate ? (
-                      <PastDial
-                        state={past}
-                        segments={pastSegs}
-                        end={pastEnd}
-                        date={pastDate}
-                        today={todayDate}
-                      />
-                    ) : (
-                      <DayDial
-                        segments={todaySegs}
-                        now={now}
-                        park={trip?.summary.long === true}
-                        tint={view ? t.tint[tintFor(view.status)] : undefined}
-                        glow={view ? t.gauge.glow[tintFor(view.status)] : undefined}
-                        worked={todayTotals.working}
-                        elapsed={view?.sessionStartedAt != null ? onTheClock : null}
-                      >
-                        <div
-                          style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 6,
-                            fontSize: 11,
-                            fontWeight: 650,
-                            letterSpacing: 0.6,
-                            textTransform: 'uppercase',
-                            // On the dark gauge: the dark theme's brighter colours.
-                            color: view ? statusColor(dark, view) : t.gauge.dim,
-                          }}
-                        >
-                          <span
-                            aria-hidden
-                            style={{
-                              width: 7,
-                              height: 7,
-                              borderRadius: 999,
-                              background: view ? statusColor(dark, view) : t.gauge.unlit,
-                              boxShadow: view ? `0 0 6px ${statusColor(dark, view)}` : 'none',
-                            }}
-                          />
-                          <span>{view ? statusLabel(view, now) : 'Loading…'}</span>
-                        </div>
-                        {view?.sessionStartedAt != null ? (
-                          <>
-                            <div aria-label="session-timer" style={{ margin: '4px 0 2px' }}>
-                              <SevenSegment
-                                text={formatTimer(onTheClock)}
-                                color={t.gauge.text}
-                                unlit={t.gauge.unlit}
-                                height={28}
-                              />
-                            </div>
-                            <div style={{ fontSize: 11, color: t.gauge.dim }}>
-                              since clock-in {formatClock(todaySince)}
-                            </div>
-                          </>
-                        ) : (
-                          view && (
-                            <>
-                              <div
-                                style={{
-                                  fontSize: 26,
-                                  fontWeight: 650,
-                                  fontVariantNumeric: 'tabular-nums',
-                                  lineHeight: 1.1,
-                                }}
-                              >
-                                {formatWorked(dayOf(view, now).worked)}
-                              </div>
-                              <div style={{ fontSize: 11, color: t.gauge.dim }}>worked today</div>
-                            </>
-                          )
-                        )}
-                      </DayDial>
-                    )}
-                    {!pastDate && !pickerOpen && view?.status === 'clocked_out' && !blocked && (
-                      <div style={{ fontSize: 12, color: t.muted, marginTop: 6, lineHeight: 1.4 }}>
-                        {clockedOutHint(view, now)}
-                      </div>
-                    )}
-                  </section>
-
-                  {!pastDate && signedIn && tripCard}
-
-                  {!pastDate &&
-                    view?.status === 'clocked_out' &&
-                    view.autoClockedOutAt !== null && (
-                      <p
-                        role="status"
-                        style={{
-                          margin: 0,
-                          padding: '10px 12px',
-                          borderRadius: 10,
-                          fontSize: 13,
-                          lineHeight: 1.4,
-                          background: t.warnBg,
-                          color: t.warnText,
-                        }}
-                      >
-                        {view.autoClockOutReason === 'idle_cap'
-                          ? `You were clocked out at ${formatClock(view.autoClockedOutAt)} after a long idle stretch. The idle time is kept for your manager to review.`
-                          : `You were clocked out at ${formatClock(view.autoClockedOutAt)} because the idle prompt wasn't answered. Time up to when the prompt appeared is kept.`}
-                      </p>
-                    )}
-
-                  {view && (
-                    <section
-                      aria-label="actions"
-                      style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
+                  ) : pastDate ? (
+                    <PastDial
+                      state={past}
+                      segments={pastSegs}
+                      end={pastEnd}
+                      date={pastDate}
+                      today={todayDate}
+                    />
+                  ) : (
+                    <DayDial
+                      segments={todaySegs}
+                      now={now}
+                      park={trip?.summary.long === true}
+                      tint={view ? t.tint[tintFor(view.status)] : undefined}
+                      glow={view ? t.gauge.glow[tintFor(view.status)] : undefined}
+                      worked={todayTotals.working}
+                      elapsed={view?.sessionStartedAt != null ? onTheClock : null}
                     >
-                      {/* A past day is for looking back: no clock or break actions (owner request). */}
-                      {pastDate ? (
-                        <BackToToday
-                          view={view}
-                          now={now}
-                          onClick={() => {
-                            setPickerOpen(false);
-                            setViewDate(null);
+                      <div
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 6,
+                          fontSize: 11,
+                          fontWeight: 650,
+                          letterSpacing: 0.6,
+                          textTransform: 'uppercase',
+                          // On the dark gauge: the dark theme's brighter colours.
+                          color: view ? statusColor(dark, view) : t.gauge.dim,
+                        }}
+                      >
+                        <span
+                          aria-hidden
+                          style={{
+                            width: 7,
+                            height: 7,
+                            borderRadius: 999,
+                            background: view ? statusColor(dark, view) : t.gauge.unlit,
+                            boxShadow: view ? `0 0 6px ${statusColor(dark, view)}` : 'none',
                           }}
                         />
-                      ) : blocked ? (
-                        <BlockedElsewherePanel
-                          blocked={blocked}
-                          onCheckAgain={() => run(api.checkActiveDevice)}
-                          onSignOut={() => signOutWithSummary()}
-                        />
+                        <span>{view ? statusLabel(view, now) : 'Loading…'}</span>
+                      </div>
+                      {view?.sessionStartedAt != null ? (
+                        <>
+                          <div aria-label="session-timer" style={{ margin: '4px 0 2px' }}>
+                            <SevenSegment
+                              text={formatTimer(onTheClock)}
+                              color={t.gauge.text}
+                              unlit={t.gauge.unlit}
+                              height={28}
+                            />
+                          </div>
+                          <div style={{ fontSize: 11, color: t.gauge.dim }}>
+                            since clock-in {formatClock(todaySince)}
+                          </div>
+                        </>
                       ) : (
-                        <Actions
-                          view={view}
-                          run={run}
-                          onClockOut={askClockOut}
-                          onBreak={() => setBreakPicker(true)}
-                        />
+                        view && (
+                          <>
+                            <div
+                              style={{
+                                fontSize: 26,
+                                fontWeight: 650,
+                                fontVariantNumeric: 'tabular-nums',
+                                lineHeight: 1.1,
+                              }}
+                            >
+                              {formatWorked(dayOf(view, now).worked)}
+                            </div>
+                            <div style={{ fontSize: 11, color: t.gauge.dim }}>worked today</div>
+                          </>
+                        )
                       )}
-                    </section>
+                    </DayDial>
                   )}
-                </div>
+                  {!pastDate && !pickerOpen && view?.status === 'clocked_out' && !blocked && (
+                    <div style={{ fontSize: 12, color: t.muted, marginTop: 6, lineHeight: 1.4 }}>
+                      {clockedOutHint(view, now)}
+                    </div>
+                  )}
+                </section>
 
-                {error && !(enrollBlocked && error === enrollment.code) && (
-                  <p role="alert" style={{ margin: 0, fontSize: 13, color: t.danger }}>
-                    {ERROR_TEXT[error] ?? `Something went wrong (${error}).`}
+                {!pastDate && signedIn && tripCard}
+
+                {!pastDate && view?.status === 'clocked_out' && view.autoClockedOutAt !== null && (
+                  <p
+                    role="status"
+                    style={{
+                      margin: 0,
+                      padding: '10px 12px',
+                      borderRadius: 10,
+                      fontSize: 13,
+                      lineHeight: 1.4,
+                      background: t.warnBg,
+                      color: t.warnText,
+                    }}
+                  >
+                    {view.autoClockOutReason === 'idle_cap'
+                      ? `You were clocked out at ${formatClock(view.autoClockedOutAt)} after a long idle stretch. The idle time is kept for your manager to review.`
+                      : `You were clocked out at ${formatClock(view.autoClockedOutAt)} because the idle prompt wasn't answered. Time up to when the prompt appeared is kept.`}
                   </p>
                 )}
 
-                {shownSegs.length > 0 && (
-                  <DayStats segments={shownSegs} now={shownNow} since={shownSince} />
-                )}
-
-                {shownSegs.length > 0 && (
-                  <button
-                    type="button"
-                    aria-expanded={detailsOpen}
-                    onClick={() => setDetailsOpen((o) => !o)}
-                    style={{
-                      ...linkButton(t),
-                      alignSelf: 'center',
-                      fontSize: 12,
-                      color: t.muted,
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 4,
-                    }}
+                {view && (
+                  <section
+                    aria-label="actions"
+                    style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
                   >
-                    {detailsOpen ? 'Hide details' : 'Details: sessions and totals'}
-                    <span aria-hidden style={{ fontSize: 9 }}>
-                      {detailsOpen ? '▲' : '▼'}
-                    </span>
-                  </button>
-                )}
-
-                {view && detailsOpen && (
-                  <>
-                    <section aria-label={pastDate ? 'past-day' : 'today'} style={card(t)}>
-                      <h2 style={sectionTitle(t)}>
-                        {pastDate
-                          ? `Sessions · ${dayLabel(pastDate, todayDate)}`
-                          : 'Sessions today'}
-                      </h2>
-                      <TimelineView
-                        segments={shownSegs}
-                        now={shownNow}
-                        since={shownSince}
-                        emptyText={pastDate ? 'Nothing was tracked on this day.' : undefined}
+                    {/* A past day is for looking back: no clock or break actions (owner request). */}
+                    {pastDate ? (
+                      <BackToToday
+                        view={view}
+                        now={now}
+                        onClick={() => {
+                          setPickerOpen(false);
+                          setViewDate(null);
+                        }}
                       />
-                      {pastDate && <DayCorrections corrections={pastDay?.day.corrections} />}
-                      {pastDate &&
-                        canAskCorrection &&
-                        (askingCorrection ? (
-                          <CorrectionForm
-                            date={pastDate}
-                            defaultTz={pastDay?.day.sessions[0]?.tz_iana ?? null}
-                            submitLabel="Ask to correct"
-                            onSubmit={(c) => api.requestCorrection(c)}
-                            onDone={() => {
-                              setAskingCorrection(false);
-                              setDayReload((n) => n + 1);
-                            }}
-                            onCancel={() => setAskingCorrection(false)}
-                          />
-                        ) : (
-                          <Button
-                            variant="chip"
-                            style={{ marginTop: 10 }}
-                            onClick={() => setAskingCorrection(true)}
-                          >
-                            Ask to correct this day
-                          </Button>
-                        ))}
-                    </section>
-                    {shownSegs.length > 0 && (
-                      <Footer
-                        segments={shownSegs}
-                        now={shownNow}
-                        since={shownSince}
-                        past={!!pastDate}
+                    ) : blocked ? (
+                      <BlockedElsewherePanel
+                        blocked={blocked}
+                        onCheckAgain={() => run(api.checkActiveDevice)}
+                        onSignOut={() => signOutWithSummary()}
+                      />
+                    ) : (
+                      <Actions
+                        view={view}
+                        run={run}
+                        onClockOut={askClockOut}
+                        onBreak={() => setBreakPicker(true)}
                       />
                     )}
-                  </>
+                  </section>
                 )}
-              </>
-            )}
+              </div>
+
+              {error && !(enrollBlocked && error === enrollment.code) && (
+                <p role="alert" style={{ margin: 0, fontSize: 13, color: t.danger }}>
+                  {ERROR_TEXT[error] ?? `Something went wrong (${error}).`}
+                </p>
+              )}
+
+              {shownSegs.length > 0 && (
+                <DayStats segments={shownSegs} now={shownNow} since={shownSince} />
+              )}
+
+              {shownSegs.length > 0 && (
+                <button
+                  type="button"
+                  aria-expanded={detailsOpen}
+                  onClick={() => setDetailsOpen((o) => !o)}
+                  style={{
+                    ...linkButton(t),
+                    alignSelf: 'center',
+                    fontSize: 12,
+                    color: t.muted,
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 4,
+                  }}
+                >
+                  {detailsOpen ? 'Hide details' : 'Details: sessions and totals'}
+                  <span aria-hidden style={{ fontSize: 9 }}>
+                    {detailsOpen ? '▲' : '▼'}
+                  </span>
+                </button>
+              )}
+
+              {view && detailsOpen && (
+                <>
+                  <section aria-label={pastDate ? 'past-day' : 'today'} style={card(t)}>
+                    <h2 style={sectionTitle(t)}>
+                      {pastDate ? `Sessions · ${dayLabel(pastDate, todayDate)}` : 'Sessions today'}
+                    </h2>
+                    <TimelineView
+                      segments={shownSegs}
+                      now={shownNow}
+                      since={shownSince}
+                      emptyText={pastDate ? 'Nothing was tracked on this day.' : undefined}
+                    />
+                    {pastDate && <DayCorrections corrections={pastDay?.day.corrections} />}
+                    {pastDate &&
+                      canAskCorrection &&
+                      (askingCorrection ? (
+                        <CorrectionForm
+                          date={pastDate}
+                          defaultTz={pastDay?.day.sessions[0]?.tz_iana ?? null}
+                          submitLabel="Ask to correct"
+                          onSubmit={(c) => api.requestCorrection(c)}
+                          onDone={() => {
+                            setAskingCorrection(false);
+                            setDayReload((n) => n + 1);
+                          }}
+                          onCancel={() => setAskingCorrection(false)}
+                        />
+                      ) : (
+                        <Button
+                          variant="chip"
+                          style={{ marginTop: 10 }}
+                          onClick={() => setAskingCorrection(true)}
+                        >
+                          Ask to correct this day
+                        </Button>
+                      ))}
+                  </section>
+                  {shownSegs.length > 0 && (
+                    <Footer
+                      segments={shownSegs}
+                      now={shownNow}
+                      since={shownSince}
+                      past={!!pastDate}
+                    />
+                  )}
+                </>
+              )}
+            </>
+          )}
         </>
       )}
       {!showStrip && view && (
@@ -1091,14 +988,14 @@ export function App(): JSX.Element {
 
 /** Header button: pin the window as the mini strip (ADR-0017). */
 /** Header button for HR / Administrators: open Settings (ADR-0018 §5). */
-function SettingsButton({ open, onClick }: { open: boolean; onClick: () => void }): JSX.Element {
+/** Opens the admin console (ADR-0038 §1). */
+function SettingsButton({ onClick }: { onClick: () => void }): JSX.Element {
   const t = useTheme();
   return (
     <button
       type="button"
       aria-label="Settings"
-      aria-pressed={open}
-      title="Settings (HR and Administrators)"
+      title="Admin console"
       onClick={onClick}
       style={{
         marginLeft: 8,
@@ -1107,7 +1004,7 @@ function SettingsButton({ open, onClick }: { open: boolean; onClick: () => void 
         padding: 0,
         border: 'none',
         borderRadius: 6,
-        background: open ? t.surfaceAlt : 'none',
+        background: 'none',
         color: t.muted,
         cursor: 'pointer',
         verticalAlign: 'middle',

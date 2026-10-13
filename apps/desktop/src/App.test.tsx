@@ -41,6 +41,7 @@ const mocks = vi.hoisted(() => ({
   getDays: vi.fn<(from: string, to: string) => Promise<DaysResult>>(),
   clockInFromSignIn: vi.fn<() => Promise<StateView>>(),
   myCapabilities: vi.fn<() => Promise<string[]>>(),
+  openAdminWindow: vi.fn<() => Promise<void>>(),
   adminDepartments: vi.fn<() => Promise<{ departments: { id: string; name: string }[] }>>(),
   adminPolicyGet: vi.fn(),
   adminPeople: vi.fn(),
@@ -74,15 +75,6 @@ const SIGNED_IN: AuthStatus = { signedIn: true, name: 'Test User', username: 'te
 const SIGNED_OUT: AuthStatus = { signedIn: false, name: null, username: null };
 
 vi.mock('./api.js', () => ({ api: mocks, STATE_EVENT: 'cp://state' }));
-
-/** Open a folded list (Collapsible) once it has loaded; returns its region. */
-async function unfold(
-  user: ReturnType<typeof userEvent.setup>,
-  title: string,
-): Promise<HTMLElement> {
-  await user.click(await screen.findByRole('button', { name: new RegExp(`^${title}`) }));
-  return screen.getByRole('region', { name: title });
-}
 
 function view(over: Partial<StateView> = {}): StateView {
   return {
@@ -155,6 +147,7 @@ beforeEach(() => {
   mocks.clockOutAndQuit.mockResolvedValue(undefined);
   mocks.pinStatus.mockResolvedValue(false);
   mocks.myCapabilities.mockResolvedValue([]);
+  mocks.openAdminWindow.mockResolvedValue(undefined);
   mocks.adminDepartments.mockResolvedValue({ departments: [] });
   mocks.adminEmployees.mockResolvedValue({ employees: [] });
   mocks.adminShifts.mockResolvedValue({ people: [] });
@@ -1669,335 +1662,6 @@ describe('daily clock-in popup (ADR-0018 §4)', () => {
   });
 });
 
-describe('Settings for HR and Administrators (ADR-0018 §5)', () => {
-  const DEPT = '0f8fad5b-d9cb-469f-a165-70867728950e';
-  const effective = {
-    idle: { threshold_seconds: 120, grace_seconds: 30, max_idle_minutes: 120 },
-    reminders: {
-      clock_in_prompt_at: '08:00',
-      clock_in_prompt_tz: 'America/New_York',
-      long_day_hours: 8,
-      long_shift_hours: 9,
-    },
-  };
-
-  it('is not offered to employees', async () => {
-    render(<App />);
-    await screen.findByRole('button', { name: 'Clock in' });
-    expect(screen.queryByRole('button', { name: 'Settings' })).not.toBeInTheDocument();
-  });
-
-  it('an Administrator edits the company-wide values; other override keys are kept', async () => {
-    mocks.myCapabilities.mockResolvedValue(['admin.policy.write']);
-    mocks.adminDepartments.mockResolvedValue({ departments: [{ id: DEPT, name: 'Recruiting' }] });
-    mocks.adminPolicyGet.mockResolvedValue({
-      override: { document: { break: { bio: { max_minutes: 15 } } } },
-      // The effective policy includes the override.
-      effective: { policy: { ...effective, break: { bio: { max_minutes: 15 } } } },
-    });
-    mocks.adminPolicyPut.mockImplementation((_s: string, _i: string | null, document: unknown) =>
-      Promise.resolve({ override: { document }, effective: { policy: effective } }),
-    );
-    const user = userEvent.setup();
-    render(<App />);
-    await user.click(await screen.findByRole('button', { name: 'Settings' }));
-    const settings = screen.getByRole('region', { name: 'settings' });
-    expect(mocks.adminPolicyGet).toHaveBeenCalledWith('global', null);
-    const prompt = await within(settings).findByLabelText('idle-prompt');
-    expect(prompt).toHaveValue(2);
-    const save = within(settings).getByRole('button', { name: 'Save' });
-    expect(save).toBeDisabled();
-
-    await user.clear(prompt);
-    await user.type(prompt, '3');
-    await user.click(within(settings).getByLabelText('idle-cap-on'));
-    await user.type(within(settings).getByLabelText('reason'), 'pilot feedback');
-    await user.click(save);
-    expect(mocks.adminPolicyPut).toHaveBeenCalledWith(
-      'global',
-      null,
-      expect.objectContaining({
-        idle: {
-          threshold_seconds: 180,
-          grace_seconds: 30,
-          max_idle_minutes: null,
-          input_pattern_check: { enabled: false },
-        },
-        reminders: {
-          clock_in_prompt_at: '08:00',
-          clock_in_prompt_tz: 'America/New_York',
-          long_day_hours: 8,
-          long_shift_hours: 9,
-        },
-      }),
-      'pilot feedback',
-    );
-    const sent = mocks.adminPolicyPut.mock.calls[0]?.[2] as { break: Record<string, unknown> };
-    expect(sent.break['bio']).toMatchObject({ max_minutes: 15, enabled: true });
-    expect(await within(settings).findByRole('status')).toHaveTextContent('within 15 minutes');
-  });
-
-  it('Breaks: rename, switch off and re-rule a type; all off blocks Save (ADR-0023 §5)', async () => {
-    mocks.myCapabilities.mockResolvedValue(['admin.policy.write']);
-    mocks.adminPolicyGet.mockResolvedValue({ override: null, effective: { policy: effective } });
-    mocks.adminPolicyPut.mockImplementation((_s: string, _i: string | null, document: unknown) =>
-      Promise.resolve({ override: { document }, effective: { policy: effective } }),
-    );
-    const user = userEvent.setup();
-    render(<App />);
-    await user.click(await screen.findByRole('button', { name: 'Settings' }));
-    const settings = screen.getByRole('region', { name: 'settings' });
-    const name = await within(settings).findByLabelText('rest-label');
-    expect(name).toHaveValue('Tea break');
-    await user.clear(name);
-    await user.type(name, 'Chai break');
-    await user.selectOptions(within(settings).getByLabelText('rest-pay'), 'paid');
-    await user.click(within(settings).getByLabelText('personal-enabled'));
-    await user.click(within(settings).getByLabelText('offer-training'));
-    await user.click(within(settings).getByRole('button', { name: 'Save' }));
-    const sent = mocks.adminPolicyPut.mock.calls[0]?.[2] as {
-      break: Record<string, Record<string, unknown>>;
-      away: Record<string, unknown>;
-    };
-    expect(sent.break['rest']).toEqual({
-      enabled: true,
-      label: 'Chai break',
-      pay: 'paid',
-      max_minutes: 15,
-    });
-    expect(sent.break['personal']?.['enabled']).toBe(false);
-    expect(sent.away).toEqual({ offer_training: false, check_after_minutes: 60 });
-
-    for (const id of ['bio', 'meal', 'rest']) {
-      await user.click(within(settings).getByLabelText(`${id}-enabled`));
-    }
-    expect(within(settings).getByText('Keep at least one break type on')).toBeInTheDocument();
-    expect(within(settings).getByRole('button', { name: 'Save' })).toBeDisabled();
-  });
-
-  it('HR edits a department, and bad values block Save', async () => {
-    mocks.myCapabilities.mockResolvedValue(['hr.policy.write']);
-    mocks.adminDepartments.mockResolvedValue({ departments: [{ id: DEPT, name: 'Recruiting' }] });
-    mocks.adminPolicyGet.mockResolvedValue({ override: null, effective: { policy: effective } });
-    const user = userEvent.setup();
-    render(<App />);
-    await user.click(await screen.findByRole('button', { name: 'Settings' }));
-    const settings = screen.getByRole('region', { name: 'settings' });
-    const longDay = await within(settings).findByLabelText('long-day');
-    expect(mocks.adminPolicyGet).toHaveBeenCalledWith('department', DEPT);
-    expect(
-      within(settings).queryByRole('option', { name: /company-wide/ }),
-    ).not.toBeInTheDocument();
-    await user.clear(longDay);
-    await user.type(longDay, '20');
-    expect(settings).toHaveTextContent('Between 4 and 16 hours');
-    expect(within(settings).getByRole('button', { name: 'Save' })).toBeDisabled();
-  });
-
-  it('a refused save says why', async () => {
-    mocks.myCapabilities.mockResolvedValue(['admin.policy.write']);
-    mocks.adminPolicyGet.mockResolvedValue({ override: null, effective: { policy: effective } });
-    mocks.adminPolicyPut.mockRejectedValue('forbidden');
-    const user = userEvent.setup();
-    render(<App />);
-    await user.click(await screen.findByRole('button', { name: 'Settings' }));
-    const settings = screen.getByRole('region', { name: 'settings' });
-    const wait = await within(settings).findByLabelText('prompt-wait');
-    await user.clear(wait);
-    await user.type(wait, '45');
-    await user.click(within(settings).getByRole('button', { name: 'Save' }));
-    expect(await within(settings).findByRole('alert')).toHaveTextContent(
-      "Your role can't change this.",
-    );
-  });
-});
-
-describe('People (ADR-0020)', () => {
-  const FARHEEN = '8afe98ae-5b43-4c12-86c5-b4473225f7f0';
-  const NILESH = '026e2734-c0e4-4d70-9d19-6beafa588629';
-
-  it('an Administrator adds someone from the directory with a role', async () => {
-    mocks.myCapabilities.mockResolvedValue(['admin.role.assign', 'admin.policy.write']);
-    mocks.adminPolicyGet.mockResolvedValue({ override: null, effective: { policy: {} } });
-    mocks.adminPeople.mockResolvedValue({
-      people: [
-        {
-          oid: NILESH,
-          name: 'Nilesh Darekar',
-          roles: ['Employee', 'Administrator'],
-          has_employee_record: true,
-        },
-      ],
-    });
-    mocks.adminPeopleSearch.mockResolvedValue({
-      users: [{ oid: FARHEEN, name: 'Farheen Khanam', email: 'farheen@aptask.com' }],
-    });
-    mocks.adminPeopleSetRoles.mockResolvedValue({ changed: true });
-    const user = userEvent.setup();
-    render(<App />);
-    await user.click(await screen.findByRole('button', { name: 'Settings' }));
-    await user.click(screen.getByRole('tab', { name: 'People' }));
-    const people = screen.getByRole('region', { name: 'people' });
-    await unfold(user, 'With a CloudPunch role');
-    expect(await within(people).findByText('Employee · Administrator')).toBeInTheDocument();
-    await user.type(within(people).getByLabelText('people-search'), 'farh');
-    await user.click(await within(people).findByRole('button', { name: /Farheen Khanam/ }));
-    const roles = within(people).getByRole('group', { name: 'edit-roles' });
-    // A new person starts with Employee ticked.
-    expect(within(roles).getByLabelText('role-Employee')).toBeChecked();
-    expect(within(roles).getByLabelText('role-Administrator')).toBeEnabled();
-    await user.click(within(roles).getByLabelText('role-Manager'));
-    await user.type(within(roles).getByLabelText('people-reason'), 'pilot');
-    await user.click(within(roles).getByRole('button', { name: 'Save' }));
-    expect(mocks.adminPeopleSetRoles).toHaveBeenCalledWith(
-      FARHEEN,
-      ['Employee', 'Manager'],
-      'pilot',
-    );
-    expect(await within(people).findByRole('status')).toHaveTextContent(
-      'Farheen Khanam gets the new roles at their next sign-in',
-    );
-  });
-
-  it('HR sees People only, and can tick Employee and Manager only', async () => {
-    mocks.myCapabilities.mockResolvedValue(['hr.employee.write']);
-    mocks.adminPeople.mockResolvedValue({
-      people: [
-        { oid: FARHEEN, name: 'Farheen Khanam', roles: ['Employee'], has_employee_record: true },
-      ],
-    });
-    const user = userEvent.setup();
-    render(<App />);
-    await user.click(await screen.findByRole('button', { name: 'Settings' }));
-    expect(screen.queryByRole('tab', { name: 'Rules' })).not.toBeInTheDocument();
-    const people = screen.getByRole('region', { name: 'people' });
-    await unfold(user, 'With a CloudPunch role');
-    await user.click(await within(people).findByRole('button', { name: /Farheen Khanam/ }));
-    const roles = within(people).getByRole('group', { name: 'edit-roles' });
-    expect(within(roles).getByLabelText('role-Manager')).toBeEnabled();
-    for (const r of ['HR', 'Payroll', 'Auditor', 'Administrator']) {
-      expect(within(roles).getByLabelText(`role-${r}`)).toBeDisabled();
-    }
-    expect(within(roles).getByRole('button', { name: 'Save' })).toBeDisabled();
-  });
-
-  it('explains a server refusal in plain words', async () => {
-    mocks.myCapabilities.mockResolvedValue(['admin.role.assign']);
-    mocks.adminPeople.mockResolvedValue({
-      people: [
-        {
-          oid: NILESH,
-          name: 'Nilesh Darekar',
-          roles: ['Administrator'],
-          has_employee_record: true,
-        },
-      ],
-    });
-    mocks.adminPeopleSetRoles.mockRejectedValue('last_administrator');
-    const user = userEvent.setup();
-    render(<App />);
-    await user.click(await screen.findByRole('button', { name: 'Settings' }));
-    const people = screen.getByRole('region', { name: 'people' });
-    await unfold(user, 'With a CloudPunch role');
-    await user.click(await within(people).findByRole('button', { name: /Nilesh Darekar/ }));
-    await user.click(within(people).getByLabelText('role-Administrator'));
-    await user.click(within(people).getByRole('button', { name: 'Save' }));
-    expect(await within(people).findByRole('alert')).toHaveTextContent(
-      'CloudPunch needs at least one Administrator.',
-    );
-  });
-});
-
-describe('welcome email (ADR-0021)', () => {
-  const FARHEEN = '8afe98ae-5b43-4c12-86c5-b4473225f7f0';
-  const preview = {
-    from: 'noreply@aptask.com',
-    to: 'farheen@aptask.com',
-    cc: ['support@aptask.com', 'abdulla@aptask.com', 'nileshd@aptask.com'],
-    subject: 'Welcome to CloudPunch: how to get started',
-  };
-
-  it('removing all roles says the person is off the lists and who has no manager now', async () => {
-    mocks.myCapabilities.mockResolvedValue(['admin.role.assign']);
-    mocks.adminPeople.mockResolvedValue({
-      people: [
-        { oid: FARHEEN, name: 'Shaziya Syed', roles: ['Manager'], has_employee_record: true },
-      ],
-    });
-    mocks.adminPeopleSetRoles.mockResolvedValue({
-      roles: [],
-      changed: true,
-      unassigned_reports: [{ id: 'e1', name: 'Roshni Sahani' }],
-    });
-    const user = userEvent.setup();
-    render(<App />);
-    await user.click(await screen.findByRole('button', { name: 'Settings' }));
-    const people = screen.getByRole('region', { name: 'people' });
-    await unfold(user, 'With a CloudPunch role');
-    await user.click(await within(people).findByRole('button', { name: /Shaziya Syed/ }));
-    const roles = within(people).getByRole('group', { name: 'edit-roles' });
-    await user.click(within(roles).getByLabelText('role-Manager'));
-    await user.click(within(roles).getByRole('button', { name: 'Save' }));
-    expect(mocks.adminPeopleSetRoles).toHaveBeenCalledWith(FARHEEN, [], '');
-    expect(await within(people).findByRole('status')).toHaveTextContent(
-      'Shaziya Syed has no CloudPunch roles now and is off Reporting lines and Team; their history is kept. Roshni Sahani has no manager now: set one in Reporting lines.',
-    );
-  });
-
-  it('giving someone Employee offers the welcome email, with a preview and a note', async () => {
-    mocks.myCapabilities.mockResolvedValue(['admin.role.assign']);
-    mocks.adminPeople.mockResolvedValue({ people: [] });
-    mocks.adminPeopleSearch.mockResolvedValue({
-      users: [{ oid: FARHEEN, name: 'Farheen Khanam', email: 'farheen@aptask.com' }],
-    });
-    mocks.adminPeopleSetRoles.mockResolvedValue({ changed: true });
-    mocks.adminWelcomePreview.mockResolvedValue(preview);
-    mocks.adminWelcomeSend.mockResolvedValue({ to: preview.to, cc: preview.cc });
-    const user = userEvent.setup();
-    render(<App />);
-    await user.click(await screen.findByRole('button', { name: 'Settings' }));
-    const people = screen.getByRole('region', { name: 'people' });
-    await unfold(user, 'With a CloudPunch role');
-    await user.type(within(people).getByLabelText('people-search'), 'farh');
-    await user.click(await within(people).findByRole('button', { name: /Farheen Khanam/ }));
-    await user.click(within(people).getByRole('button', { name: 'Save' }));
-    const panel = await within(people).findByRole('group', { name: 'welcome-email' });
-    expect(panel).toHaveTextContent('Send Farheen Khanam a welcome email?');
-    expect(
-      await within(panel).findByText('ApTask CloudPunch <noreply@aptask.com>'),
-    ).toBeInTheDocument();
-    expect(panel).toHaveTextContent('support@aptask.com, abdulla@aptask.com, nileshd@aptask.com');
-    await user.type(within(panel).getByLabelText('welcome-note'), 'Welcome aboard!');
-    await user.click(within(panel).getByRole('button', { name: 'Send welcome email' }));
-    expect(mocks.adminWelcomeSend).toHaveBeenCalledWith(FARHEEN, 'Welcome aboard!');
-    expect(await within(people).findByRole('status')).toHaveTextContent(
-      'Welcome email sent to farheen@aptask.com',
-    );
-  });
-
-  it('a refused send says why and keeps the panel open', async () => {
-    mocks.myCapabilities.mockResolvedValue(['hr.employee.write']);
-    mocks.adminPeople.mockResolvedValue({
-      people: [
-        { oid: FARHEEN, name: 'Farheen Khanam', roles: ['Employee'], has_employee_record: true },
-      ],
-    });
-    mocks.adminWelcomePreview.mockResolvedValue(preview);
-    mocks.adminWelcomeSend.mockRejectedValue('welcome_not_permitted');
-    const user = userEvent.setup();
-    render(<App />);
-    await user.click(await screen.findByRole('button', { name: 'Settings' }));
-    const people = screen.getByRole('region', { name: 'people' });
-    await unfold(user, 'With a CloudPunch role');
-    await user.click(await within(people).findByRole('button', { name: /Farheen Khanam/ }));
-    await user.click(within(people).getByRole('button', { name: 'Send welcome email' }));
-    const panel = await within(people).findByRole('group', { name: 'welcome-email' });
-    await within(panel).findByText('ApTask CloudPunch <noreply@aptask.com>');
-    await user.click(within(panel).getByRole('button', { name: 'Send welcome email' }));
-    expect(await within(panel).findByRole('alert')).toHaveTextContent('Exchange refused');
-  });
-});
-
 describe('Team tab (ADR-0025)', () => {
   const iso = (h: number, m: number): string => new Date(2026, 8, 29, h, m).toISOString();
   const farheen = {
@@ -2130,68 +1794,6 @@ describe('Team tab (ADR-0025)', () => {
   });
 });
 
-describe('Reporting lines and Versions (ADR-0025)', () => {
-  const mona = { id: 'a1', name: 'Mona Test', email: null, reporting_manager_id: null };
-  const farheen = { id: 'b2', name: 'Farheen Test', email: null, reporting_manager_id: null };
-
-  it('HR sets who someone reports to', async () => {
-    mocks.myCapabilities.mockResolvedValue(['hr.employee.write']);
-    // Only Managers and HR are offered as managers.
-    mocks.adminPeople.mockResolvedValue({
-      people: [
-        { oid: 'oid-mona', name: 'Mona Test', roles: ['Manager'], has_employee_record: true },
-      ],
-    });
-    mocks.adminEmployees.mockResolvedValue({ employees: [{ ...mona, oid: 'oid-mona' }, farheen] });
-    mocks.adminSetManager.mockResolvedValue({ id: 'b2', reporting_manager_id: 'a1' });
-    const user = userEvent.setup();
-    render(<App />);
-    await user.click(await screen.findByRole('button', { name: 'Settings' }));
-    const lines = await unfold(user, 'Reporting lines');
-    await user.type(within(lines).getByLabelText('reporting-reason'), 'pilot team');
-    await user.selectOptions(await within(lines).findByLabelText('manager of Farheen Test'), 'a1');
-    expect(mocks.adminSetManager).toHaveBeenCalledWith('b2', 'a1', 'pilot team');
-    expect(
-      await within(lines).findByText('Farheen Test now reports to Mona Test.'),
-    ).toBeInTheDocument();
-  });
-
-  it('Administrators see which version each computer runs', async () => {
-    mocks.myCapabilities.mockResolvedValue(['admin.policy.write', 'admin.device.read']);
-    mocks.adminPolicyGet.mockResolvedValue({ override: null, effective: { policy: {} } });
-    mocks.adminDevices.mockResolvedValue({
-      devices: [
-        {
-          device_id: 'd1',
-          display_name: 'Farheen Test',
-          work_email: 'f@aptask.com',
-          os: 'windows',
-          app_version: '0.1.2',
-          last_seen_at: null,
-          revoked_at: null,
-        },
-        {
-          device_id: 'd2',
-          display_name: 'Mona Test',
-          work_email: 'm@aptask.com',
-          os: 'windows',
-          app_version: '0.1.4',
-          last_seen_at: null,
-          revoked_at: null,
-        },
-      ],
-    });
-    const user = userEvent.setup();
-    render(<App />);
-    await user.click(await screen.findByRole('button', { name: 'Settings' }));
-    await user.click(screen.getByRole('tab', { name: 'Versions' }));
-    expect(await screen.findByLabelText('version-summary')).toHaveTextContent(
-      '0.1.4 × 1 · 0.1.2 × 1',
-    );
-    expect(screen.getByRole('region', { name: 'versions' })).toHaveTextContent('0.1.2 · behind');
-  });
-});
-
 describe('presence check (ADR-0024)', () => {
   it("after an unanswered check, only I'm back ends the idle", async () => {
     mocks.getState.mockResolvedValue(
@@ -2210,61 +1812,6 @@ describe('presence check (ADR-0024)', () => {
     render(<App />);
     await screen.findByRole('button', { name: 'Clock out' });
     expect(screen.queryByRole('button', { name: "I'm back" })).not.toBeInTheDocument();
-  });
-
-  it('HR can turn it on in Settings', async () => {
-    mocks.myCapabilities.mockResolvedValue(['admin.policy.write']);
-    mocks.adminPolicyGet.mockResolvedValue({ override: null, effective: { policy: {} } });
-    mocks.adminPolicyPut.mockImplementation((_s: string, _i: string | null, document: unknown) =>
-      Promise.resolve({ override: { document }, effective: { policy: {} } }),
-    );
-    const user = userEvent.setup();
-    render(<App />);
-    await user.click(await screen.findByRole('button', { name: 'Settings' }));
-    const settings = screen.getByRole('region', { name: 'settings' });
-    await user.click(await within(settings).findByLabelText('presence-check'));
-    expect(within(settings).getByText(/Only input timing is used, never keys/)).toBeInTheDocument();
-    await user.click(within(settings).getByRole('button', { name: 'Save' }));
-    const sent = mocks.adminPolicyPut.mock.calls[0]?.[2] as {
-      idle: { input_pattern_check: { enabled: boolean } };
-    };
-    expect(sent.idle.input_pattern_check.enabled).toBe(true);
-  });
-});
-
-describe('reporting lines warn about a manager without the Manager role', () => {
-  it('offers to give the role in one click', async () => {
-    mocks.myCapabilities.mockResolvedValue(['hr.employee.write']);
-    mocks.adminPeople.mockResolvedValue({
-      people: [
-        { oid: 'o-mona', name: 'Mona Test', roles: ['Employee'], has_employee_record: true },
-        { oid: 'o-far', name: 'Farheen Test', roles: ['Employee'], has_employee_record: true },
-      ],
-    });
-    mocks.adminEmployees.mockResolvedValue({
-      employees: [
-        { id: 'a1', name: 'Mona Test', email: null, reporting_manager_id: null, oid: 'o-mona' },
-        { id: 'b2', name: 'Farheen Test', email: null, reporting_manager_id: 'a1', oid: 'o-far' },
-      ],
-    });
-    mocks.adminPeopleSetRoles.mockResolvedValue({});
-    const user = userEvent.setup();
-    render(<App />);
-    await user.click(await screen.findByRole('button', { name: 'Settings' }));
-    const lines = await unfold(user, 'Reporting lines');
-    expect(await within(lines).findByRole('note')).toHaveTextContent(
-      "Mona Test doesn't have the Manager role yet",
-    );
-    await user.click(
-      within(lines).getByRole('button', { name: 'Give Mona Test the Manager role' }),
-    );
-    expect(mocks.adminPeopleSetRoles).toHaveBeenCalledWith(
-      'o-mona',
-      ['Employee', 'Manager'],
-      'Manager for reporting lines',
-    );
-    expect(await within(lines).findByText(/now has the Manager role/)).toBeInTheDocument();
-    expect(within(lines).queryByRole('note')).not.toBeInTheDocument();
   });
 });
 
@@ -2380,94 +1927,22 @@ describe('one machine at a time (ADR-0028)', () => {
   });
 });
 
-describe('People: Active machine (ADR-0028 §4)', () => {
-  const FARHEEN = '8afe98ae-5b43-4c12-86c5-b4473225f7f0';
-  const EMP = '11111111-1111-4111-8111-111111111111';
-  const DEV = '33333333-3333-4333-8333-333333333333';
-  const opened = new Date(Date.now() - 2 * 3_600_000).toISOString();
-  const last = new Date(Date.now() - 10 * 60_000).toISOString();
-
-  function withFarheen(): void {
-    mocks.adminPeople.mockResolvedValue({
-      people: [
-        { oid: FARHEEN, name: 'Farheen Khanam', roles: ['Employee'], has_employee_record: true },
-      ],
-    });
-    mocks.adminEmployees.mockResolvedValue({
-      employees: [
-        {
-          id: EMP,
-          name: 'Farheen Khanam',
-          email: 'farheen@aptask.com',
-          reporting_manager_id: null,
-          oid: FARHEEN,
-        },
-      ],
-    });
-  }
-
-  it('an Administrator sees the machine and signs it out after confirming', async () => {
-    mocks.myCapabilities.mockResolvedValue([
-      'admin.role.assign',
-      'admin.device.revoke',
-      'hr.employee.read',
-      'hr.employee.write',
-    ]);
-    withFarheen();
-    mocks.adminActiveDevice
-      .mockResolvedValueOnce({
-        device_id: DEV,
-        os: 'windows',
-        enrolled_at: '2026-09-01T04:00:00Z',
-        opened_at: opened,
-        last_event_at: last,
-      })
-      .mockResolvedValueOnce(null);
-    mocks.adminActiveDeviceSignOut.mockResolvedValue({ closed_at: last });
+describe('Settings opens the admin console (ADR-0038 phase 8)', () => {
+  it('HR and Administrators get the button; it opens the console window', async () => {
+    mocks.myCapabilities.mockResolvedValue(['hr.employee.write', 'hr.policy.write']);
     const user = userEvent.setup();
     render(<App />);
     await user.click(await screen.findByRole('button', { name: 'Settings' }));
-    const people = screen.getByRole('region', { name: 'people' });
-    await unfold(user, 'With a CloudPunch role');
-    await user.click(await within(people).findByRole('button', { name: /Farheen Khanam/ }));
-    const section = within(people).getByRole('group', { name: 'active-machine' });
-    const details = await within(section).findByLabelText('active-machine-details');
-    expect(details).toHaveTextContent(
-      `Windows computer · clocked in since ${formatClock(Date.parse(opened))} · last activity ${formatClock(Date.parse(last))}`,
-    );
-    expect(mocks.adminActiveDevice).toHaveBeenCalledWith(EMP);
-
-    await user.click(within(section).getByRole('button', { name: 'Sign out of this machine' }));
-    const confirm = within(section).getByRole('dialog', { name: 'confirm-machine-sign-out' });
-    expect(confirm).toHaveTextContent(
-      'This clocks Farheen Khanam out at their last activity and signs that computer out. Continue?',
-    );
-    // Cancel changes nothing.
-    await user.click(within(confirm).getByRole('button', { name: 'Cancel' }));
-    expect(mocks.adminActiveDeviceSignOut).not.toHaveBeenCalled();
-
-    await user.click(within(section).getByRole('button', { name: 'Sign out of this machine' }));
-    await user.click(within(section).getByRole('button', { name: 'Continue' }));
-    expect(mocks.adminActiveDeviceSignOut).toHaveBeenCalledWith(EMP, DEV);
-    expect(await within(section).findByRole('status')).toHaveTextContent(
-      `Farheen Khanam was clocked out at ${formatClock(Date.parse(last))}.`,
-    );
-    // Refreshed: nothing open any more.
-    expect(await within(section).findByText('Not clocked in on any computer.')).toBeInTheDocument();
-    expect(mocks.adminActiveDevice).toHaveBeenCalledTimes(2);
+    expect(mocks.openAdminWindow).toHaveBeenCalledOnce();
+    // The old screens are gone from this window.
+    expect(screen.queryByRole('region', { name: 'settings' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('tablist', { name: 'admin-tabs' })).not.toBeInTheDocument();
   });
 
-  it('is hidden from HR (not an Administrator)', async () => {
-    mocks.myCapabilities.mockResolvedValue(['hr.employee.read', 'hr.employee.write']);
-    withFarheen();
-    const user = userEvent.setup();
+  it('a Manager has no admin screens, so no button', async () => {
+    mocks.myCapabilities.mockResolvedValue(['team.timeline.read']);
     render(<App />);
-    await user.click(await screen.findByRole('button', { name: 'Settings' }));
-    const people = screen.getByRole('region', { name: 'people' });
-    await unfold(user, 'With a CloudPunch role');
-    await user.click(await within(people).findByRole('button', { name: /Farheen Khanam/ }));
-    expect(within(people).getByRole('group', { name: 'edit-roles' })).toBeInTheDocument();
-    expect(within(people).queryByRole('group', { name: 'active-machine' })).not.toBeInTheDocument();
-    expect(mocks.adminActiveDevice).not.toHaveBeenCalled();
+    await screen.findByRole('button', { name: 'Team' });
+    expect(screen.queryByRole('button', { name: 'Settings' })).not.toBeInTheDocument();
   });
 });

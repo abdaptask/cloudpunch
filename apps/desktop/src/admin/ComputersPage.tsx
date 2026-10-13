@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api, type DeviceRow } from '../api.js';
 import { useTheme } from '../ui/theme.js';
-import { compareVersions, versionSummary } from '../VersionsScreen.js';
+import { compareVersions, versionSummary } from './versions.js';
 import { DataTable, input, Notice } from './DataTable.js';
 
 const ERROR_TEXT: Record<string, string> = {

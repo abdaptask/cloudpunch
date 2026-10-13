@@ -280,6 +280,16 @@ export interface Overview {
   };
 }
 
+/** One change, in words (ADR-0038 §8). */
+export interface HistoryEntry {
+  at: string;
+  /** Who made it; null for the system or someone no longer listed. */
+  by: string | null;
+  action: string;
+  summary: string;
+  reason: string | null;
+}
+
 export interface OfficeDays {
   employee_id: string;
   /** ISO weekdays, 1 = Monday … 7 = Sunday. */
@@ -550,6 +560,14 @@ export const api = {
     invoke('admin_departments'),
   adminPolicyGet: (scope: 'global' | 'department', id: string | null): Promise<AdminPolicy> =>
     invoke<AdminPolicy>('admin_policy_get', { scope, id }),
+  /** Each settings save for a scope, newest first (ADR-0038 §8). */
+  adminPolicyHistory: (
+    scope: 'global' | 'department',
+    id: string | null,
+  ): Promise<{ entries: HistoryEntry[] }> => invoke('admin_policy_history', { scope, id }),
+  /** The changes made to a person, newest first (ADR-0038 §8). */
+  adminPersonHistory: (employeeId: string): Promise<{ entries: HistoryEntry[] }> =>
+    invoke('admin_person_history', { employeeId }),
   adminPeople: (): Promise<{ people: Person[] }> => invoke('admin_people'),
   adminPeopleSearch: (q: string): Promise<{ users: DirectoryUser[] }> =>
     invoke('admin_people_search', { q }),

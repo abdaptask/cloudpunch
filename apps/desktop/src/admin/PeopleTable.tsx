@@ -9,7 +9,7 @@ import {
   type ShiftTemplate,
 } from '../api.js';
 import { officeText } from './OfficeDaysPart.js';
-import { ERROR_TEXT, ROLES } from '../PeopleScreen.js';
+import { ERROR_TEXT, ROLES } from './peopleParts.js';
 import { shiftText } from '../ShiftEditor.js';
 import { useTheme, type Theme } from '../ui/theme.js';
 import { BULK_LABEL, BulkPanel, type BulkAction } from './BulkPanel.js';

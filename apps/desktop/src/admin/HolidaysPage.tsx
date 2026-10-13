@@ -1,6 +1,6 @@
 import { useEffect, useState, type CSSProperties } from 'react';
 import { api, type Holiday } from '../api.js';
-import { holidayDateText } from '../HolidayEditor.js';
+import { holidayDateText } from './holidayPaste.js';
 import { Button } from '../ui/Button.js';
 import { useTheme, type Theme } from '../ui/theme.js';
 import { DataTable, input, Notice } from './DataTable.js';

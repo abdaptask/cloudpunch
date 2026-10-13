@@ -65,6 +65,37 @@ pub fn departments(http: &Client, base: &str, token: &str) -> Result<Value, DayE
     )
 }
 
+/// Each settings save for `scope`, in words (ADR-0038 §8).
+pub fn policy_history(
+    http: &Client,
+    base: &str,
+    token: &str,
+    scope: &Scope,
+) -> Result<Value, DayError> {
+    let path = format!("{}/history", scope.path());
+    send(http, base, token, reqwest::Method::GET, &path, None)
+}
+
+/// The changes made to a person, in words (ADR-0038 §8).
+pub fn person_history(
+    http: &Client,
+    base: &str,
+    token: &str,
+    employee_id: &str,
+) -> Result<Value, DayError> {
+    if !is_uuid(employee_id) {
+        return Err(DayError::Refused("invalid_argument".into()));
+    }
+    send(
+        http,
+        base,
+        token,
+        reqwest::Method::GET,
+        &format!("/v1/admin/employees/{employee_id}/history"),
+        None,
+    )
+}
+
 pub fn get_policy(
     http: &Client,
     base: &str,
@@ -1073,6 +1104,12 @@ mod tests {
         ] {
             assert!(!csv_name_ok(bad), "{bad}");
         }
+    }
+
+    #[test]
+    fn person_history_refuses_a_bad_id_before_sending() {
+        let r = person_history(&client(), "http://127.0.0.1:9", "t", "../x");
+        assert!(matches!(r, Err(DayError::Refused(c)) if c == "invalid_argument"));
     }
 
     #[test]
