@@ -102,11 +102,50 @@ export interface WeeklyMailInput {
   count: number;
   days: number;
   siteUrl: string;
+  /** Last week in numbers, for Administrators and HR (ADR-0040 §3). */
+  headline?: WeekHeadline;
+}
+
+export interface WeekHeadline {
+  /** Monday and Sunday of last week. */
+  from: string;
+  to: string;
+  people: number;
+  /** Shift days worked ÷ shift days; null without shift days. */
+  attendance: number | null;
+  workedMs: number;
+  lateStarts: number;
+  missedStarts: number;
+  idleShare: number | null;
+}
+
+const pct = (x: number | null): string => (x === null ? '—' : `${Math.round(x * 100)}%`);
+
+function headlineLines(h: WeekHeadline, siteUrl: string): string[] {
+  return [
+    `Last week (${h.from} to ${h.to}), ${h.people} people:`,
+    `- Attendance ${pct(h.attendance)} of shift days`,
+    `- ${Math.round(h.workedMs / 3_600_000)} hours worked`,
+    `- ${h.lateStarts} late start${h.lateStarts === 1 ? '' : 's'}, ${h.missedStarts} missed`,
+    `- Idle ${pct(h.idleShare)} of tracked time`,
+    `Overview: ${siteUrl.replace(/\/$/, '')}/app/admin/`,
+    '',
+  ];
 }
 
 /** The Monday regular-late-starters email (ADR-0037 §4). */
 export function weeklyMailText(i: WeeklyMailInput): { subject: string; text: string } {
   const n = i.people.length;
+  const head = i.headline ? headlineLines(i.headline, i.siteUrl) : [];
+  if (n === 0 && i.headline) {
+    return {
+      subject: `Last week: ${pct(i.headline.attendance)} attendance, ${i.headline.lateStarts} late starts`,
+      text: [
+        ...head,
+        `Nobody had ${i.count} or more missed starts in the last ${i.days} days.`,
+      ].join('\n'),
+    };
+  }
   const lines = i.people.map((p) => {
     const nw = p.notWorking > 0 ? `, ${p.notWorking} "not working today"` : '';
     return `- ${p.name}: ${p.missed} missed start${p.missed === 1 ? '' : 's'}${nw}`;
@@ -114,6 +153,7 @@ export function weeklyMailText(i: WeeklyMailInput): { subject: string; text: str
   return {
     subject: `Regular late starters: ${n} ${n === 1 ? 'person' : 'people'}`,
     text: [
+      ...head,
       `People with ${i.count} or more missed starts in the last ${i.days} days. A missed start is no clock-in by the time the shift-start email went; holidays don't count.`,
       '',
       ...lines,

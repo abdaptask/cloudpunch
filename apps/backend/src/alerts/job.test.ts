@@ -370,12 +370,26 @@ describe('regular late starters (ADR-0037 §4)', () => {
     expect((await job().runOnce()).filter((x) => x.startsWith('weekly:'))).toEqual([]);
   });
 
-  it('nobody over the line: no Monday email; a failed one is tried again', async () => {
+  it('nobody over the line: only last week numbers, to Administrators (ADR-0040 §3)', async () => {
     await setting(true);
     await missed(farheen, 2);
     clock = monday(9, 30);
-    expect((await job().runOnce()).filter((x) => x.startsWith('weekly:'))).toEqual([]);
+    expect((await job().runOnce()).filter((x) => x.startsWith('weekly:'))).toEqual([
+      'weekly:abdulla@aptask.com',
+    ]);
+    const mail = outbox.find(
+      (m) => m.to.includes('abdulla@aptask.com') && m.subject.startsWith('Last week'),
+    );
+    expect(mail?.subject).toMatch(/^Last week: \d+% attendance, \d+ late starts$/);
+    expect(mail?.text).toContain('Last week (2026-10-05 to 2026-10-11), 4 people:');
+    expect(mail?.text).toContain('Overview: https://cloudpunch.aptask.com/app/admin/');
+    expect(mail?.text).toContain('Nobody had 3 or more missed starts in the last 30 days.');
+  });
+
+  it('a failed Monday email is tried again', async () => {
+    await setting(true);
     await missed(roshni, 3);
+    clock = monday(9, 30);
     failNext = true;
     const j = job();
     // The first send fails (it may be a shift email or the Monday one);
@@ -387,6 +401,12 @@ describe('regular late starters (ADR-0037 §4)', () => {
       '2026-10-12:abdulla@aptask.com',
       '2026-10-12:nilesh@aptask.com',
     ]);
+    const admin = outbox.filter((m) => m.to.includes('abdulla@aptask.com')).at(-1);
+    expect(admin?.text.startsWith('Last week (2026-10-05 to 2026-10-11)')).toBe(true);
+    const manager = outbox.find(
+      (m) => m.to.includes('nilesh@aptask.com') && m.subject.startsWith('Regular'),
+    );
+    expect(manager?.text).not.toContain('Last week');
   });
 
   it('Team shows the counts, and who is over the line', async () => {
