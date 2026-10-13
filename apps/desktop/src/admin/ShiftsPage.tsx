@@ -38,6 +38,9 @@ function today(): string {
 
 const people = (n: number): string => `${n} ${n === 1 ? 'person' : 'people'}`;
 
+/** Named shifts as a table: name, pattern, people, actions (owner: "squished", 2026-10-13). */
+const NAMED_COLUMNS = 'minmax(140px, 1fr) minmax(240px, 2fr) 90px minmax(260px, auto)';
+
 /**
  * The admin console's Shifts page (ADR-0038 §6): named shifts, each
  * with how many people are on it. Make one once, give it by name (in
@@ -123,36 +126,48 @@ export function ShiftsPage(): JSX.Element {
         />
       )}
 
+      {list && [...active, ...retired].length > 0 && (
+        <div aria-hidden style={{ ...namedRow(t), borderTop: 'none', paddingBottom: 4 }}>
+          <span style={headCell(t)}>Name</span>
+          <span style={headCell(t)}>Days and hours</span>
+          <span style={headCell(t)}>People</span>
+          <span />
+        </div>
+      )}
       {list && (
         <ul aria-label="named-shifts" style={{ listStyle: 'none', margin: 0, padding: 0 }}>
           {active.length === 0 && editing !== 'new' && (
             <li style={{ fontSize: 13, color: t.muted, padding: '6px 0' }}>No named shifts yet.</li>
           )}
           {[...active, ...retired].map((x) => (
-            <li
-              key={x.id}
-              aria-label={`named shift ${x.name}`}
-              style={{ borderTop: `1px solid ${t.border}`, padding: '8px 0', fontSize: 13 }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ flex: 1, minWidth: 0, opacity: x.retired ? 0.6 : 1 }}>
-                  <strong style={{ fontWeight: 650 }}>{x.name}</strong>
-                  {x.retired && <span style={{ color: t.muted }}> · retired</span>}
-                  <span style={{ display: 'block', fontSize: 12, color: t.muted }}>
-                    {shiftText({ days: x.days, start: x.start, end: x.end, tz_iana: x.tz_iana })}
+            <li key={x.id} aria-label={`named shift ${x.name}`} style={namedRow(t)}>
+              <span style={{ minWidth: 0, opacity: x.retired ? 0.6 : 1 }}>
+                <strong style={{ fontWeight: 650 }}>{x.name}</strong>
+                {x.retired && <span style={{ color: t.muted }}> · retired</span>}
+              </span>
+              <span style={{ minWidth: 0, opacity: x.retired ? 0.6 : 1 }}>
+                {shiftText({ days: x.days, start: x.start, end: x.end, tz_iana: x.tz_iana })}
+                {x.next && (
+                  <span style={{ display: 'block', fontSize: 12, color: t.warnText }}>
+                    From {dayText(x.next.effective_from)}: {shiftText(x.next)}
                   </span>
-                  {x.next && (
-                    <span style={{ display: 'block', fontSize: 12, color: t.warnText }}>
-                      From {dayText(x.next.effective_from)}: {shiftText(x.next)}
-                    </span>
-                  )}
-                </span>
-                <span
-                  aria-label={`people on ${x.name}`}
-                  style={{ fontSize: 12, color: t.muted, whiteSpace: 'nowrap' }}
-                >
-                  {people(x.people)}
-                </span>
+                )}
+              </span>
+              <span
+                aria-label={`people on ${x.name}`}
+                style={{ color: t.muted, whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}
+              >
+                {people(x.people)}
+              </span>
+              <span
+                style={{
+                  display: 'flex',
+                  gap: 6,
+                  flexWrap: 'wrap',
+                  justifyContent: 'flex-end',
+                  alignItems: 'center',
+                }}
+              >
                 {!x.retired && editing !== x.id && giving !== x.id && (
                   <>
                     <Button
@@ -181,7 +196,7 @@ export function ShiftsPage(): JSX.Element {
                     />
                   </>
                 )}
-              </div>
+              </span>
               {giving === x.id && (
                 <GiveShift
                   template={x}
@@ -627,8 +642,27 @@ function TemplateForm({
   );
 }
 
+function namedRow(t: Theme): CSSProperties {
+  return {
+    display: 'grid',
+    gridTemplateColumns: NAMED_COLUMNS,
+    columnGap: 16,
+    rowGap: 4,
+    alignItems: 'center',
+    borderTop: `1px solid ${t.border}`,
+    padding: '10px 0',
+    fontSize: 13,
+  };
+}
+
+function headCell(t: Theme): CSSProperties {
+  return { fontSize: 12, fontWeight: 600, color: t.muted };
+}
+
 function form(t: Theme): CSSProperties {
   return {
+    // Under its row, across the whole table.
+    gridColumn: '1 / -1',
     display: 'flex',
     flexDirection: 'column',
     gap: 8,
