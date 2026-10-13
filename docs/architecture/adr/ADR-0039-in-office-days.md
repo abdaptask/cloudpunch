@@ -1,14 +1,13 @@
 # ADR-0039 — In-office days for hybrid workers
 
-- **Status:** Proposed
+- **Status:** Accepted (2026-10-13, the owner answered the open questions)
 - **Date:** 2026-10-13
 - **Deciders:** Abdulla Sheikh (project owner), Architecture (Claude)
 - **Builds on:** ADR-0031 (shifts, the shift popup), ADR-0037 (holidays
   and shift-start alerts: the "day off" path), ADR-0038 (admin console,
   bulk changes).
-- **Confidence:** High on the shape (it reuses the holiday path). Medium
-  on one behaviour the owner should confirm: what happens if someone
-  clocks in on an office day anyway (§4).
+- **Confidence:** High. It reuses the holiday path, and the owner set
+  the behaviour.
 
 ## Context
 
@@ -76,7 +75,7 @@ Someone may go home at lunch and work the afternoon remotely. Clock-in
 stays available; **once they clock in, the day is tracked as normal**
 (idle and away checks included), and the office marker stays on the day
 for managers to see. The steps-back in §3 cover the not-clocked-in
-case, which is what the owner described. (Owner to confirm, see Open.)
+case, which is what the owner described (confirmed 2026-10-13).
 
 ### 5. Who sets it, and where
 
@@ -123,12 +122,10 @@ location (ADR-0029) stays separate and is not used to decide this.
 - **Treat office days as "not working":** wrong in reports, and would
   tell their manager they're off.
 
-## Open (owner)
+## Decided (owner, 2026-10-13)
 
-1. **Clock-in on an office day (§4):** track it as normal once they
-   clock in (proposed), or keep idle/away checks off all day?
-2. **HR too, or Administrators only** (§5)? Proposed: both, as for
-   managers.
+1. **Clock-in on an office day:** tracked as normal from the clock-in.
+2. **Who sets office days:** Administrators and HR.
 
 ## Plan
 
