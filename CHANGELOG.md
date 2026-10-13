@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Desktop 0.1.40 and web: Team → Day summary for managers (ADR-0040 §2)
+
+- Team gains a **Day summary** tab beside Today and Exceptions:
+  yesterday by default (any day in the last 30), the counts, then each
+  person's day, problems first: status, in (and how late) to out,
+  hours against the shift, corrections waiting. "Off" people on
+  request. A name opens their days. Managers see their team, HR
+  everyone, as in the morning email.
 ### Server, web and desktop 0.1.40: refused uploads in the Overview (ADR-0040 §3.4; migration 0018)
 
 - The server now counts uploads it refuses, per computer, person,
