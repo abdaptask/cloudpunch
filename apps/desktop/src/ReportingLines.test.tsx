@@ -131,3 +131,29 @@ describe('Reporting lines', () => {
     expect(options('Roshni Sahani')).toContain('Farheen Khanam');
   });
 });
+
+// Moved from the small window's Settings when it left (ADR-0038 phase 8).
+describe('Reporting lines: a manager without the Manager role', () => {
+  it('offers to give the role in one click', async () => {
+    mocks.adminEmployees.mockResolvedValue({
+      employees: [row('a1', 'Mona Test'), row('b2', 'Farheen Test', 'a1')],
+    });
+    mocks.adminPeople.mockResolvedValue({
+      people: [person('a1', 'Mona Test', ['Employee']), person('b2', 'Farheen Test', ['Employee'])],
+    });
+    mocks.adminPeopleSetRoles.mockResolvedValue({ roles: ['Employee', 'Manager'], changed: true });
+    const user = userEvent.setup();
+    render(<ReportingLines defaultOpen />);
+    expect(await screen.findByRole('note')).toHaveTextContent(
+      "Mona Test doesn't have the Manager role yet",
+    );
+    await user.click(screen.getByRole('button', { name: 'Give Mona Test the Manager role' }));
+    expect(mocks.adminPeopleSetRoles).toHaveBeenCalledWith(
+      'oid-a1',
+      ['Employee', 'Manager'],
+      'Manager for reporting lines',
+    );
+    expect(await screen.findByText(/now has the Manager role/)).toBeInTheDocument();
+    expect(screen.queryByRole('note')).not.toBeInTheDocument();
+  });
+});

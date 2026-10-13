@@ -1,10 +1,11 @@
 import { useState, type CSSProperties, type ReactNode } from 'react';
 import { api, type ShiftTemplate } from '../api.js';
-import { ActiveMachineSection, ERROR_TEXT, HR_ASSIGNABLE, ROLES } from '../PeopleScreen.js';
+import { ActiveMachineSection, ERROR_TEXT, HR_ASSIGNABLE, ROLES } from './peopleParts.js';
 import { shiftText } from '../ShiftEditor.js';
 import { Button } from '../ui/Button.js';
 import { useTheme, type Theme } from '../ui/theme.js';
 import { WelcomePanel } from '../WelcomePanel.js';
+import { HistoryList } from './HistoryList.js';
 import { MANAGING_ROLES, managerChoices, type PersonRow } from './peopleModel.js';
 import { ManagerPicker } from './ManagerPicker.js';
 import { OfficeDaysPart } from './OfficeDaysPart.js';
@@ -120,6 +121,7 @@ export function PersonPanel({
     }, fail);
   };
 
+  const employeeId = row.employeeId;
   return (
     <aside aria-label={`person ${row.name}`} style={panel(t)}>
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
@@ -291,6 +293,16 @@ export function PersonPanel({
         >
           {status.text}
         </p>
+      )}
+
+      {employeeId !== null && (
+        <Part title="Changes" t={t}>
+          <HistoryList
+            key={employeeId}
+            label={`changes to ${row.name}`}
+            load={() => api.adminPersonHistory(employeeId)}
+          />
+        </Part>
       )}
     </aside>
   );

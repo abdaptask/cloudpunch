@@ -1,7 +1,7 @@
 import { useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { api, type BulkOutcome, type ShiftTemplate } from '../api.js';
 import { shiftText } from '../ShiftEditor.js';
-import { ERROR_TEXT, HR_ASSIGNABLE, ROLES } from '../PeopleScreen.js';
+import { ERROR_TEXT, HR_ASSIGNABLE, ROLES } from './peopleParts.js';
 import { Button } from '../ui/Button.js';
 import { officeText } from './OfficeDaysPart.js';
 import { useTheme, type Theme } from '../ui/theme.js';

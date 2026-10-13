@@ -353,6 +353,8 @@ pub fn run() {
             commands::admin_set_office_day,
             commands::admin_bulk_office,
             commands::report_day,
+            commands::admin_policy_history,
+            commands::admin_person_history,
             commands::report_overview,
             commands::save_csv,
             commands::admin_devices,

@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Desktop 0.1.39 and web: change history; the old admin screens leave the small window (ADR-0038 phase 8)
+
+- **Person panel → Changes:** "Show changes" lists what was changed for
+  that person (manager, roles, shift, office days, record, welcome
+  email, computer sign-outs), newest first, with who, when and why.
+- **Rules → What changed:** each save of the company's or a
+  department's settings, with the values it changed.
+- **Settings in the small window now opens the admin console.** The
+  old Rules, People, Versions and Connections tabs are gone from the
+  small window; everything they did is in the console. The button
+  shows for anyone with an admin screen (Administrators, HR, Auditors).
+- Their tests moved to the console's: HR's role limits, refusals in
+  words, removing every role, the welcome email, the active machine,
+  the Manager-role prompt in Reporting lines, Rules refusals and break
+  checks.
+
 ### Server: change history (ADR-0038 §8, phase 8)
 
 - `GET /v1/admin/employees/:id/history`: the changes made to a person,

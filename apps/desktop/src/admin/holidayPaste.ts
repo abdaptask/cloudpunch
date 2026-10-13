@@ -1,5 +1,16 @@
 import type { Holiday } from '../api.js';
 
+/** "Mon, 9 Nov 2026" for `2026-11-09`, whatever the computer's zone. */
+export function holidayDateText(date: string): string {
+  return new Date(`${date}T12:00:00Z`).toLocaleDateString('en-GB', {
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    timeZone: 'UTC',
+  });
+}
+
 /**
  * "Paste a list" for Holidays (ADR-0038 §9): one holiday per line, in
  * the ways people write them, checked before anything is saved. Pure.

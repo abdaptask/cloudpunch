@@ -1,5 +1,5 @@
 import { useEffect, useState, type CSSProperties } from 'react';
-import { api, type ConnectionHistory, type TeamConnections } from './api.js';
+import { api, type ConnectionHistory } from './api.js';
 import { osOf, placeOf, providerOf, seenOf } from './connectionsModel.js';
 import { useTheme, type Theme } from './ui/theme.js';
 
@@ -86,87 +86,6 @@ export function MyConnections({ onClose }: { onClose: () => void }): JSX.Element
         </button>
       </div>
       <ConnectionList load={api.myConnections} />
-    </section>
-  );
-}
-
-/**
- * Administrators: everyone's latest connection (Settings → Connections),
- * for when they have no Team tab. Opening a person shows their history.
- */
-export function EveryoneConnections(): JSX.Element {
-  const t = useTheme();
-  const [team, setTeam] = useState<TeamConnections | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [person, setPerson] = useState<{ id: string; name: string } | null>(null);
-  useEffect(() => {
-    let current = true;
-    api.teamConnections().then(
-      (r) => {
-        if (current) setTeam(r);
-      },
-      (e: unknown) => {
-        if (current) setError(String(e));
-      },
-    );
-    return () => {
-      current = false;
-    };
-  }, []);
-  if (person) {
-    return (
-      <section style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <h2 style={{ margin: 0, fontSize: 16, fontWeight: 650 }}>{person.name}</h2>
-          <button type="button" onClick={() => setPerson(null)} style={link(t)}>
-            Back
-          </button>
-        </div>
-        <PersonConnections id={person.id} />
-      </section>
-    );
-  }
-  if (error) return <Note t={t} alert text={errorText(error)} />;
-  if (!team) return <Note t={t} text="Loading…" />;
-  const sorted = [...team.people].sort((a, b) => a.name.localeCompare(b.name));
-  return (
-    <section
-      aria-label="everyone-connections"
-      style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
-    >
-      {!team.recording && (
-        <Note t={t} text="Recording is off. Turn it on in Rules, company-wide." />
-      )}
-      {sorted.length === 0 ? (
-        <Note t={t} text="No connections in the last 30 days." />
-      ) : (
-        <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
-          {sorted.map((p) => (
-            <li key={p.employee_id} style={{ borderBottom: `1px solid ${t.border}` }}>
-              <button
-                type="button"
-                onClick={() => setPerson({ id: p.employee_id, name: p.name })}
-                style={{
-                  width: '100%',
-                  padding: '8px 4px',
-                  border: 'none',
-                  background: 'none',
-                  color: t.text,
-                  font: 'inherit',
-                  textAlign: 'left',
-                  cursor: 'pointer',
-                }}
-              >
-                <span style={{ display: 'block', fontSize: 14, fontWeight: 600 }}>{p.name}</span>
-                <span style={{ display: 'block', fontSize: 12, color: t.muted }}>
-                  {placeOf(p)} · {providerOf(p)} · {seenOf(p, Date.now())}
-                </span>
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-      <Footer t={t} keepDays={30} attribution={team.attribution} />
     </section>
   );
 }

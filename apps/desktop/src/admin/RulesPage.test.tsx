@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   adminDepartments: vi.fn(),
   adminPolicyGet: vi.fn(),
   adminPolicyPut: vi.fn(),
+  adminPolicyHistory: vi.fn(),
 }));
 vi.mock('../api.js', () => ({ api: mocks }));
 
@@ -120,5 +121,74 @@ describe('Rules (ADR-0038 §8)', () => {
     await user.click(within(ask).getByRole('button', { name: 'Stay' }));
     expect(screen.getByLabelText('idle-prompt')).toHaveValue(7);
     expect(mocks.adminPolicyGet).toHaveBeenCalledTimes(1);
+  });
+});
+
+// Moved from the small window's Settings when it left (ADR-0038 phase 8).
+describe('Rules: refusals and checks', () => {
+  it('a refused save says why', async () => {
+    mocks.adminPolicyPut.mockRejectedValue('forbidden');
+    const user = userEvent.setup();
+    render(<RulesPage canEditCompany />);
+    const wait = await screen.findByLabelText('prompt-wait');
+    await user.clear(wait);
+    await user.type(wait, '45');
+    const bar = screen.getByRole('region', { name: 'save-bar' });
+    await user.click(within(bar).getByRole('button', { name: 'Save' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent("Your role can't change this.");
+  });
+
+  it('all break types off blocks Save; the presence check is saved when ticked', async () => {
+    const user = userEvent.setup();
+    render(<RulesPage canEditCompany />);
+    await user.click(await screen.findByLabelText('presence-check'));
+    await user.click(screen.getByRole('button', { name: 'Breaks' }));
+    for (const id of ['bio', 'meal', 'rest', 'personal']) {
+      const box = screen.getByLabelText(`${id}-enabled`);
+      if ((box as HTMLInputElement).checked) await user.click(box);
+    }
+    expect(screen.getByText('Keep at least one break type on')).toBeInTheDocument();
+    const bar = screen.getByRole('region', { name: 'save-bar' });
+    expect(within(bar).getByRole('button', { name: 'Save' })).toBeDisabled();
+    await user.click(screen.getByLabelText('bio-enabled'));
+    await user.click(within(bar).getByRole('button', { name: 'Save' }));
+    const sent = mocks.adminPolicyPut.mock.calls[0]?.[2] as {
+      idle: { input_pattern_check: { enabled: boolean } };
+    };
+    expect(sent.idle.input_pattern_check.enabled).toBe(true);
+  });
+});
+
+describe('Rules: what changed (ADR-0038 §8)', () => {
+  it("lists the scope's saves when asked, and starts again after a save", async () => {
+    mocks.adminPolicyHistory.mockResolvedValue({
+      entries: [
+        {
+          at: '2026-10-13T09:30:00Z',
+          by: 'Abdulla Sheikh',
+          action: 'policy_set',
+          summary: 'alerts.shift_emails: off → on',
+          reason: 'holidays are in',
+        },
+      ],
+    });
+    const user = userEvent.setup();
+    render(<RulesPage canEditCompany />);
+    await screen.findByLabelText('prompt-wait');
+    const changed = screen.getByRole('region', { name: 'what-changed' });
+    await user.click(within(changed).getByRole('button', { name: 'Show changes' }));
+    expect(mocks.adminPolicyHistory).toHaveBeenCalledWith('global', null);
+    expect(await within(changed).findByText('alerts.shift_emails: off → on')).toBeInTheDocument();
+
+    const wait = screen.getByLabelText('prompt-wait');
+    await user.clear(wait);
+    await user.type(wait, '45');
+    await user.click(
+      within(screen.getByRole('region', { name: 'save-bar' })).getByRole('button', {
+        name: 'Save',
+      }),
+    );
+    await screen.findByRole('status');
+    expect(within(changed).getByRole('button', { name: 'Show changes' })).toBeInTheDocument();
   });
 });

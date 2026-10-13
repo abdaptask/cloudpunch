@@ -1085,6 +1085,35 @@ pub async fn admin_policy_get(
     answer(fetched)
 }
 
+/// Each settings save for a scope (ADR-0038 §8).
+#[tauri::command]
+pub async fn admin_policy_history(
+    auth: State<'_, Arc<Auth>>,
+    scope: String,
+    id: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let scope =
+        admin::Scope::parse(&scope, id.as_deref()).ok_or_else(|| "invalid_argument".to_string())?;
+    let (_, fetched) = fetch_as_user(&auth, move |http, base, token| {
+        admin::policy_history(http, base, token, &scope)
+    })
+    .await?;
+    answer(fetched)
+}
+
+/// The changes made to a person (ADR-0038 §8).
+#[tauri::command]
+pub async fn admin_person_history(
+    auth: State<'_, Arc<Auth>>,
+    employee_id: String,
+) -> Result<serde_json::Value, String> {
+    let (_, fetched) = fetch_as_user(&auth, move |http, base, token| {
+        admin::person_history(http, base, token, &employee_id)
+    })
+    .await?;
+    answer(fetched)
+}
+
 /// People (ADR-0020): everyone with a CloudPunch role.
 #[tauri::command]
 pub async fn admin_people(auth: State<'_, Arc<Auth>>) -> Result<serde_json::Value, String> {
