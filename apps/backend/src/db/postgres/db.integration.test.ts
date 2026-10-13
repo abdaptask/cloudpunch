@@ -200,13 +200,13 @@ describe('PostgresDb — employees + users', () => {
       correlationId,
       at: new Date(),
     });
-    const rows = await sql<{ action: string; entity_type: string; new_value: unknown }[]>`
-      SELECT action, entity_type, new_value FROM audit_log WHERE correlation_id = ${correlationId}`;
+    const rows = await sql<{ action: string; entityType: string; newValue: unknown }[]>`
+      SELECT action, entity_type AS "entityType", new_value AS "newValue" FROM audit_log WHERE correlation_id = ${correlationId}`;
     expect(rows).toEqual([
       {
         action: 'day_report_viewed',
-        entity_type: 'report',
-        new_value: { date: '2026-10-12', people: '3' },
+        entityType: 'report',
+        newValue: { date: '2026-10-12', people: '3' },
       },
     ]);
   });
