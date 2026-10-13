@@ -4,6 +4,7 @@ import { MAX_GAP_MS, totals, type DaySegment, type WorkingDay } from '../days/bu
 import { daysAround, rulesFor } from '../days/service.js';
 import { effectivePolicyFor } from '../policy/service.js';
 import { activeWindow, shiftDate, type ShiftWindow } from '../shifts/model.js';
+import { officeDays } from '../office/model.js';
 import { shiftHistory } from '../shifts/resolve.js';
 import { alertSettings } from '../alerts/settings.js';
 
@@ -76,6 +77,11 @@ export interface PersonNow {
   /** The holiday's name, when `status` is `holiday` (ADR-0037 §2). */
   holiday?: string;
   /**
+   * In the office today (ADR-0039 §3): sent as `status: 'holiday'` named
+   * "In office" so older apps show it sensibly; newer ones read this.
+   */
+  in_office?: true;
+  /**
    * Missed starts and "not working" days in the last `days` days
    * (ADR-0037 §4), when there are any; `regular` at or over the
    * threshold. Counted from when the shift emails were switched on.
@@ -144,6 +150,7 @@ export function withShift(
   days: readonly WorkingDay[],
   saidNotWorking: boolean,
   holiday: string | null = null,
+  atOffice = false,
 ): PersonNow {
   if (p.status !== 'clocked_out' || !window) return p;
   const started = days.some((d) =>
@@ -151,6 +158,7 @@ export function withShift(
   );
   if (started) return p;
   if (holiday !== null) return { ...p, status: 'holiday', holiday };
+  if (atOffice) return { ...p, status: 'holiday', holiday: 'In office', in_office: true };
   return {
     ...p,
     status: saidNotWorking ? 'not_working' : 'shift_not_started',
@@ -174,6 +182,11 @@ export async function teamNow(
   const holidays = new Map(
     (await db.holidays.between(yesterday, shiftDate(today, 1))).map((h) => [h.date, h.name]),
   );
+  const office = await officeDays(
+    db,
+    people.map((p) => p.id),
+    [yesterday, today, shiftDate(today, 1)],
+  );
   const out: PersonNow[] = [];
   for (const e of people) {
     const days = await daysAround(db, e.id, yesterday, today, now);
@@ -184,7 +197,16 @@ export async function teamNow(
       now,
     );
     const said = window ? (await db.shifts.notWorking([e.id], [window.date])).size > 0 : false;
-    out.push(withShift(p, window, days, said, window ? (holidays.get(window.date) ?? null) : null));
+    out.push(
+      withShift(
+        p,
+        window,
+        days,
+        said,
+        window ? (holidays.get(window.date) ?? null) : null,
+        window ? office.has(`${e.id}:${window.date}`) : false,
+      ),
+    );
   }
   return withStarts(db, out, today);
 }

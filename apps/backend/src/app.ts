@@ -6,6 +6,7 @@ import type { Env } from './config/env.js';
 import { ConnectionRecorder } from './connections/recorder.js';
 import { connectionRoutes } from './connections/routes.js';
 import { correctionRoutes } from './corrections/routes.js';
+import { officeRoutes } from './office/routes.js';
 import { shiftRoutes } from './shifts/routes.js';
 import { DbIpProviderLookup } from './connections/provider.js';
 import type { DbRepositories } from './db/index.js';
@@ -133,6 +134,8 @@ export async function buildApp(opts: BuildAppOptions) {
     await app.register(connectionRoutes, { db: opts.db });
     await app.register(correctionRoutes, { db: opts.db });
     await app.register(shiftRoutes, { db: opts.db });
+    // In-office days for hybrid workers (ADR-0039).
+    await app.register(officeRoutes, { db: opts.db });
     // ADR-0037 §3: the shift-start emails, checked every minute while
     // the server runs (only where CloudPunch's mailbox is configured).
     const alertSend =

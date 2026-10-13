@@ -14,6 +14,7 @@ import type {
 import { nameOf } from '../team/service.js';
 import { MAX_BULK, replay, requestHash } from '../people/bulk.js';
 import { activeWindow, dateIn, shiftDate, shiftOn } from './model.js';
+import { officeDays } from '../office/model.js';
 import { shiftHistory, templateOn } from './resolve.js';
 
 /**
@@ -52,6 +53,9 @@ const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 /** How far ahead `GET /v1/me/shift` lists holidays, so the app knows offline. */
 const HOLIDAYS_AHEAD_DAYS = 60;
+
+/** How an office day reads where a holiday's name would (ADR-0039). */
+export const OFFICE_NAME = 'In office';
 
 const holidayBody = z.object({ name: z.string().trim().min(1).max(100) }).strict();
 
@@ -172,13 +176,29 @@ const shiftRoutesImpl: FastifyPluginAsync<ShiftRoutesOptions> = async (app, opts
       shiftDate(today, -1),
       shiftDate(today, HOLIDAYS_AHEAD_DAYS),
     );
+    // In-office days (ADR-0039 §3) join this person's list as days off:
+    // the app already skips its popups on those dates, offline too.
+    const span: string[] = [];
+    for (let i = -1; i <= HOLIDAYS_AHEAD_DAYS; i++) span.push(shiftDate(today, i));
+    const office = await officeDays(db, [m.employee.id], span);
+    const holidayDates = new Set(holidays.map((h) => h.date));
+    const officeList = span
+      .filter((d) => office.has(`${m.employee.id}:${d}`) && !holidayDates.has(d))
+      .map((date) => ({ date, name: OFFICE_NAME }));
     const off = w ? holidays.find((h) => h.date === w.date) : undefined;
+    const atOffice = w ? !off && office.has(`${m.employee.id}:${w.date}`) : false;
     return reply.code(200).send({
       shift: shiftView(shiftOn(rows, today)),
       window: w ? { date: w.date, start: w.start.toISOString(), end: w.end.toISOString() } : null,
       not_working: declared,
-      day_off: off ? { kind: 'holiday', name: off.name } : null,
-      holidays: holidays.map((h) => ({ date: h.date, name: h.name })),
+      day_off: off
+        ? { kind: 'holiday', name: off.name }
+        : atOffice
+          ? { kind: 'office', name: OFFICE_NAME }
+          : null,
+      holidays: [...holidays.map((h) => ({ date: h.date, name: h.name })), ...officeList].sort(
+        (a, b) => a.date.localeCompare(b.date),
+      ),
     });
   });
 

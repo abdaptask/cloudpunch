@@ -64,7 +64,7 @@ export interface SetManagersInput {
   at: Date;
 }
 
-export type BulkKind = 'manager' | 'roles' | 'welcome' | 'shift';
+export type BulkKind = 'manager' | 'roles' | 'welcome' | 'shift' | 'office';
 
 /** A bulk request's answer, kept by its idempotency key (ADR-0038 §5). */
 export interface BulkRecord {
@@ -756,6 +756,55 @@ export interface RoleDirectoryRepo {
   holders(roles: readonly string[]): Promise<RoleHolder[]>;
 }
 
+// ---------------------------------------------------------------------
+// In-office days (ADR-0039)
+// ---------------------------------------------------------------------
+
+/** A person's usual office weekdays from a date. */
+export interface OfficePattern {
+  employeeId: string;
+  /** ISO weekdays, 1 = Monday … 7 = Sunday; empty: none. */
+  weekdays: number[];
+  effectiveFrom: string;
+  reason: string | null;
+  setByUserId: string;
+  setAt: Date;
+}
+
+/** A one-off: in the office (or not) on a date. */
+export interface OfficeDay {
+  employeeId: string;
+  /** `YYYY-MM-DD`. */
+  date: string;
+  inOffice: boolean;
+  reason: string | null;
+  setByUserId: string;
+  setAt: Date;
+}
+
+export interface NewOfficePattern extends Omit<OfficePattern, 'setAt'> {
+  correlationId: string;
+  at: Date;
+}
+
+export interface NewOfficeDay extends Omit<OfficeDay, 'setAt'> {
+  correlationId: string;
+  at: Date;
+}
+
+export interface OfficeRepo {
+  /** Every pattern row for these people, newest first (effective_from, then set_at). */
+  patterns(employeeIds: readonly string[]): Promise<OfficePattern[]>;
+  /** One-offs for these people from `from` to `to`, newest set first. */
+  days(employeeIds: readonly string[], from: string, to: string): Promise<OfficeDay[]>;
+  /** A new pattern row with its audit_log row, in one transaction. */
+  setPattern(input: NewOfficePattern): Promise<OfficePattern>;
+  /** A new one-off with its audit_log row, in one transaction. */
+  setDay(input: NewOfficeDay): Promise<OfficeDay>;
+  /** Bulk (ADR-0038 §5): these patterns and `record` in one transaction; false when the key was used. */
+  setPatterns(rows: readonly NewOfficePattern[], record: BulkRecord): Promise<boolean>;
+}
+
 export interface BulkRequestRepo {
   /** The answer kept for this caller's key, if any. */
   find(
@@ -783,4 +832,5 @@ export interface DbRepositories {
   roles: RoleDirectoryRepo;
   weeklyReports: WeeklyReportRepo;
   bulkRequests: BulkRequestRepo;
+  office: OfficeRepo;
 }

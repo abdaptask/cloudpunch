@@ -2,6 +2,7 @@ import type { FastifyBaseLogger } from 'fastify';
 import type { DbRepositories, Employee, ShiftAlertKind } from '../db/index.js';
 import { daysAround } from '../days/service.js';
 import { activeWindow, dateIn, isoWeekday, shiftDate, type ShiftWindow } from '../shifts/model.js';
+import { officeDays } from '../office/model.js';
 import { shiftHistory } from '../shifts/resolve.js';
 import { nameOf } from '../team/service.js';
 import { clockIn as clockAt, shiftMailText, weeklyMailText, type ShiftMail } from './mail.js';
@@ -100,6 +101,8 @@ export class ShiftAlertJob {
     const last = dates.at(-1) ?? '';
     const holidays = new Set((await db.holidays.between(first, last)).map((h) => h.date));
     const notWorking = await db.shifts.notWorking(ids, dates);
+    // In the office that day: no shift-start email (ADR-0039 §3).
+    const office = await officeDays(db, ids, dates);
     const sent = await db.shiftAlerts.sent(ids, dates);
 
     const done: string[] = [...weekly];
@@ -112,7 +115,7 @@ export class ShiftAlertJob {
       );
       const state = {
         window,
-        holiday: holidays.has(window.date),
+        holiday: holidays.has(window.date) || office.has(key),
         saidNotWorking: notWorking.has(key),
         sent: mine,
       };

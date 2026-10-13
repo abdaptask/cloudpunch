@@ -18,7 +18,11 @@ import type {
   ShiftAlertRepo,
   StartCounts,
   WeeklyReportRepo,
+  NewOfficePattern,
   NewShiftAssignment,
+  OfficeDay,
+  OfficePattern,
+  OfficeRepo,
   ShiftAssignment,
   ShiftRepo,
   ShiftTemplateVersion,
@@ -74,8 +78,10 @@ export class PostgresDb implements DbRepositories {
   readonly roles: RoleDirectoryRepo;
   readonly weeklyReports: WeeklyReportRepo;
   readonly bulkRequests: BulkRequestRepo;
+  readonly office: OfficeRepo;
 
   constructor(private readonly sql: postgres.Sql) {
+    this.office = this.buildOfficeRepo();
     this.bulkRequests = {
       find: async (actorUserId, key) => {
         const [row] = await this.sql<
@@ -782,6 +788,76 @@ export class PostgresDb implements DbRepositories {
           VALUES ('user', ${v.actorUserId}, 'employee', ${v.employeeId}, ${v.action},
                   NULL, ${this.sql.json(v.detail)}, NULL, ${v.correlationId}, ${v.at})`;
       },
+    };
+  }
+
+  // -------------------------------------------------------------------
+  // in-office days (ADR-0039)
+  // -------------------------------------------------------------------
+
+  private buildOfficeRepo(): OfficeRepo {
+    const patternCols = this.sql`employee_id, weekdays::int[] AS weekdays,
+      to_char(effective_from, 'YYYY-MM-DD') AS effective_from, reason, set_by_user_id, set_at`;
+    const dayCols = this.sql`employee_id, to_char(office_date, 'YYYY-MM-DD') AS "date", in_office,
+      reason, set_by_user_id, set_at`;
+    const insertPattern = async (
+      tx: postgres.TransactionSql,
+      i: NewOfficePattern,
+    ): Promise<OfficePattern> => {
+      const [row] = await tx<OfficePattern[]>`
+        INSERT INTO office_pattern (employee_id, weekdays, effective_from, reason,
+                                    set_by_user_id, set_at)
+        VALUES (${i.employeeId}, ${i.weekdays}::smallint[], ${i.effectiveFrom}::date, ${i.reason},
+                ${i.setByUserId}, ${i.at})
+        RETURNING ${patternCols}`;
+      if (!row) throw new Error('office_pattern insert returned no row');
+      await tx`
+        INSERT INTO audit_log (actor_type, actor_user_id, entity_type, entity_id, action,
+                               previous_value, new_value, reason, correlation_id, occurred_at)
+        VALUES ('user', ${i.setByUserId}, 'employee', ${i.employeeId}, 'office_pattern_set', NULL,
+                ${tx.json({ weekdays: i.weekdays, effective_from: i.effectiveFrom })},
+                ${i.reason}, ${i.correlationId}, ${i.at})`;
+      return row;
+    };
+    return {
+      patterns: async (ids) => {
+        if (ids.length === 0) return [];
+        return this.sql<OfficePattern[]>`
+          SELECT ${patternCols} FROM office_pattern WHERE employee_id IN ${this.sql(ids)}
+          ORDER BY effective_from DESC, set_at DESC`;
+      },
+      days: async (ids, from, to) => {
+        if (ids.length === 0) return [];
+        return this.sql<OfficeDay[]>`
+          SELECT ${dayCols} FROM office_day
+          WHERE employee_id IN ${this.sql(ids)}
+            AND office_date BETWEEN ${from}::date AND ${to}::date
+          ORDER BY set_at DESC`;
+      },
+      setPattern: (i) => this.sql.begin(async (tx) => insertPattern(tx, i)),
+      setDay: (i) =>
+        this.sql.begin(async (tx) => {
+          const [row] = await tx<OfficeDay[]>`
+            INSERT INTO office_day (employee_id, office_date, in_office, reason,
+                                    set_by_user_id, set_at)
+            VALUES (${i.employeeId}, ${i.date}::date, ${i.inOffice}, ${i.reason},
+                    ${i.setByUserId}, ${i.at})
+            RETURNING ${dayCols}`;
+          if (!row) throw new Error('office_day insert returned no row');
+          await tx`
+            INSERT INTO audit_log (actor_type, actor_user_id, entity_type, entity_id, action,
+                                   previous_value, new_value, reason, correlation_id, occurred_at)
+            VALUES ('user', ${i.setByUserId}, 'employee', ${i.employeeId}, 'office_day_set', NULL,
+                    ${tx.json({ date: i.date, in_office: i.inOffice })},
+                    ${i.reason}, ${i.correlationId}, ${i.at})`;
+          return row;
+        }),
+      setPatterns: async (rows, record) =>
+        this.sql.begin(async (tx) => {
+          if (!(await this.saveBulk(tx, record))) return false;
+          for (const r of rows) await insertPattern(tx, r);
+          return true;
+        }),
     };
   }
 

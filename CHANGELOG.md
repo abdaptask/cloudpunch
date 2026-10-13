@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Server: in-office days for hybrid workers (ADR-0039; migration 0015)
+
+- **Migration 0015** (append-only): `office_pattern` (usual office
+  weekdays from a date) and `office_day` (one-off in office / not, the
+  latest per date wins); the `office` bulk kind.
+- **On an office day CloudPunch steps back:** `/v1/me/shift` answers
+  `day_off: {kind: "office"}` and lists the person's office days with the
+  holidays, so the app's popups stop (no app update needed); no
+  shift-start email; Team shows **In office** (sent as a holiday named
+  "In office" with `in_office: true`, so older apps read it sensibly).
+  Clocking in anyway is tracked as normal.
+- **Endpoints** (Administrators and HR): `GET /v1/admin/office-days`,
+  `PUT /v1/admin/employees/:id/office-pattern`,
+  `PUT /v1/admin/employees/:id/office-days/:date` (31 days back to a year
+  ahead), `PUT /v1/admin/employees/bulk/office-pattern` (all or nothing,
+  once per key). The admin console screens follow in desktop 0.1.34.
+
 ### Server and web: download with a Microsoft sign-in, not Cloudflare Access (owner decision)
 
 - Cloudflare Access's free plan (50 seats) ran out with the rollout, so

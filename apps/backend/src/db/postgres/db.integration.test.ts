@@ -52,7 +52,7 @@ beforeEach(async () => {
   // dependencies: event → session → device/employee → user.
   // time_event and audit_log are append-only (row triggers reject
   // DELETE); TRUNCATE is DDL and resets them between tests.
-  await sql`TRUNCATE audit_log, policy_override, time_event, time_session, device, employee_override, time_correction_decision, time_correction, shift_assignment, not_working_day, holiday, shift_alert, role_seen, weekly_report_sent, admin_bulk_request, shift_template_version, shift_template RESTART IDENTITY CASCADE`;
+  await sql`TRUNCATE audit_log, policy_override, time_event, time_session, device, employee_override, time_correction_decision, time_correction, shift_assignment, not_working_day, holiday, shift_alert, role_seen, weekly_report_sent, admin_bulk_request, shift_template_version, shift_template, office_pattern, office_day RESTART IDENTITY CASCADE`;
   await sql`DELETE FROM admin_review_case`;
   await sql`UPDATE app_user SET employee_id = NULL`;
   await sql`DELETE FROM employee`;
@@ -143,6 +143,40 @@ describe('PostgresDb — employees + users', () => {
     expect(rows[0]?.before).toEqual({ manager_employee_id: null });
     expect(rows[0]?.after).toEqual({ manager_employee_id: mgr });
     expect(rows[1]?.after).toEqual({ date: '2026-09-29' });
+  });
+
+  it('ADR-0039: office patterns and one-offs, newest first; append-only', async () => {
+    const a = await seedEmployee();
+    const { userId } = await seedUser({ employeeId: a });
+    const base = { employeeId: a, reason: null, setByUserId: userId, correlationId: randomUUID() };
+    await db.office.setPattern({
+      ...base,
+      weekdays: [2, 4],
+      effectiveFrom: '2026-10-13',
+      at: new Date('2026-10-13T10:00:00Z'),
+    });
+    await db.office.setDay({
+      ...base,
+      date: '2026-10-14',
+      inOffice: true,
+      at: new Date('2026-10-13T11:00:00Z'),
+    });
+    await db.office.setDay({
+      ...base,
+      date: '2026-10-14',
+      inOffice: false,
+      at: new Date('2026-10-13T12:00:00Z'),
+    });
+    expect((await db.office.patterns([a])).map((p) => [p.weekdays, p.effectiveFrom])).toEqual([
+      [[2, 4], '2026-10-13'],
+    ]);
+    expect(
+      (await db.office.days([a], '2026-10-01', '2026-10-31')).map((d) => [d.date, d.inOffice]),
+    ).toEqual([
+      ['2026-10-14', false],
+      ['2026-10-14', true],
+    ]);
+    await expect(sql`DELETE FROM office_day`).rejects.toThrow(/append-only/);
   });
 
   it('ADR-0038 §6: named shifts, versions and bulk shift rows; append-only', async () => {

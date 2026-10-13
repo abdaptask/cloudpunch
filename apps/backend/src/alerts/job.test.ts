@@ -275,6 +275,33 @@ describe('the job (ADR-0037 §3)', () => {
     expect(await job().runOnce()).toEqual([]);
   });
 
+  it('in the office that day: no email (ADR-0039 §3)', async () => {
+    await setting(true, 30);
+    await clockInAt(roshni, at(2));
+    clock = at(30);
+    await db.office.setDay({
+      employeeId: farheen,
+      date: '2026-10-09',
+      inOffice: true,
+      reason: null,
+      setByUserId: 'test',
+      correlationId: randomUUID(),
+      at: clock,
+    });
+    expect(await job().runOnce()).toEqual([]);
+    // Unticked: the missed email goes as on any day.
+    await db.office.setDay({
+      employeeId: farheen,
+      date: '2026-10-09',
+      inOffice: false,
+      reason: null,
+      setByUserId: 'test',
+      correlationId: randomUUID(),
+      at: new Date(clock.getTime() + 1),
+    });
+    expect(await job().runOnce()).toEqual([`${farheen}:missed`]);
+  });
+
   it('"Not working today" tells the manager; a failed send is tried again', async () => {
     await setting(true);
     await db.shifts.declareNotWorking({
