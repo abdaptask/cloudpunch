@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Server and desktop 0.1.35: email when someone connects from a new place (ADR-0041; migration 0016)
+
+- When a computer is seen on a new network and it's a **city or country
+  the person hasn't used in 30 days**, their **manager** gets one email
+  (Administrators copied; with no manager, Administrators only). Not on
+  a first-ever connection, not for a new provider in the same city, no
+  IP address in the email. Once per person, place and day
+  (`location_alert`, append-only).
+- **Off by default:** Rules → Connection location → "Email the manager
+  when someone connects from a new city" (`alerts.location_emails`,
+  company-wide). Needs recording on.
+- The privacy notice draft gains a line about these emails.
+
 ### Desktop 0.1.34 and web: setting in-office days (ADR-0039)
 
 - **People → person panel → Office days:** tick their usual office

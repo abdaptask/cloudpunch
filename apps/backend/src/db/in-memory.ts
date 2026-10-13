@@ -22,6 +22,8 @@ import type {
   WeeklyReportRepo,
   NewOfficeDay,
   NewOfficePattern,
+  LocationAlertClaim,
+  LocationAlertRepo,
   NewShiftAssignment,
   OfficeDay,
   OfficePattern,
@@ -83,6 +85,9 @@ export class InMemoryDb implements DbRepositories {
   readonly weeklyReports: WeeklyReportRepo;
   readonly bulkRequests: BulkRequestRepo;
   readonly office: OfficeRepo;
+  readonly locationAlerts: LocationAlertRepo;
+  /** location_alert (ADR-0041). */
+  readonly locationAlertRows: LocationAlertClaim[] = [];
   /** office_pattern / office_day (ADR-0039). */
   readonly officePatternRows: OfficePattern[] = [];
   readonly officeDayRows: OfficeDay[] = [];
@@ -216,6 +221,24 @@ export class InMemoryDb implements DbRepositories {
       this.officePatternRows.push(row);
       this.officeAudit.push('office_pattern_set');
       return { ...row, weekdays: [...row.weekdays] };
+    };
+    this.locationAlerts = {
+      claimAndSend: async (c, send) => {
+        const same = (r: LocationAlertClaim): boolean =>
+          r.employeeId === c.employeeId &&
+          r.city === c.city &&
+          r.country === c.country &&
+          r.sentOn === c.sentOn;
+        if (this.locationAlertRows.some(same)) return false;
+        this.locationAlertRows.push({ ...c });
+        try {
+          await send();
+        } catch (err) {
+          this.locationAlertRows.splice(this.locationAlertRows.findIndex(same), 1);
+          throw err;
+        }
+        return true;
+      },
     };
     this.office = {
       patterns: async (ids) =>

@@ -52,7 +52,7 @@ beforeEach(async () => {
   // dependencies: event → session → device/employee → user.
   // time_event and audit_log are append-only (row triggers reject
   // DELETE); TRUNCATE is DDL and resets them between tests.
-  await sql`TRUNCATE audit_log, policy_override, time_event, time_session, device, employee_override, time_correction_decision, time_correction, shift_assignment, not_working_day, holiday, shift_alert, role_seen, weekly_report_sent, admin_bulk_request, shift_template_version, shift_template, office_pattern, office_day RESTART IDENTITY CASCADE`;
+  await sql`TRUNCATE audit_log, policy_override, time_event, time_session, device, employee_override, time_correction_decision, time_correction, shift_assignment, not_working_day, holiday, shift_alert, role_seen, weekly_report_sent, admin_bulk_request, shift_template_version, shift_template, office_pattern, office_day, location_alert RESTART IDENTITY CASCADE`;
   await sql`DELETE FROM admin_review_case`;
   await sql`UPDATE app_user SET employee_id = NULL`;
   await sql`DELETE FROM employee`;
@@ -143,6 +143,30 @@ describe('PostgresDb — employees + users', () => {
     expect(rows[0]?.before).toEqual({ manager_employee_id: null });
     expect(rows[0]?.after).toEqual({ manager_employee_id: mgr });
     expect(rows[1]?.after).toEqual({ date: '2026-09-29' });
+  });
+
+  it('ADR-0041: a new-place email is claimed once per person, place and day', async () => {
+    const a = await seedEmployee();
+    const claim = {
+      employeeId: a,
+      city: 'mumbai',
+      country: 'in',
+      sentOn: '2026-10-13',
+      at: new Date(),
+    };
+    let sent = 0;
+    expect(await db.locationAlerts.claimAndSend(claim, async () => void sent++)).toBe(true);
+    expect(await db.locationAlerts.claimAndSend(claim, async () => void sent++)).toBe(false);
+    expect(sent).toBe(1);
+    // A failed send leaves nothing claimed.
+    const other = { ...claim, city: 'pune' };
+    await expect(
+      db.locationAlerts.claimAndSend(other, async () => {
+        throw new Error('mail down');
+      }),
+    ).rejects.toThrow('mail down');
+    expect(await db.locationAlerts.claimAndSend(other, async () => void sent++)).toBe(true);
+    await expect(sql`DELETE FROM location_alert`).rejects.toThrow(/append-only/);
   });
 
   it('ADR-0039: office patterns and one-offs, newest first; append-only', async () => {

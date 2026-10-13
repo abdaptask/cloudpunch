@@ -454,10 +454,21 @@ export function RulesPage({
                     onChange={(on) => set('recordConnections', on)}
                   />,
                 )}
+                {row(
+                  'locationEmails',
+                  'Email the manager when someone connects from a new city',
+                  <Check
+                    name="location-emails"
+                    on={form.locationEmails}
+                    onChange={(on) => set('locationEmails', on)}
+                  />,
+                )}
                 <Note t={t}>
                   The server keeps each computer&apos;s IP address, approximate city and internet
                   provider for 30 days; no GPS. Managers see their own team; Administrators see
-                  everyone.
+                  everyone. With the email on, a city or country someone hasn&apos;t used in 30 days
+                  is sent once to their manager, Administrators copied (ADR-0041). Say so in the
+                  privacy notice first.
                 </Note>
               </>
             )}

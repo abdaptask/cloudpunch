@@ -805,6 +805,26 @@ export interface OfficeRepo {
   setPatterns(rows: readonly NewOfficePattern[], record: BulkRecord): Promise<boolean>;
 }
 
+/** A "connecting from a new place" email (ADR-0041). */
+export interface LocationAlertClaim {
+  employeeId: string;
+  /** Lower-cased. */
+  city: string;
+  country: string;
+  /** `YYYY-MM-DD`. */
+  sentOn: string;
+  at: Date;
+}
+
+export interface LocationAlertRepo {
+  /**
+   * Claim the email and run `send` in one transaction: false (and no
+   * send) when it was already claimed; a failed send rolls the claim
+   * back.
+   */
+  claimAndSend(claim: LocationAlertClaim, send: () => Promise<void>): Promise<boolean>;
+}
+
 export interface BulkRequestRepo {
   /** The answer kept for this caller's key, if any. */
   find(
@@ -833,4 +853,5 @@ export interface DbRepositories {
   weeklyReports: WeeklyReportRepo;
   bulkRequests: BulkRequestRepo;
   office: OfficeRepo;
+  locationAlerts: LocationAlertRepo;
 }

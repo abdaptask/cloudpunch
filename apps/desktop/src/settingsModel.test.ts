@@ -38,6 +38,7 @@ describe('settings form (ADR-0018 §5)', () => {
       offerTraining: true,
       awayCheckMinutes: 60,
       recordConnections: false,
+      locationEmails: false,
       shiftEmails: false,
       missedClockInMinutes: 15,
     });
@@ -120,6 +121,7 @@ describe('settings form (ADR-0018 §5)', () => {
     const current = { alerts: { shift_emails: false, regular_late_count: 4 } };
     expect(overrideWith(current, on, true)['alerts']).toEqual({
       shift_emails: true,
+      location_emails: false,
       missed_clock_in_minutes: 20,
       regular_late_count: 4,
     });

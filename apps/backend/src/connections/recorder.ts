@@ -1,5 +1,5 @@
 import type { FastifyBaseLogger } from 'fastify';
-import type { DbRepositories } from '../db/index.js';
+import type { DbRepositories, DeviceConnection } from '../db/index.js';
 import { effectivePolicyForScope } from '../policy/service.js';
 import {
   connectionFromRequest,
@@ -25,6 +25,8 @@ export interface ConnectionRecorderOptions {
   log: FastifyBaseLogger;
   /** Internet provider by address (ADR-0029 §3); none means no provider names. */
   providers?: ProviderLookup | undefined;
+  /** A computer was seen on a new network (ADR-0041); runs after the write, never awaited. */
+  onNewNetwork?: (row: DeviceConnection) => void;
   now?: () => Date;
 }
 
@@ -102,6 +104,7 @@ export class ConnectionRecorder {
       lastSeenAt: at,
     });
     this.current.set(deviceId, { key, rowId: row.id, touchedAt: at.getTime() });
+    this.opts.onNewNetwork?.(row);
   }
 
   private async enabled(): Promise<boolean> {
