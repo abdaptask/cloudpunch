@@ -34,14 +34,29 @@ type View =
   | { kind: 'not_set_up'; auth: Auth }
   | { kind: 'not_allowed'; auth: Auth; me: Me }
   | { kind: 'ready'; auth: Auth; me: Me }
+  | { kind: 'download'; auth: Auth }
   | { kind: 'error'; message: string };
 
 export interface AppDeps {
   fetch: typeof fetch;
   startAuth: (cfg: WebConfig) => Promise<Auth>;
+  /** Opens a download link; the browser's own navigation by default. */
+  navigate?: (url: string) => void;
 }
 
-const realDeps: AppDeps = { fetch: (...a) => fetch(...a), startAuth };
+const realDeps: AppDeps = {
+  fetch: (...a) => fetch(...a),
+  startAuth,
+  navigate: (url) => window.location.assign(url),
+};
+
+/**
+ * The download page (owner decision, 2026-10-13): sign in with
+ * Microsoft, then download. It replaced Cloudflare Access, whose free
+ * plan ran out of seats. Anyone with a CloudPunch role can download.
+ */
+export const DOWNLOAD_PATH = '/app/download/';
+const wantsDownload = (): boolean => window.location.pathname.startsWith('/app/download');
 
 async function load(deps: AppDeps): Promise<View> {
   const res = await deps.fetch('/app/config.json');
@@ -68,6 +83,8 @@ function pageFor(path: string, me: Me): Page {
 
 async function whoAmI(deps: AppDeps, auth: Auth): Promise<View> {
   if (!auth.account) return { kind: 'signed_out', auth };
+  // Downloading needs only a sign-in; the API checks the role.
+  if (wantsDownload()) return { kind: 'download', auth };
   const me = await deps.fetch('/v1/me', {
     headers: { authorization: `Bearer ${await auth.token()}` },
   });
@@ -197,7 +214,19 @@ export function App({ deps = realDeps }: { deps?: AppDeps }): JSX.Element {
         {view.kind === 'not_configured' && (
           <p style={p}>CloudPunch on the web isn't set up on this server yet.</p>
         )}
-        {view.kind === 'signed_out' && (
+        {view.kind === 'signed_out' && wantsDownload() && (
+          <>
+            <h1 style={{ margin: '0 0 8px', fontSize: 20, color: C.navy }}>Download CloudPunch</h1>
+            <p style={p}>Sign in with your ApTask Microsoft account to download the app.</p>
+            <button type="button" style={button} onClick={() => signIn(view.auth)}>
+              Sign in with Microsoft
+            </button>
+          </>
+        )}
+        {view.kind === 'download' && (
+          <Download deps={deps} auth={view.auth} onSignedOut={setView} />
+        )}
+        {view.kind === 'signed_out' && !wantsDownload() && (
           <>
             <h1 style={{ margin: '0 0 8px', fontSize: 20, color: C.navy }}>
               Your team on CloudPunch
@@ -224,7 +253,7 @@ export function App({ deps = realDeps }: { deps?: AppDeps }): JSX.Element {
               use the CloudPunch app.
             </p>
             <p style={p}>
-              <a href="/" style={{ color: C.accent, fontWeight: 600 }}>
+              <a href={DOWNLOAD_PATH} style={{ color: C.accent, fontWeight: 600 }}>
                 Download CloudPunch
               </a>
             </p>
@@ -238,6 +267,79 @@ export function App({ deps = realDeps }: { deps?: AppDeps }): JSX.Element {
         )}
       </Card>
     </div>
+  );
+}
+
+const LINK_ERROR: Record<string, string> = {
+  no_role: "Your account doesn't have CloudPunch yet. Ask HR to add you.",
+  no_release: "That version isn't published yet.",
+};
+
+/** Download for Windows or Mac: a 10-minute link from the API, then the browser downloads. */
+function Download({
+  deps,
+  auth,
+  onSignedOut,
+}: {
+  deps: AppDeps;
+  auth: Auth;
+  onSignedOut: (v: View) => void;
+}): JSX.Element {
+  const [busy, setBusy] = useState<string | null>(null);
+  const [note, setNote] = useState<{ error: boolean; text: string } | null>(null);
+  const go = (platform: 'windows' | 'mac'): void => {
+    setBusy(platform);
+    setNote(null);
+    void (async () => {
+      try {
+        const res = await deps.fetch(`/v1/desktop/download-link/${platform}`, {
+          method: 'POST',
+          headers: { authorization: `Bearer ${await auth.token()}` },
+        });
+        if (res.ok) {
+          const body = (await res.json()) as { url: string; version: string };
+          (deps.navigate ?? realDeps.navigate)?.(body.url);
+          setNote({
+            error: false,
+            text: `CloudPunch ${body.version} is downloading. Open it when it's done.`,
+          });
+        } else {
+          const body = (await res.json().catch(() => null)) as { code?: string } | null;
+          setNote({
+            error: true,
+            text: LINK_ERROR[body?.code ?? ''] ?? `The download didn't start (HTTP ${res.status}).`,
+          });
+        }
+      } catch (e) {
+        setNote({ error: true, text: e instanceof Error ? e.message : String(e) });
+      } finally {
+        setBusy(null);
+      }
+    })();
+  };
+  return (
+    <>
+      <h1 style={{ margin: '0 0 8px', fontSize: 20, color: C.navy }}>Download CloudPunch</h1>
+      <p style={p}>Signed in as {auth.account?.username ?? 'you'}.</p>
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', margin: '0 0 14px' }}>
+        <button type="button" style={button} disabled={busy !== null} onClick={() => go('windows')}>
+          {busy === 'windows' ? 'Starting…' : 'Download for Windows'}
+        </button>
+        <button type="button" style={button} disabled={busy !== null} onClick={() => go('mac')}>
+          {busy === 'mac' ? 'Starting…' : 'Download for Mac'}
+        </button>
+      </div>
+      {note && (
+        <p role={note.error ? 'alert' : 'status'} style={p}>
+          {note.text}
+        </p>
+      )}
+      <p style={{ ...p, fontSize: 13 }}>
+        Windows may say &ldquo;unknown publisher&rdquo; for this build: choose{' '}
+        <b>More info → Run anyway</b>. Mac needs macOS 14 or later.
+      </p>
+      <SignOut auth={auth} onDone={onSignedOut} />
+    </>
   );
 }
 

@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import type { FastifyPluginAsync } from 'fastify';
 import fp from 'fastify-plugin';
 import { requireAuth } from '../auth/require.js';
+import { signLink } from '../landing/links.js';
 import { readReleases, type Platform, type Release } from '../landing/routes.js';
 
 /** The updater's platform names to download folders. */
@@ -56,6 +57,46 @@ function latestSigned(releases: Release[]): (Release & { signature: string }) | 
 }
 
 const updateRoutesImpl: FastifyPluginAsync<UpdateRoutesOptions> = async (app, opts) => {
+  // The download page (owner decision, 2026-10-13): anyone with a
+  // CloudPunch role gets a 10-minute link to the newest installer.
+  app.post<{ Params: { platform: string } }>(
+    '/v1/desktop/download-link/:platform',
+    { preHandler: [requireAuth] },
+    async (req, reply) => {
+      if ((req.auth?.roles.length ?? 0) === 0) {
+        return reply.code(403).type('application/problem+json').send({
+          code: 'no_role',
+          message: 'your account has no CloudPunch role yet',
+        });
+      }
+      const platform = req.params.platform === 'mac' ? 'macos' : req.params.platform;
+      if (platform !== 'windows' && platform !== 'macos') {
+        return reply
+          .code(404)
+          .type('application/problem+json')
+          .send({ code: 'not_found', message: 'no such platform' });
+      }
+      const [latest] = await readReleases(opts.downloadsDir, platform);
+      if (!latest) {
+        return reply
+          .code(404)
+          .type('application/problem+json')
+          .send({ code: 'no_release', message: 'no installer is published yet' });
+      }
+      const path = platform === 'macos' ? 'mac' : 'windows';
+      return reply
+        .code(200)
+        .header('cache-control', 'no-store')
+        .send({
+          url: `/get/${path}?t=${signLink(platform, latest.file, Date.now())}`,
+          version: latest.version,
+          file: latest.file,
+          size: latest.size,
+          sha256: latest.sha256,
+        });
+    },
+  );
+
   app.get<{ Params: { platform: string; current: string } }>(
     '/v1/desktop/update/:platform/:current',
     { preHandler: [requireAuth] },

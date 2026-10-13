@@ -1,7 +1,7 @@
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ADMIN_PATH, App, type AppDeps, type Me } from './App.js';
+import { ADMIN_PATH, App, DOWNLOAD_PATH, type AppDeps, type Me } from './App.js';
 import { isAuthResponse, type Auth } from './auth.js';
 
 const CONFIG = {
@@ -250,5 +250,61 @@ describe('the admin console on the web (ADR-0038 §2)', () => {
     render(<App deps={deps(fakeAuth(true), json(200, me(['team.timeline.read'])))} />);
     expect(await screen.findByRole('list', { name: 'team-today' })).toBeInTheDocument();
     expect(screen.queryByRole('navigation', { name: 'pages' })).not.toBeInTheDocument();
+  });
+});
+
+describe('the download page (owner decision, 2026-10-13)', () => {
+  afterEach(() => window.history.replaceState(null, '', '/'));
+
+  /** `deps`, plus the link endpoint answering `link`. */
+  function withLink(auth: Auth, link: Response) {
+    const d = deps(auth, json(200, me(['self.timeline.read'])));
+    const inner = d.fetch.getMockImplementation() as (
+      u: string,
+      i?: RequestInit,
+    ) => Promise<Response>;
+    d.fetch.mockImplementation(async (url: string, init?: RequestInit) =>
+      url.startsWith('/v1/desktop/download-link/') ? link.clone() : inner(url, init),
+    );
+    const navigate = vi.fn();
+    return { ...d, navigate };
+  }
+
+  it('signed out: asks to sign in to download, then downloads with a fresh link', async () => {
+    window.history.replaceState(null, '', DOWNLOAD_PATH);
+    const auth = fakeAuth(false);
+    const d = withLink(
+      auth,
+      json(200, { url: '/get/windows?t=123.abc', version: '0.1.33', file: 'x.exe', size: 1 }),
+    );
+    render(<App deps={d} />);
+    expect(await screen.findByText('Download CloudPunch')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Sign in with Microsoft' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Download for Windows' }));
+    const post = d.fetch.mock.calls.find(([u]) => String(u).includes('download-link'));
+    expect(post?.[0]).toBe('/v1/desktop/download-link/windows');
+    expect(post?.[1]).toEqual({ method: 'POST', headers: { authorization: 'Bearer tok' } });
+    expect(d.navigate).toHaveBeenCalledWith('/get/windows?t=123.abc');
+    expect(await screen.findByRole('status')).toHaveTextContent('CloudPunch 0.1.33 is downloading');
+    // An employee is fine here: no team needed, and /v1/me isn't asked.
+    expect(d.fetch.mock.calls.some(([u]) => String(u) === '/v1/me')).toBe(false);
+  });
+
+  it('someone without a CloudPunch role is told to ask HR', async () => {
+    window.history.replaceState(null, '', DOWNLOAD_PATH);
+    const d = withLink(fakeAuth(true), json(403, { code: 'no_role' }));
+    render(<App deps={d} />);
+    await userEvent.click(await screen.findByRole('button', { name: 'Download for Mac' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent("doesn't have CloudPunch yet");
+    expect(d.navigate).not.toHaveBeenCalled();
+  });
+
+  it('the "use the app" page links to the download page', async () => {
+    window.history.replaceState(null, '', '/app/');
+    render(<App deps={deps(fakeAuth(true), json(200, me(['self.timeline.read'])))} />);
+    expect(await screen.findByRole('link', { name: 'Download CloudPunch' })).toHaveAttribute(
+      'href',
+      DOWNLOAD_PATH,
+    );
   });
 });

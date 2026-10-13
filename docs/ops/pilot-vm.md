@@ -123,11 +123,11 @@ the API serves it.
    ssh aptask@172.16.46.54 "echo 'ENTRA_WEB_CLIENT_ID=c0d42233-0f69-4379-9956-f6f7e48a5278' | sudo tee -a /etc/cloudpunch/api.env && sudo systemctl restart cloudpunch-api"
    ```
    Until it's set, `/app/` says the web dashboard isn't set up.
-3. **Cloudflare Zero Trust → Access → Applications → Add → Self-hosted**:
-   name `CloudPunch web dashboard`, domain `cloudpunch.aptask.com`, path
-   `app`, the same identity provider and Allow policy as the download
-   app. **Never** put Access on `/v1` or the whole domain: the desktop
-   app calls `/v1` directly.
+3. **No Cloudflare Access on `/app`** (changed 2026-10-13): the web app
+   signs people in with Microsoft and the API checks every request. The
+   Access free plan has 50 seats, which the rollout used up. If an
+   Access application still covers `/app`, delete it (Zero Trust →
+   Access → Applications).
 
 Who gets in: anyone the API gives `team.timeline.read` (Managers for
 their reporting line, HR). Everyone else is pointed to the app. A
@@ -260,11 +260,13 @@ Keep the key file and its password in your password manager. If it is
 lost, installed apps can't take updates until everyone reinstalls by
 hand. The public key is in `tauri.pilot.conf.json` (`plugins.updater`).
 
-**Cloudflare Access (ApTask only).** Go to Zero Trust → Access →
-Applications → **cloudpunch-download**. It covers
-`cloudpunch.aptask.com/download` and allows emails ending in
-`@aptask.com`. Keep it on `/download` only: putting Access in front of
-`/v1` would break the app.
+**Downloads need a Microsoft sign-in, not Cloudflare Access**
+(changed 2026-10-13). The page's buttons go to `/app/download/`, which
+signs people in and asks the API for a 10-minute link; `/get/windows`
+and `/get/mac` serve the newest installer to a fresh link. The old
+`/download*` addresses redirect there. Delete the Access application
+**cloudpunch-download** (Zero Trust → Access → Applications): its free
+plan has 50 seats, which the rollout used up.
 
 ## Backups and alerts: one-time setup (ADR-0035)
 

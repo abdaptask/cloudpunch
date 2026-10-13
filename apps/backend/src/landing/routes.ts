@@ -1,8 +1,12 @@
 import { createReadStream, readFileSync } from 'node:fs';
 import { readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { FastifyPluginAsync, FastifyReply } from 'fastify';
+import type { FastifyPluginAsync } from 'fastify';
 import fp from 'fastify-plugin';
+import { linkValid } from './links.js';
+
+/** The web page that signs people in and hands out download links. */
+export const DOWNLOAD_PAGE = '/app/download/';
 
 /**
  * The service address in a browser (owner request): a friendly CloudPunch
@@ -12,13 +16,14 @@ import fp from 'fastify-plugin';
  *
  * - Rendered here, with no scripts and nothing about the user, under a
  *   CSP that allows only its own inline styles and same-site images.
- * - `/download/windows` serves the newest installer. Cloudflare Access in
- *   front of `/download*` limits it to ApTask accounts; the app's `/v1`
- *   traffic is not behind Access.
+ * - Downloads need a Microsoft sign-in (owner decision, 2026-10-13; the
+ *   Cloudflare Access gate ran out of seats): the buttons go to the web
+ *   page `/app/download/`, which gets a 10-minute link from the API
+ *   (`links.ts`); `/get/:platform?t=` serves the newest installer to a
+ *   fresh link. The old `/download*` addresses send people to that page.
  * - Releases live in `<DOWNLOADS_DIR>/<windows|macos>/releases.json`,
  *   newest first; `scripts/publish-installer.sh` adds to them. macOS
  *   (ADR-0026) serves a `.dmg` here and its `.app.tar.gz` to the updater.
- * - `/download/mac` serves the newest `.dmg`, also behind Access.
  */
 
 export interface LandingOptions {
@@ -100,12 +105,12 @@ export function page(releases: Release[], mac: Release[] = []): string {
   const [latest, ...earlier] = releases;
   const macLatest = mac[0];
   const macButton = macLatest
-    ? `<a class="btn" href="/download/mac">Download for Mac</a>
+    ? `<a class="btn" href="${DOWNLOAD_PAGE}">Download for Mac</a>
   <p class="meta">Mac version ${esc(macLatest.version)} · ${esc(day(macLatest.published_at))} · ${esc(mb(macLatest.size))} · macOS 14 or later</p>`
     : '';
   const download = latest
-    ? `<a class="btn" href="/download/windows">Download for Windows</a> ${macButton}
-  <p class="meta">Version ${esc(latest.version)} · ${esc(day(latest.published_at))} · ${esc(mb(latest.size))} · ApTask account required</p>
+    ? `<a class="btn" href="${DOWNLOAD_PAGE}">Download for Windows</a> ${macButton}
+  <p class="meta">Version ${esc(latest.version)} · ${esc(day(latest.published_at))} · ${esc(mb(latest.size))} · sign in with your ApTask account</p>
   <p class="meta">Windows may say "unknown publisher" for this pilot build: choose <b>More info → Run anyway</b>.</p>
   ${latest.notes.length > 0 ? `<h2>What's new in ${esc(latest.version)}</h2>${notesList(latest.notes)}` : ''}
   <details><summary>Check the file</summary>
@@ -222,13 +227,31 @@ const landingRoutesImpl: FastifyPluginAsync<LandingOptions> = async (app, opts) 
       ),
   );
 
-  app.get('/download', async (_req, reply) => reply.redirect('/download/windows'));
+  // Before Microsoft sign-in these were behind Cloudflare Access.
+  for (const old of ['/download', '/download/windows', '/download/mac']) {
+    app.get(old, async (_req, reply) => reply.redirect(DOWNLOAD_PAGE));
+  }
 
-  const serveLatest =
-    (platform: Platform, type: string) => async (_req: unknown, reply: FastifyReply) => {
+  const TYPES: Record<Platform, string> = {
+    windows: 'application/vnd.microsoft.portable-executable',
+    macos: 'application/x-apple-diskimage',
+  };
+
+  // The newest installer, to a fresh link from the API (`links.ts`).
+  app.get<{ Params: { platform: string }; Querystring: { t?: string } }>(
+    '/get/:platform',
+    async (req, reply) => {
+      const platform = req.params.platform === 'mac' ? 'macos' : req.params.platform;
+      if (platform !== 'windows' && platform !== 'macos') {
+        return reply.code(404).type('text/plain').send('Not found');
+      }
       const [latest] = await readReleases(opts.downloadsDir, platform);
       if (!latest || !opts.downloadsDir) {
         return reply.code(404).type('text/plain').send('No installer is published yet.');
+      }
+      if (!linkValid(platform, latest.file, req.query.t ?? '', Date.now())) {
+        // Expired, or for an older file: sign in again for a new link.
+        return reply.redirect(DOWNLOAD_PAGE);
       }
       const path = join(opts.downloadsDir, platform, latest.file);
       const info = await stat(path).catch(() => null);
@@ -240,40 +263,16 @@ const landingRoutesImpl: FastifyPluginAsync<LandingOptions> = async (app, opts) 
       }
       return reply
         .code(200)
-        .type(type)
+        .type(TYPES[platform])
         .header('content-disposition', `attachment; filename="${latest.file}"`)
         .header('content-length', String(info.size))
         .header('x-content-type-options', 'nosniff')
+        .header('referrer-policy', 'no-referrer')
         .header('cache-control', 'private, no-store')
         .header('x-checksum-sha256', latest.sha256)
         .send(createReadStream(path));
-    };
-
-  app.get('/download/mac', serveLatest('macos', 'application/x-apple-diskimage'));
-
-  app.get('/download/windows', async (_req, reply) => {
-    const [latest] = await readReleases(opts.downloadsDir);
-    if (!latest || !opts.downloadsDir) {
-      return reply.code(404).type('text/plain').send('No installer is published yet.');
-    }
-    const path = join(opts.downloadsDir, 'windows', latest.file);
-    const info = await stat(path).catch(() => null);
-    if (!info || info.size !== latest.size) {
-      return reply
-        .code(503)
-        .type('text/plain')
-        .send('The installer is being updated. Try again shortly.');
-    }
-    return reply
-      .code(200)
-      .type('application/vnd.microsoft.portable-executable')
-      .header('content-disposition', `attachment; filename="${latest.file}"`)
-      .header('content-length', String(info.size))
-      .header('x-content-type-options', 'nosniff')
-      .header('cache-control', 'private, no-store')
-      .header('x-checksum-sha256', latest.sha256)
-      .send(createReadStream(path));
-  });
+    },
+  );
 };
 
 export const landingRoutes = fp(landingRoutesImpl, { name: 'cloudpunch-landing', fastify: '4.x' });

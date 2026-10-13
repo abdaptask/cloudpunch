@@ -100,6 +100,10 @@ laptop behind an SSH tunnel. AWS is not ready.
    - **Cloudflare Access protects `/download*`** so only ApTask accounts
      can download. Access sits only on that path; the app's `/v1`
      traffic and the page itself are not behind it.
+     **Amended 2026-10-13:** Access's free plan (50 seats) ran out with
+     the rollout. Downloads now need a Microsoft sign-in on
+     `/app/download/`, which gets a 10-minute link from the API; the
+     Access applications on `/download` and `/app` are removed.
    - `scripts/publish-installer.sh "note" …` publishes a build. It
      refuses a build that doesn't point at the public address, and
      refuses to re-publish a version with a different file, so every

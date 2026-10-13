@@ -3,6 +3,7 @@ import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { LINK_TTL_MS, linkValid, signLink } from './links.js';
 import { landingRoutes, page, type Release } from './routes.js';
 
 const SHA = 'a'.repeat(64);
@@ -31,6 +32,10 @@ async function app(downloadsDir?: string) {
   return a;
 }
 
+/** A fresh link to a platform's newest file, as the API hands out. */
+const link = (platform: 'windows' | 'macos', file: string): string =>
+  `/get/${platform === 'macos' ? 'mac' : 'windows'}?t=${signLink(platform, file, Date.now())}`;
+
 describe('landing page', () => {
   it('serves a static, script-free page with the logo and a strict CSP', async () => {
     const a = await app();
@@ -55,11 +60,11 @@ describe('landing page', () => {
       expect(img.headers['content-type']).toContain(type);
       expect(img.rawPayload.length).toBeGreaterThan(100);
     }
-    expect((await a.inject({ method: 'GET', url: '/download/windows' })).statusCode).toBe(404);
+    expect((await a.inject({ method: 'GET', url: link('windows', 'x.exe') })).statusCode).toBe(404);
     await a.close();
   });
 
-  it('offers the newest release, what is new in it, and earlier versions', async () => {
+  it('offers the newest release through the sign-in page, with what is new', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'cp-dl-'));
     publish(dir, [
       release(),
@@ -72,7 +77,8 @@ describe('landing page', () => {
     ]);
     const a = await app(dir);
     const home = (await a.inject({ method: 'GET', url: '/' })).body;
-    expect(home).toContain('href="/download/windows">Download for Windows');
+    expect(home).toContain('href="/app/download/">Download for Windows');
+    expect(home).toContain('sign in with your ApTask account');
     // ADR-0033: managers and HR can use the browser instead.
     expect(home).toContain('href="/app/">see your team in the browser');
     // The date is today's locale's short month (Sep or Sept); the day and year are fixed.
@@ -82,24 +88,60 @@ describe('landing page', () => {
     expect(home).toContain('Earlier versions');
     expect(home).toContain('<li>First pilot build</li>');
     expect(home).toContain(`<code>${SHA}</code>`);
-    const redirect = await a.inject({ method: 'GET', url: '/download' });
-    expect(redirect.statusCode).toBe(302);
-    expect(redirect.headers.location).toBe('/download/windows');
-    const file = await a.inject({ method: 'GET', url: '/download/windows' });
+    await a.close();
+  });
+
+  it('serves the newest installer to a fresh link only', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'cp-dl-'));
+    publish(dir, [release()]);
+    const a = await app(dir);
+    const file = await a.inject({
+      method: 'GET',
+      url: link('windows', 'CloudPunch_0.1.1_x64-setup.exe'),
+    });
     expect(file.statusCode).toBe(200);
     expect(file.body).toBe('MZ-installer');
     expect(file.headers['content-disposition']).toBe(
       'attachment; filename="CloudPunch_0.1.1_x64-setup.exe"',
     );
     expect(file.headers['x-checksum-sha256']).toBe(SHA);
+    // No link, a bad one, or one for an older file: back to sign in.
+    for (const url of [
+      '/get/windows',
+      '/get/windows?t=123.abc',
+      link('windows', 'CloudPunch_0.1.0_x64-setup.exe'),
+    ]) {
+      const res = await a.inject({ method: 'GET', url });
+      expect(res.statusCode, url).toBe(302);
+      expect(res.headers.location).toBe('/app/download/');
+    }
+    // The Access-era addresses go to the sign-in page too.
+    for (const url of ['/download', '/download/windows', '/download/mac']) {
+      expect((await a.inject({ method: 'GET', url })).headers.location).toBe('/app/download/');
+    }
+    expect((await a.inject({ method: 'GET', url: '/get/linux?t=x' })).statusCode).toBe(404);
     await a.close();
+  });
+
+  it('links expire and can not be forged', () => {
+    const now = Date.parse('2026-10-13T12:00:00Z');
+    const t = signLink('windows', 'a.exe', now);
+    expect(linkValid('windows', 'a.exe', t, now)).toBe(true);
+    expect(linkValid('windows', 'a.exe', t, now + LINK_TTL_MS + 1)).toBe(false);
+    expect(linkValid('windows', 'b.exe', t, now)).toBe(false);
+    const [expires, mac] = t.split('.');
+    const later = `${Number(expires) + 60_000}.${mac}`;
+    expect(linkValid('windows', 'a.exe', later, now)).toBe(false);
+    expect(linkValid('windows', 'a.exe', t, now, Buffer.alloc(32, 7))).toBe(false);
   });
 
   it('refuses entries that could point outside the folder, and a half-copied file', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'cp-dl-'));
     publish(dir, [release({ file: '../../etc/passwd.exe' })]);
     const a = await app(dir);
-    expect((await a.inject({ method: 'GET', url: '/download/windows' })).statusCode).toBe(404);
+    expect(
+      (await a.inject({ method: 'GET', url: link('windows', '../../etc/passwd.exe') })).statusCode,
+    ).toBe(404);
     expect((await a.inject({ method: 'GET', url: '/' })).body).not.toContain(
       'Download for Windows',
     );
@@ -108,7 +150,10 @@ describe('landing page', () => {
     const dir2 = mkdtempSync(join(tmpdir(), 'cp-dl-'));
     publish(dir2, [release({ size: 999 })]);
     const b = await app(dir2);
-    expect((await b.inject({ method: 'GET', url: '/download/windows' })).statusCode).toBe(503);
+    expect(
+      (await b.inject({ method: 'GET', url: link('windows', 'CloudPunch_0.1.1_x64-setup.exe') }))
+        .statusCode,
+    ).toBe(503);
     await b.close();
   });
 
@@ -120,7 +165,7 @@ describe('landing page', () => {
 });
 
 describe('Download for Mac (ADR-0026)', () => {
-  it('shows the Mac button and serves the newest dmg', async () => {
+  it('shows the Mac button and serves the newest dmg to a fresh link', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'cp-landing-mac-'));
     publish(dir, [release()]);
     mkdirSync(join(dir, 'macos'), { recursive: true });
@@ -133,19 +178,22 @@ describe('Download for Mac (ADR-0026)', () => {
     );
     const a = await app(dir);
     const home = await a.inject({ method: 'GET', url: '/' });
-    expect(home.body).toContain('href="/download/mac">Download for Mac');
+    expect(home.body).toContain('href="/app/download/">Download for Mac');
     expect(home.body).toContain('macOS 14 or later');
-    const dmg = await a.inject({ method: 'GET', url: '/download/mac' });
+    const dmg = await a.inject({
+      method: 'GET',
+      url: link('macos', 'CloudPunch_0.1.7_universal.dmg'),
+    });
     expect(dmg.statusCode).toBe(200);
     expect(dmg.headers['content-type']).toContain('application/x-apple-diskimage');
     expect(dmg.body).toBe('dmg-bytes');
   });
 
-  it('no Mac release: no Mac button, and /download/mac is 404', async () => {
+  it('no Mac release: no Mac button, and /get/mac is 404', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'cp-landing-nomac-'));
     publish(dir, [release()]);
     const a = await app(dir);
     expect((await a.inject({ method: 'GET', url: '/' })).body).not.toContain('Download for Mac');
-    expect((await a.inject({ method: 'GET', url: '/download/mac' })).statusCode).toBe(404);
+    expect((await a.inject({ method: 'GET', url: link('macos', 'x.dmg') })).statusCode).toBe(404);
   });
 });
