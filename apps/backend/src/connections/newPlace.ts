@@ -43,15 +43,20 @@ export function newPlaceMail(input: {
   siteUrl: string;
 }): { subject: string; text: string } {
   const { name, row } = input;
-  const when = new Intl.DateTimeFormat('en-GB', {
-    timeZone: MAIL_TZ,
-    weekday: 'short',
-    day: 'numeric',
-    month: 'short',
-    hour: '2-digit',
-    minute: '2-digit',
-    hourCycle: 'h23',
-  }).format(row.firstSeenAt);
+  // From parts, so every Node's ICU writes it the same: "Tue 13 Oct, 14:30".
+  const part = (t: Intl.DateTimeFormatPartTypes): string =>
+    new Intl.DateTimeFormat('en-GB', {
+      timeZone: MAIL_TZ,
+      weekday: 'short',
+      day: 'numeric',
+      month: 'short',
+      hour: '2-digit',
+      minute: '2-digit',
+      hourCycle: 'h23',
+    })
+      .formatToParts(row.firstSeenAt)
+      .find((p) => p.type === t)?.value ?? '';
+  const when = `${part('weekday')} ${part('day')} ${part('month')}, ${part('hour')}:${part('minute')}`;
   const places = [...new Set(input.earlier.filter((c) => c.id !== row.id).map(placeOf))];
   return {
     subject: `${name} is connecting from a new place`,
