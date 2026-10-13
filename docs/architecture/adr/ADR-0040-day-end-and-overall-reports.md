@@ -1,6 +1,6 @@
 # ADR-0040 — Day-end summary and overall report
 
-- **Status:** Proposed
+- **Status:** Accepted (2026-10-13, the owner answered the open questions)
 - **Date:** 2026-10-13
 - **Deciders:** Abdulla Sheikh (project owner), Architecture (Claude)
 - **Builds on:** ADR-0025 (team views, who sees whom), ADR-0031 (shifts),
@@ -134,12 +134,10 @@ explanations, notes or connection locations.
 - **Send the day-end email at each team's own day end:** more exact but
   hard to explain with mixed shifts; one company time is simpler.
 
-## Open (owner)
+## Decided (owner, 2026-10-13)
 
-1. **Day-end send time:** 08:00 India time the next morning (proposed),
-   or another time?
-2. **Overall report for HR too,** or Administrators only? Proposed:
-   both (HR already sees everyone's time).
+1. **Day-end send time:** 08:00 India time the next morning.
+2. **Overall report:** Administrators and HR.
 
 ## Plan
 
