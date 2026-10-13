@@ -539,7 +539,8 @@ function Earlier({
   );
 }
 
-function EarlierDay({
+/** One person's day, loaded and shown (also Reports → Day summary, ADR-0040). */
+export function EarlierDay({
   id,
   date,
   canCorrect,

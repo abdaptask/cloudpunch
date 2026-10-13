@@ -49,6 +49,7 @@ describe('Rules (ADR-0038 §8)', () => {
       'Away',
       'Connection location',
       'Shift-start emails',
+      'Day-end summary',
     ]);
     expect(await screen.findByLabelText('idle-prompt')).toHaveValue(3);
     expect(screen.queryByLabelText('long-day')).not.toBeInTheDocument();

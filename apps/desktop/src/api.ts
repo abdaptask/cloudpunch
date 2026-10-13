@@ -198,6 +198,39 @@ export interface ShiftRow {
 }
 
 /** Someone's in-office days (ADR-0039): usual weekdays and one-offs in a range. */
+/** One person's day in the day-end summary (ADR-0040 §1). */
+export type DayReportStatus =
+  'worked' | 'late' | 'not_clocked_in' | 'not_working' | 'holiday' | 'in_office' | 'off';
+
+export interface DayReportRow {
+  employee_id: string;
+  name: string;
+  manager_id: string | null;
+  date: string;
+  status: DayReportStatus;
+  holiday?: string;
+  shift: { start: string; end: string } | null;
+  /** The zone times are shown in. */
+  tz: string;
+  clock_in: string | null;
+  clock_out: string | null;
+  still_in: boolean;
+  minutes_late: number | null;
+  worked_ms: number;
+  shift_ms: number;
+  idle_ms: number;
+  breaks_ms: number;
+  breaks_over_limit: number;
+  away_ms: number;
+  corrections_waiting: number;
+}
+
+export interface DayReport {
+  date: string;
+  counts: Record<DayReportStatus, number>;
+  people: DayReportRow[];
+}
+
 export interface OfficeDays {
   employee_id: string;
   /** ISO weekdays, 1 = Monday … 7 = Sunday. */
@@ -686,6 +719,8 @@ export const api = {
         ...officePatternBody(weekdays, effectiveFrom, reason),
       },
     }),
+  /** Each person's day on `date` (ADR-0040 §2), problems first. */
+  reportDay: (date: string): Promise<DayReport> => invoke('report_day', { date }),
   /** The company holidays, last month to a year ahead (ADR-0037). */
   holidays: (): Promise<{ holidays: Holiday[] }> => invoke<{ holidays: Holiday[] }>('holidays'),
   /** Add or rename a holiday (HR and Administrators). */

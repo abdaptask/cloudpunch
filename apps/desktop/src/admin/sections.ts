@@ -6,7 +6,7 @@
  */
 
 export type SectionKey =
-  'people' | 'managers' | 'shifts' | 'holidays' | 'rules' | 'computers' | 'connections';
+  'people' | 'managers' | 'shifts' | 'holidays' | 'rules' | 'computers' | 'connections' | 'reports';
 
 export interface Section {
   key: SectionKey;
@@ -24,6 +24,9 @@ export const SECTIONS: readonly Section[] = [
   { key: 'rules', label: 'Rules', anyOf: ['admin.policy.write', 'hr.policy.write'] },
   { key: 'computers', label: 'Computers', anyOf: ['admin.device.read'] },
   { key: 'connections', label: 'Connections', anyOf: ['admin.connection.read'] },
+  // Day summary (ADR-0040 §2): HR and Administrators, everyone. Managers
+  // keep Team, not the console (web rule); they get their team by email.
+  { key: 'reports', label: 'Reports', anyOf: ['hr.employee.read'] },
 ];
 
 /** The sections these capabilities can use, in sidebar order. */

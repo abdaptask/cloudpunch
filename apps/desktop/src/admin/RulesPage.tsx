@@ -500,6 +500,36 @@ export function RulesPage({
                 </Note>
               </>
             )}
+
+            {section === 'reports' && scope === 'global' && (
+              <>
+                {row(
+                  'dayEmails',
+                  'Email the day-end summary each morning',
+                  <Check
+                    name="day-emails"
+                    on={form.dayEmails}
+                    onChange={(on) => set('dayEmails', on)}
+                  />,
+                )}
+                {row(
+                  'dayEmailAt',
+                  'Send at (India time)',
+                  <input
+                    aria-label="day-email-at"
+                    type="time"
+                    value={form.dayEmailAt}
+                    onChange={(e) => set('dayEmailAt', e.target.value)}
+                    style={input(t)}
+                  />,
+                  issues.dayEmailAt,
+                )}
+                <Note t={t}>
+                  The day before: each manager gets their own team, Administrators everyone. Status,
+                  start, end and hours only (ADR-0040). Also under Reports → Day summary.
+                </Note>
+              </>
+            )}
           </div>
         </div>
       )}

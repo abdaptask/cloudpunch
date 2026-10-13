@@ -441,6 +441,22 @@ pub fn bulk_office(
     )
 }
 
+/// Each person's day on `date` (ADR-0040 §2): a Manager's team, or
+/// everyone for HR and Administrators; the server decides.
+pub fn report_day(http: &Client, base: &str, token: &str, date: &str) -> Result<Value, DayError> {
+    if !is_date(date) {
+        return Err(DayError::Refused("invalid_argument".into()));
+    }
+    send(
+        http,
+        base,
+        token,
+        reqwest::Method::GET,
+        &format!("/v1/reports/day?date={date}"),
+        None,
+    )
+}
+
 /// The company holidays (ADR-0037 §1), last month to a year ahead.
 pub fn holidays(http: &Client, base: &str, token: &str) -> Result<Value, DayError> {
     send(
@@ -1011,6 +1027,12 @@ mod tests {
             "x/retire",
             None
         )));
+    }
+
+    #[test]
+    fn report_day_refuses_a_bad_date_before_sending() {
+        let r = report_day(&client(), "http://127.0.0.1:9", "t", "2026-10-1x");
+        assert!(matches!(r, Err(DayError::Refused(c)) if c == "invalid_argument"));
     }
 
     #[test]

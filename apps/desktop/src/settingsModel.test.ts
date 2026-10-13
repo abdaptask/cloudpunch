@@ -41,6 +41,8 @@ describe('settings form (ADR-0018 §5)', () => {
       locationEmails: false,
       shiftEmails: false,
       missedClockInMinutes: 15,
+      dayEmails: false,
+      dayEmailAt: '08:00',
     });
     // Missing values fall back to the schema defaults.
     expect(formFrom({})).toMatchObject({
@@ -111,6 +113,23 @@ describe('settings form (ADR-0018 §5)', () => {
     expect(overrideWith({ connections: { record: true } }, off, true)['connections']).toEqual({
       record: false,
     });
+  });
+
+  it('writes the day-end summary settings only company-wide (ADR-0040)', () => {
+    const f = formFrom({});
+    expect(f).toMatchObject({ dayEmails: false, dayEmailAt: '08:00' });
+    const on = { ...f, dayEmails: true, dayEmailAt: '07:30' };
+    expect(overrideWith({ reports: { other: 1 } }, on, true)['reports']).toEqual({
+      other: 1,
+      day_emails: true,
+      day_email_at: '07:30',
+    });
+    expect(overrideWith(null, on)).not.toHaveProperty('reports');
+    expect(formFrom({ reports: { day_emails: true, day_email_at: '09:15' } })).toMatchObject({
+      dayEmails: true,
+      dayEmailAt: '09:15',
+    });
+    expect(formIssues({ ...on, dayEmailAt: '7' }).dayEmailAt).toBe('A time like 08:00');
   });
 
   it('writes the shift-start emails switch only company-wide (ADR-0037)', () => {
