@@ -1,9 +1,10 @@
 import { useEffect, useState, type CSSProperties } from 'react';
-import { api, type ShiftPattern, type ShiftTemplate } from '../api.js';
+import { api, type ShiftPattern, type ShiftRow, type ShiftTemplate } from '../api.js';
 import { zoneChoices } from '../correctionModel.js';
 import { ShiftEditor, shiftText } from '../ShiftEditor.js';
 import { Button } from '../ui/Button.js';
 import { useTheme, type Theme } from '../ui/theme.js';
+import { ShiftChooser } from './ShiftChooser.js';
 
 const DAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const LOCAL_TZ = Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -54,6 +55,10 @@ export function ShiftsPage(): JSX.Element {
   const [error, setError] = useState<string | null>(null);
   // null: nothing open; 'new'; or the id being edited.
   const [editing, setEditing] = useState<string | null>(null);
+  // The named shift being given to people.
+  const [giving, setGiving] = useState<string | null>(null);
+  // Bumped to reload "Each person's shift" after a change here.
+  const [reloads, setReloads] = useState(0);
   const [status, setStatus] = useState<string | null>(null);
 
   const load = (): void => {
@@ -71,8 +76,10 @@ export function ShiftsPage(): JSX.Element {
   const retired = list?.templates.filter((x) => x.retired) ?? [];
   const done = (text: string): void => {
     setEditing(null);
+    setGiving(null);
     setStatus(text);
     load();
+    setReloads((n) => n + 1);
   };
 
   return (
@@ -93,8 +100,8 @@ export function ShiftsPage(): JSX.Element {
         )}
       </div>
       <p style={{ margin: 0, fontSize: 12.5, color: t.muted, lineHeight: 1.45 }}>
-        Set up a shift once and give it to people by name in People. Changing it changes it for
-        everyone on it, from the date you choose.
+        Set up a shift once, then use <strong>Give to people…</strong> (here, or in People).
+        Changing it changes it for everyone on it, from the date you choose.
       </p>
 
       {error && (
@@ -112,7 +119,7 @@ export function ShiftsPage(): JSX.Element {
       {editing === 'new' && (
         <TemplateForm
           onCancel={() => setEditing(null)}
-          onSaved={(name) => done(`${name} is set up. Give it to people in People.`)}
+          onSaved={(name) => done(`${name} is set up. Use Give to people… to put people on it.`)}
         />
       )}
 
@@ -146,8 +153,18 @@ export function ShiftsPage(): JSX.Element {
                 >
                   {people(x.people)}
                 </span>
-                {!x.retired && editing !== x.id && (
+                {!x.retired && editing !== x.id && giving !== x.id && (
                   <>
+                    <Button
+                      variant="primary"
+                      onClick={() => {
+                        setStatus(null);
+                        setEditing(null);
+                        setGiving(x.id);
+                      }}
+                    >
+                      Give to people…
+                    </Button>
                     <Button
                       variant="chip"
                       onClick={() => {
@@ -165,6 +182,19 @@ export function ShiftsPage(): JSX.Element {
                   </>
                 )}
               </div>
+              {giving === x.id && (
+                <GiveShift
+                  template={x}
+                  onCancel={() => setGiving(null)}
+                  onDone={(n, from) =>
+                    done(
+                      `${people(n)} ${n === 1 ? 'is' : 'are'} on ${x.name}` +
+                        (from ? ` from ${dayText(from)}.` : ' from today.'),
+                    )
+                  }
+                  onError={(e) => setError(errorText(e))}
+                />
+              )}
               {editing === x.id && (
                 <TemplateForm
                   template={x}
@@ -186,9 +216,184 @@ export function ShiftsPage(): JSX.Element {
           {people(list.custom)} on a custom shift · {people(list.none)} with no shift
         </p>
       )}
-      {/* Custom shifts, one person at a time, as before. */}
-      <ShiftEditor title="Each person's shift" />
+      {/* One person at a time: a named shift or a custom pattern. */}
+      <ShiftEditor
+        title="Each person's shift"
+        reloadKey={reloads}
+        editor={(row, saved, cancel) => (
+          <ShiftChooser
+            employeeId={row.employee_id}
+            name={row.name}
+            shift={row.shift}
+            current={row.template ?? null}
+            templates={list?.templates ?? null}
+            onCancel={cancel}
+            onSaved={(text) => {
+              saved();
+              setStatus(text);
+              load();
+            }}
+          />
+        )}
+      />
     </section>
+  );
+}
+
+/**
+ * "Give to people…": put several people on this named shift at once,
+ * from a date (today when left empty). People with no shift are offered
+ * first; those on another shift on request. One all-or-nothing request
+ * (ADR-0038 §5).
+ */
+function GiveShift({
+  template,
+  onDone,
+  onCancel,
+  onError,
+}: {
+  template: ShiftTemplate;
+  onDone: (changed: number, from: string | null) => void;
+  onCancel: () => void;
+  onError: (code: string) => void;
+}): JSX.Element {
+  const t = useTheme();
+  const [rows, setRows] = useState<ShiftRow[] | null>(null);
+  const [q, setQ] = useState('');
+  const [everyone, setEveryone] = useState(false);
+  const [picked, setPicked] = useState<ReadonlySet<string>>(new Set());
+  const [from, setFrom] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [key] = useState(() => crypto.randomUUID());
+  useEffect(() => {
+    let current = true;
+    api.adminShifts().then(
+      (r) => {
+        if (current) setRows(r.people);
+      },
+      (e: unknown) => {
+        if (current) onError(String(e));
+      },
+    );
+    return () => {
+      current = false;
+    };
+    // Load once; onError only reports.
+  }, []);
+
+  const onIt = (r: ShiftRow): boolean => r.template?.id === template.id;
+  const needle = q.trim().toLowerCase();
+  const offered = (rows ?? [])
+    .filter((r) => !onIt(r) && (everyone || !r.shift))
+    .filter((r) => !needle || r.name.toLowerCase().includes(needle))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  const withShift = (rows ?? []).filter((r) => !onIt(r) && r.shift).length;
+  const toggle = (id: string, on: boolean): void =>
+    setPicked((p) => {
+      const next = new Set(p);
+      if (on) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+
+  const apply = (): void => {
+    setBusy(true);
+    api.adminBulkShift(key, [...picked], { templateId: template.id }, from || null, '').then(
+      (r) => onDone(r.changed.length, from || null),
+      (e: unknown) => {
+        setBusy(false);
+        onError(String(e));
+      },
+    );
+  };
+
+  return (
+    <div role="group" aria-label={`give ${template.name}`} style={form(t)}>
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+        <input
+          aria-label="give-find"
+          placeholder="Find a person"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          style={{ ...input(t), flex: 1, minWidth: 140 }}
+        />
+        <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12.5 }}>
+          From
+          <input
+            aria-label="give-from"
+            type="date"
+            value={from}
+            min={today()}
+            onChange={(e) => setFrom(e.target.value)}
+            style={input(t)}
+          />
+          <span style={{ color: t.muted }}>{from ? '' : 'today'}</span>
+        </label>
+      </div>
+      {!rows && <span style={{ fontSize: 13, color: t.muted }}>Loading…</span>}
+      {rows && (
+        <>
+          <div style={{ display: 'flex', gap: 12, fontSize: 12.5, flexWrap: 'wrap' }}>
+            {offered.length > 0 && (
+              <button
+                type="button"
+                onClick={() =>
+                  setPicked((p) => new Set([...p, ...offered.map((r) => r.employee_id)]))
+                }
+                style={link(t)}
+              >
+                All {offered.length} listed
+              </button>
+            )}
+            {withShift > 0 && (
+              <button type="button" onClick={() => setEveryone((e) => !e)} style={link(t)}>
+                {everyone
+                  ? 'Only people without a shift'
+                  : `Also show the ${withShift} on another shift`}
+              </button>
+            )}
+          </div>
+          <ul
+            aria-label="give-people"
+            style={{ listStyle: 'none', margin: 0, padding: 0, maxHeight: 260, overflowY: 'auto' }}
+          >
+            {offered.length === 0 && (
+              <li style={{ fontSize: 13, color: t.muted }}>
+                {needle ? 'Nobody matches.' : 'Everyone else already has a shift.'}
+              </li>
+            )}
+            {offered.map((r) => (
+              <li key={r.employee_id}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
+                  <input
+                    type="checkbox"
+                    aria-label={`give to ${r.name}`}
+                    checked={picked.has(r.employee_id)}
+                    onChange={(e) => toggle(r.employee_id, e.target.checked)}
+                  />
+                  <span style={{ flex: 1 }}>{r.name}</span>
+                  <span style={{ fontSize: 12, color: t.muted }}>
+                    {r.template?.name ?? (r.shift ? 'Custom shift' : 'No shift')}
+                  </span>
+                </label>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+      <div style={{ display: 'flex', gap: 8 }}>
+        <Button variant="primary" disabled={busy || picked.size === 0} onClick={apply}>
+          {busy
+            ? 'Saving…'
+            : picked.size === 0
+              ? 'Choose people'
+              : `Put ${people(picked.size)} on ${template.name}`}
+        </Button>
+        <Button variant="chip" disabled={busy} onClick={onCancel}>
+          Cancel
+        </Button>
+      </div>
+    </div>
   );
 }
 

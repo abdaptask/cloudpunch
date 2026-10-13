@@ -367,8 +367,15 @@ pub fn run() {
             commands::pin_status,
         ])
         .setup(move |app| {
+            // After an update, the updater restarts the app with the same
+            // arguments (`--autostart` too): that isn't a sign-in, so the
+            // window shows as after any other start.
+            let after_update = updater::restarted_after_update(app.handle());
+            let at_sign_in = at_sign_in && !after_update;
             setup_agent.attach(agent::TauriUi::new(app.handle().clone()));
-            let started = if at_sign_in {
+            let started = if after_update {
+                "app restarted after an update"
+            } else if at_sign_in {
                 "app started at sign-in"
             } else {
                 "app started"

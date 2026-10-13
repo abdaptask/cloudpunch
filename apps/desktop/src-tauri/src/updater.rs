@@ -33,6 +33,42 @@ pub fn log<R: tauri::Runtime>(app: &AppHandle<R>, line: &str) {
     crate::applog::write(app, LOG_FILE, line);
 }
 
+/// Left just before an update installs. On Windows the updater restarts
+/// the app with the arguments it was started with, `--autostart`
+/// included, so without this a copy started at sign-in would come back
+/// hidden in the tray (owner report, 2026-10-12). The restart finds it
+/// and shows the window like any other start.
+const RESTART_MARKER: &str = "restart-after-update";
+/// Older than this, a marker is from an install that never restarted.
+const MARKER_FRESH: Duration = Duration::from_secs(10 * 60);
+
+fn mark_restart(app: &AppHandle) {
+    let Ok(dir) = app.path().app_data_dir() else {
+        return;
+    };
+    let _ = std::fs::create_dir_all(&dir);
+    if let Err(e) = std::fs::write(dir.join(RESTART_MARKER), b"") {
+        log(app, &format!("restart marker not written: {e}"));
+    }
+}
+
+/// True, once, when this start is the restart after an update.
+pub fn restarted_after_update<R: tauri::Runtime>(app: &AppHandle<R>) -> bool {
+    let Ok(dir) = app.path().app_data_dir() else {
+        return false;
+    };
+    take_marker(&dir.join(RESTART_MARKER), SystemTime::now())
+}
+
+/// Whether `path` was left within `MARKER_FRESH` of `now`; removes it.
+pub(crate) fn take_marker(path: &std::path::Path, now: SystemTime) -> bool {
+    let fresh = std::fs::metadata(path)
+        .and_then(|m| m.modified())
+        .is_ok_and(|at| now.duration_since(at).map_or(true, |d| d < MARKER_FRESH));
+    let _ = std::fs::remove_file(path);
+    fresh
+}
+
 /// The server's name for this platform's updates (ADR-0026 §4).
 #[cfg(target_os = "macos")]
 const UPDATE_PLATFORM: &str = "darwin";
@@ -172,6 +208,7 @@ pub fn install_now(app: &AppHandle) -> Result<(), String> {
         app,
         &format!("installing update {} (Restart to update)", update.version),
     );
+    mark_restart(app);
     update.install(bytes).map_err(|e| {
         log(
             app,
@@ -204,7 +241,33 @@ pub fn install(app: &AppHandle, version: &str) {
         return;
     }
     log(app, &format!("installing update {version}"));
+    mark_restart(app);
     if let Err(e) = update.install(bytes) {
         log(app, &format!("update {version} failed to install: {e}"));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_fresh_restart_marker_is_taken_once_and_a_stale_one_is_ignored() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(RESTART_MARKER);
+        // None left: an ordinary start.
+        assert!(!take_marker(&path, SystemTime::now()));
+
+        std::fs::write(&path, b"").unwrap();
+        assert!(take_marker(&path, SystemTime::now()));
+        // Taken: the next start is ordinary again.
+        assert!(!path.exists());
+        assert!(!take_marker(&path, SystemTime::now()));
+
+        // An install that never restarted: too old to count, still removed.
+        std::fs::write(&path, b"").unwrap();
+        let later = SystemTime::now() + MARKER_FRESH + Duration::from_secs(1);
+        assert!(!take_marker(&path, later));
+        assert!(!path.exists());
     }
 }

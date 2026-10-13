@@ -1,4 +1,4 @@
-import { useEffect, useState, type CSSProperties } from 'react';
+import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
 import { api, type Shift, type ShiftRow } from './api.js';
 import { zoneChoices } from './correctionModel.js';
 import { Button } from './ui/Button.js';
@@ -325,9 +325,18 @@ function Copier({
 export function ShiftEditor({
   defaultOpen = false,
   title = 'Shifts',
+  editor,
+  reloadKey = 0,
 }: {
   defaultOpen?: boolean;
   title?: string;
+  /**
+   * The admin console's editor for one person (named shifts too,
+   * ADR-0038 §6); `done` reloads the list. Today's custom form otherwise.
+   */
+  editor?: (row: ShiftRow, done: () => void, cancel: () => void) => ReactNode;
+  /** Changing it reloads the list (after a named shift is given out). */
+  reloadKey?: number;
 }): JSX.Element {
   const t = useTheme();
   const [rows, setRows] = useState<ShiftRow[] | null>(null);
@@ -336,6 +345,7 @@ export function ShiftEditor({
   const [copying, setCopying] = useState<string | null>(null);
   const setShift = (employeeId: string, shift: Shift | null): void =>
     setRows((rs) => rs?.map((r) => (r.employee_id === employeeId ? { ...r, shift } : r)) ?? null);
+  const [loads, setLoads] = useState(0);
   useEffect(() => {
     let current = true;
     api.adminShifts().then(
@@ -349,7 +359,7 @@ export function ShiftEditor({
     return () => {
       current = false;
     };
-  }, []);
+  }, [loads, reloadKey]);
 
   const unassigned = rows?.filter((r) => !r.shift).length ?? 0;
 
@@ -387,6 +397,7 @@ export function ShiftEditor({
                   aria-label={`shift of ${row.name}`}
                   style={{ display: 'block', fontSize: 12, color: t.muted }}
                 >
+                  {row.template && row.shift ? `${row.template.name} · ` : ''}
                   {shiftText(row.shift)}
                 </span>
               </span>
@@ -415,7 +426,19 @@ export function ShiftEditor({
                 </>
               )}
             </div>
-            {editing === row.employee_id && (
+            {editing === row.employee_id && editor && (
+              <div style={{ padding: '8px 0' }}>
+                {editor(
+                  row,
+                  () => {
+                    setEditing(null);
+                    setLoads((n) => n + 1);
+                  },
+                  () => setEditing(null),
+                )}
+              </div>
+            )}
+            {editing === row.employee_id && !editor && (
               <ShiftForm
                 row={row}
                 onCancel={() => setEditing(null)}

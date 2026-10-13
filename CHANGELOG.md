@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Desktop 0.1.33 and web: giving out named shifts, and the window after an update (owner reports)
+
+- **Named shifts can be given out from the Shifts page.** Each named
+  shift has **Give to people…**: people without a shift are listed
+  first (those on another shift on request), with a search box, "All N
+  listed" and a start date (today if empty); one all-or-nothing save.
+- **"Each person's shift"** on the Shifts page now offers the named
+  shifts too, not only a custom pattern, and shows which named shift
+  each person is on.
+- **The shift chooser never gets stuck on Custom:** the named-shift
+  list stays above the custom form, so switching back is one click;
+  with none set up it says so.
+- **After an update, the window comes back (Windows).** The updater
+  restarts the app with the arguments it started with, so a copy
+  started at sign-in (`--autostart`) came back hidden in the tray. The
+  app now leaves a marker just before installing; the restart finds it
+  and shows the window. `popup.log` says "app restarted after an update".
+
 ### Desktop 0.1.32 and web: Holidays, Computers and Connections as tables (ADR-0038 phase 7)
 
 - A shared **`DataTable`** in the admin console: a search box, columns
