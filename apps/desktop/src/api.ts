@@ -231,6 +231,55 @@ export interface DayReport {
   people: DayReportRow[];
 }
 
+/** One person over a range (ADR-0040 §3). */
+export interface OverviewPerson {
+  employee_id: string;
+  name: string;
+  days_worked: number;
+  shift_days: number;
+  shift_days_worked: number;
+  attendance: number | null;
+  worked_ms: number;
+  scheduled_ms: number;
+  late_starts: number;
+  avg_minutes_late: number | null;
+  missed_starts: number;
+  idle_ms: number;
+  idle_share: number | null;
+  breaks_ms: number;
+  break_ms_per_day: number | null;
+  breaks_over_limit: number;
+  away_ms: number;
+}
+
+export interface OverviewWeek {
+  week: string;
+  shift_days: number;
+  shift_days_worked: number;
+  late_starts: number;
+  missed_starts: number;
+  worked_ms: number;
+  idle_ms: number;
+}
+
+export interface Overview {
+  from: string;
+  to: string;
+  totals: Omit<OverviewPerson, 'employee_id' | 'name'> & { people: number };
+  people: OverviewPerson[];
+  weeks: OverviewWeek[];
+  health: {
+    active_people: number;
+    with_app: number;
+    clocked_in: number;
+    never_clocked_in: { employee_id: string; name: string }[];
+    versions: { version: string; computers: number }[];
+    newest_version: string | null;
+    computers_behind: number;
+    corrections_waiting: number;
+  };
+}
+
 export interface OfficeDays {
   employee_id: string;
   /** ISO weekdays, 1 = Monday … 7 = Sunday. */
@@ -721,6 +770,11 @@ export const api = {
     }),
   /** Each person's day on `date` (ADR-0040 §2), problems first. */
   reportDay: (date: string): Promise<DayReport> => invoke('report_day', { date }),
+  /** The overall report for a range (ADR-0040 §3), HR and Administrators. */
+  reportOverview: (from: string, to: string): Promise<Overview> =>
+    invoke('report_overview', { from, to }),
+  /** Save a CSV in Downloads; resolves to where it went. */
+  saveCsv: (name: string, text: string): Promise<string> => invoke('save_csv', { name, text }),
   /** The company holidays, last month to a year ahead (ADR-0037). */
   holidays: (): Promise<{ holidays: Holiday[] }> => invoke<{ holidays: Holiday[] }>('holidays'),
   /** Add or rename a holiday (HR and Administrators). */

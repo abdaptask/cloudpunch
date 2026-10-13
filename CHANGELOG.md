@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Desktop 0.1.37 and web: Reports → Overview (ADR-0040 §3)
+
+- **Reports** now has two tabs, **Day summary** and **Overview**. The
+  Overview takes a range (this week, last week, this month, last month,
+  or dates up to 93 days) and shows: headline tiles (attendance, hours
+  worked of scheduled, late and missed starts, idle share); charts of
+  attendance and of late and missed starts week by week; a table per
+  area (hours and attendance, lateness, idle/breaks/Away) that sorts
+  and searches; and adoption and health (people with the app, who
+  clocked in, who had shifts but never did, app versions and how many
+  computers are behind, corrections waiting).
+- **Download CSV** for the area shown: into Downloads on the desktop
+  (never overwriting), the browser's download on the web.
+
 ### Server: the overall report (ADR-0040 §3)
 
 - `GET /v1/reports/overview?from&to` (HR and Administrators; up to 93

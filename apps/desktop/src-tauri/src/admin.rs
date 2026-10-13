@@ -457,6 +457,40 @@ pub fn report_day(http: &Client, base: &str, token: &str, date: &str) -> Result<
     )
 }
 
+/// The overall report from `from` to `to` (ADR-0040 §3): HR and
+/// Administrators; the server checks the range too.
+pub fn report_overview(
+    http: &Client,
+    base: &str,
+    token: &str,
+    from: &str,
+    to: &str,
+) -> Result<Value, DayError> {
+    if !is_date(from) || !is_date(to) {
+        return Err(DayError::Refused("invalid_argument".into()));
+    }
+    send(
+        http,
+        base,
+        token,
+        reqwest::Method::GET,
+        &format!("/v1/reports/overview?from={from}&to={to}"),
+        None,
+    )
+}
+
+/// A file name safe to write in Downloads: letters, digits, `.`, `-`,
+/// `_`, ending `.csv`, no leading dot.
+pub fn csv_name_ok(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= 120
+        && !name.starts_with('.')
+        && name.ends_with(".csv")
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_'))
+}
+
 /// The company holidays (ADR-0037 §1), last month to a year ahead.
 pub fn holidays(http: &Client, base: &str, token: &str) -> Result<Value, DayError> {
     send(
@@ -1027,6 +1061,18 @@ mod tests {
             "x/retire",
             None
         )));
+    }
+
+    #[test]
+    fn report_overview_refuses_bad_dates_and_csv_names_are_plain() {
+        let r = report_overview(&client(), "http://127.0.0.1:9", "t", "2026-10-01", "x");
+        assert!(matches!(r, Err(DayError::Refused(c)) if c == "invalid_argument"));
+        assert!(csv_name_ok("cloudpunch-hours-2026-10-05-to-2026-10-11.csv"));
+        for bad in [
+            "", ".csv", "../x.csv", "a/b.csv", "a\\b.csv", "x.exe", "x .csv",
+        ] {
+            assert!(!csv_name_ok(bad), "{bad}");
+        }
     }
 
     #[test]

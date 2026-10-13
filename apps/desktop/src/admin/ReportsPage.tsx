@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { api, type DayReport, type DayReportRow, type DayReportStatus } from '../api.js';
 import { localDateOf, LOOKBACK_DAYS, shiftDate } from '../dayHistory.js';
 import { EarlierDay } from '../TeamScreen.js';
+import { Button } from '../ui/Button.js';
 import { useTheme } from '../ui/theme.js';
 import { DataTable, input, Notice } from './DataTable.js';
 import {
@@ -14,6 +15,7 @@ import {
   STATUS_ORDER,
   workedText,
 } from './dayReportModel.js';
+import { OverviewPage } from './OverviewPage.js';
 
 const ERROR_TEXT: Record<string, string> = {
   offline: "Can't reach CloudPunch right now.",
@@ -203,5 +205,38 @@ export function ReportsPage({ canOpenDays }: { canOpenDays: boolean }): JSX.Elem
         </>
       )}
     </section>
+  );
+}
+
+/** Reports in the console: the day summary and the overview (ADR-0040 §2, §3). */
+export function Reports({ canOpenDays }: { canOpenDays: boolean }): JSX.Element {
+  const t = useTheme();
+  const [tab, setTab] = useState<'day' | 'overview'>('day');
+  const tabs: [typeof tab, string][] = [
+    ['day', 'Day summary'],
+    ['overview', 'Overview'],
+  ];
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <div role="tablist" aria-label="report-tabs" style={{ display: 'flex', gap: 6 }}>
+        {tabs.map(([key, label]) => (
+          <Button
+            key={key}
+            role="tab"
+            aria-selected={tab === key}
+            variant="chip"
+            onClick={() => setTab(key)}
+            style={
+              tab === key
+                ? { background: t.accent, color: t.onAccent, borderColor: t.accent }
+                : undefined
+            }
+          >
+            {label}
+          </Button>
+        ))}
+      </div>
+      {tab === 'day' ? <ReportsPage canOpenDays={canOpenDays} /> : <OverviewPage />}
+    </div>
   );
 }
