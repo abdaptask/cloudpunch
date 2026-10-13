@@ -3,6 +3,7 @@ import { api, type BulkOutcome, type ShiftTemplate } from '../api.js';
 import { shiftText } from '../ShiftEditor.js';
 import { ERROR_TEXT, HR_ASSIGNABLE, ROLES } from '../PeopleScreen.js';
 import { Button } from '../ui/Button.js';
+import { officeText } from './OfficeDaysPart.js';
 import { useTheme, type Theme } from '../ui/theme.js';
 import { ManagerPicker } from './ManagerPicker.js';
 import {
@@ -15,11 +16,12 @@ import {
   type PersonRow,
 } from './peopleModel.js';
 
-export type BulkAction = 'manager' | 'shift' | 'addRole' | 'removeRole' | 'welcome';
+export type BulkAction = 'manager' | 'shift' | 'office' | 'addRole' | 'removeRole' | 'welcome';
 
 export const BULK_LABEL: Record<BulkAction, string> = {
   manager: 'Set manager',
   shift: 'Set shift',
+  office: 'Set office days',
   addRole: 'Add role',
   removeRole: 'Remove role',
   welcome: 'Send welcome email',
@@ -52,7 +54,7 @@ const OUTCOME_TEXT: Record<string, string> = {
 };
 
 type Result =
-  | { kind: 'manager'; changed: number; unchanged: number; what?: 'shift' }
+  | { kind: 'manager'; changed: number; unchanged: number; what?: 'shift' | 'office days' }
   | { kind: 'outcomes'; outcomes: BulkOutcome[] };
 
 /**
@@ -86,6 +88,7 @@ export function BulkPanel({
   const [text, setText] = useState('');
   const [templateId, setTemplateId] = useState('');
   const [from, setFrom] = useState('');
+  const [weekdays, setWeekdays] = useState<number[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<Result | null>(null);
@@ -246,6 +249,68 @@ export function BulkPanel({
         run(
           () => api.adminBulkRoles(keyFor(['roles', oids, change, text]), oids, change, text),
           (r) => ({ kind: 'outcomes', outcomes: r.results }),
+        );
+    }
+  } else if (action === 'office') {
+    const want = [...weekdays].sort((a, b) => a - b);
+    const withRecord = picked.filter((r) => r.employeeId !== null);
+    const same = (r: PersonRow): boolean =>
+      [...(r.office?.weekdays ?? [])].sort((a, b) => a - b).join() === want.join();
+    const change = withRecord.filter((r) => !same(r));
+    const already = withRecord.filter(same);
+    const skipped = picked.filter((r) => r.employeeId === null);
+    body = (
+      <>
+        <div
+          role="group"
+          aria-label="bulk-office-weekdays"
+          style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}
+        >
+          {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((n, i) => {
+            const day = i + 1;
+            const on = weekdays.includes(day);
+            return (
+              <Button
+                key={n}
+                variant="chip"
+                aria-pressed={on}
+                onClick={() => setWeekdays((w) => (on ? w.filter((x) => x !== day) : [...w, day]))}
+                style={on ? { borderColor: t.accent, color: t.accent, fontWeight: 650 } : {}}
+              >
+                {n}
+              </Button>
+            );
+          })}
+        </div>
+        <Preview t={t}>
+          {want.length === 0
+            ? 'No days ticked: this clears their office days. '
+            : `In the office: ${officeText(want)}, from today. `}
+          This changes {count(change.length)}
+          {change.length > 0 && `: ${namesText(change)}`}.
+          {already.length > 0 &&
+            ` ${count(already.length)} already ${one(already.length, 'has', 'have')} these days.`}
+          {skipped.length > 0 && (
+            <Skipped
+              t={t}
+              rows={skipped}
+              why={['has no CloudPunch record', 'have no CloudPunch record']}
+            />
+          )}
+        </Preview>
+      </>
+    );
+    if (change.length > 0) {
+      const ids = change.map((r) => r.employeeId as string);
+      apply = () =>
+        run(
+          () => api.adminBulkOffice(keyFor(['office', ids, want, text]), ids, want, null, text),
+          (r) => ({
+            kind: 'manager',
+            changed: r.changed.length,
+            unchanged: r.unchanged.length,
+            what: 'office days',
+          }),
         );
     }
   } else if (action === 'shift') {
@@ -447,7 +512,7 @@ function ResultView({
       <p role="status" style={{ margin: 0, fontSize: 13 }}>
         Done. {count(result.changed)} changed
         {result.unchanged > 0 &&
-          `; ${result.unchanged} already had that ${result.what === 'shift' ? 'shift' : 'manager'}`}
+          `; ${result.unchanged} already had ${result.what === 'shift' ? 'that shift' : result.what === 'office days' ? 'those office days' : 'that manager'}`}
         .
       </p>
     );

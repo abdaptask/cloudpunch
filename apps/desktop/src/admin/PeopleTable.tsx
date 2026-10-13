@@ -5,8 +5,10 @@ import {
   type EmployeeRow,
   type Person,
   type ShiftRow,
+  type OfficeDays,
   type ShiftTemplate,
 } from '../api.js';
+import { officeText } from './OfficeDaysPart.js';
 import { ERROR_TEXT, ROLES } from '../PeopleScreen.js';
 import { shiftText } from '../ShiftEditor.js';
 import { useTheme, type Theme } from '../ui/theme.js';
@@ -54,6 +56,8 @@ export function PeopleTable({
   const [shifts, setShifts] = useState<ShiftRow[] | null>(null);
   // Named shifts (ADR-0038 §6): Administrators only, like shifts.
   const [templates, setTemplates] = useState<ShiftTemplate[] | null>(null);
+  // In-office days (ADR-0039), the next 60 days.
+  const [office, setOffice] = useState<OfficeDays[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>(NO_FILTER);
   const [sort, setSort] = useState<Sort>({ key: 'name', dir: 'asc' });
@@ -79,6 +83,12 @@ export function PeopleTable({
       (r) => setShifts(r.people),
       () => setShifts(null),
     );
+    const today = new Date().toISOString().slice(0, 10);
+    const ahead = new Date(Date.now() + 60 * 86_400_000).toISOString().slice(0, 10);
+    api.adminOfficeDays(today, ahead).then(
+      (r) => setOffice(r.people),
+      () => setOffice(null),
+    );
     api.adminShiftTemplates().then(
       (r) => setTemplates(r.templates),
       () => setTemplates(null),
@@ -86,7 +96,7 @@ export function PeopleTable({
   };
   useEffect(load, []);
 
-  const rows = people && employees ? buildRows(people, employees, shifts) : null;
+  const rows = people && employees ? buildRows(people, employees, shifts, office) : null;
   const showShift = shifts !== null;
   const counts = rows ? attention(rows) : null;
   const managers = rows
@@ -102,6 +112,8 @@ export function PeopleTable({
         return r.managerName ?? '';
       case 'shift':
         return r.shift ? (r.template?.name ?? shiftText(r.shift)) : '';
+      case 'office':
+        return r.office && r.office.weekdays.length > 0 ? officeText(r.office.weekdays) : '';
       case 'status':
         return rows ? statusOf(r, rows).join(', ') : '';
     }
@@ -156,6 +168,7 @@ export function PeopleTable({
     { key: 'roles', label: 'Roles' },
     { key: 'manager', label: 'Manager' },
     ...(showShift ? [{ key: 'shift' as const, label: 'Shift' }] : []),
+    ...(office ? [{ key: 'office' as const, label: 'Office' }] : []),
     { key: 'status', label: 'Status' },
   ];
 
@@ -262,7 +275,9 @@ export function PeopleTable({
                 ) : (
                   (Object.keys(BULK_LABEL) as BulkAction[])
                     // Shifts are Administrators' only.
-                    .filter((a) => a !== 'shift' || showShift)
+                    .filter(
+                      (a) => (a !== 'shift' || showShift) && (a !== 'office' || office !== null),
+                    )
                     .map((a) => (
                       <button
                         key={a}
@@ -386,6 +401,15 @@ export function PeopleTable({
                               <span title={shiftText(r.shift)}>
                                 {r.template?.name ?? shiftText(r.shift)}
                               </span>
+                            ) : (
+                              <span style={{ color: t.muted }}>—</span>
+                            )}
+                          </td>
+                        )}
+                        {office && (
+                          <td style={{ ...td(t), fontSize: 12, whiteSpace: 'nowrap' }}>
+                            {r.office && r.office.weekdays.length > 0 ? (
+                              officeText(r.office.weekdays)
                             ) : (
                               <span style={{ color: t.muted }}>—</span>
                             )}

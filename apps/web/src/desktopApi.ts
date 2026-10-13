@@ -1,4 +1,8 @@
-import { bulkShiftBody, patternBody } from '../../desktop/src/admin/shiftBodies.js';
+import {
+  bulkShiftBody,
+  officePatternBody,
+  patternBody,
+} from '../../desktop/src/admin/shiftBodies.js';
 import type { api as DesktopApi } from '../../desktop/src/api.js';
 
 /**
@@ -59,6 +63,10 @@ export type WebApi = Pick<
   | 'adminRetireShiftTemplate'
   | 'adminSetNamedShift'
   | 'adminBulkShift'
+  | 'adminOfficeDays'
+  | 'adminSetOfficePattern'
+  | 'adminSetOfficeDay'
+  | 'adminBulkOffice'
 >;
 
 export interface Transport {
@@ -294,6 +302,33 @@ export const api: WebApi = {
       '/v1/admin/employees/bulk/shift',
       bulkShiftBody(key, employeeIds, target, effectiveFrom, reason),
     ),
+  // In-office days (ADR-0039): the same requests as the Rust core.
+  adminOfficeDays: async (from, to) => {
+    check(DATE.test(from) && DATE.test(to));
+    return get(`/v1/admin/office-days?from=${from}&to=${to}`);
+  },
+  adminSetOfficePattern: async (employeeId, weekdays, effectiveFrom, reason) => {
+    check(UUID.test(employeeId));
+    return send(
+      'PUT',
+      `/v1/admin/employees/${employeeId}/office-pattern`,
+      officePatternBody(weekdays, effectiveFrom, reason),
+    );
+  },
+  adminSetOfficeDay: async (employeeId, date, inOffice, reason) => {
+    check(UUID.test(employeeId) && DATE.test(date));
+    return send(
+      'PUT',
+      `/v1/admin/employees/${employeeId}/office-days/${date}`,
+      withText({ in_office: inOffice }, 'reason', reason),
+    );
+  },
+  adminBulkOffice: async (key, employeeIds, weekdays, effectiveFrom, reason) =>
+    send('PUT', '/v1/admin/employees/bulk/office-pattern', {
+      idempotency_key: key,
+      employee_ids: employeeIds,
+      ...officePatternBody(weekdays, effectiveFrom, reason),
+    }),
   adminBulkWelcome: async (key, oids, note) =>
     send(
       'POST',
