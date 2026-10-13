@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Release script: Windows publishes only an up-to-date main
+
+- `scripts/build-windows.ps1 -Publish` now refuses a copy that is on
+  another branch, has uncommitted changes, or is behind or ahead of
+  GitHub's `main`, as `build-mac.sh` already does. (An unmerged 0.1.35
+  was published this way on 2026-10-13.)
+
 ### Server and desktop 0.1.35: email when someone connects from a new place (ADR-0041; migration 0016)
 
 - When a computer is seen on a new network and it's a **city or country
