@@ -140,45 +140,72 @@ export async function dayRows(
   date: string,
   now: Date,
 ): Promise<DayRow[]> {
+  return (await rangeRows(db, people, date, date, now)).sort((a, b) =>
+    a.name.localeCompare(b.name),
+  );
+}
+
+/** Every date from `from` to `to`, inclusive. */
+export function datesBetween(from: string, to: string): string[] {
+  const out: string[] = [];
+  for (let d = from; d <= to && out.length < 400; d = shiftDate(d, 1)) out.push(d);
+  return out;
+}
+
+/**
+ * Rows for `people` on each date from `from` to `to` (ADR-0040 §3):
+ * each person's days, rules and corrections are loaded once for the
+ * whole range. By person, then date.
+ */
+export async function rangeRows(
+  db: DbRepositories,
+  people: readonly Employee[],
+  from: string,
+  to: string,
+  now: Date,
+): Promise<DayRow[]> {
   const ids = people.map((p) => p.id);
-  if (ids.length === 0) return [];
+  const dates = datesBetween(from, to);
+  if (ids.length === 0 || dates.length === 0) return [];
   const [history, holidays, notWorking, office, settings] = await Promise.all([
     shiftHistory(db, ids),
-    db.holidays.between(date, date),
-    db.shifts.notWorking(ids, [date]),
-    officeDays(db, ids, [date]),
+    db.holidays.between(from, to),
+    db.shifts.notWorking(ids, dates),
+    officeDays(db, ids, dates),
     alertSettings(db),
   ]);
-  const holiday = holidays.find((h) => h.date === date)?.name ?? null;
-  const from = new Date(Date.parse(`${date}T00:00:00Z`) - 86_400_000);
-  const to = new Date(Date.parse(`${date}T00:00:00Z`) + 2 * 86_400_000);
+  const holidayOn = new Map(holidays.map((h) => [h.date, h.name]));
+  const loadFrom = new Date(Date.parse(`${from}T00:00:00Z`) - 86_400_000);
+  const loadTo = new Date(Date.parse(`${to}T00:00:00Z`) + 2 * 86_400_000);
   const out: DayRow[] = [];
   for (const employee of people) {
-    const key = `${employee.id}:${date}`;
-    const corrections = await db.corrections.listForEmployee(employee.id, from, to);
-    out.push(
-      dayRow({
-        employee,
-        date,
-        window: windowOn(
-          history.filter((r) => r.employeeId === employee.id),
-          date,
-        ),
-        holiday,
-        inOffice: office.has(key),
-        saidNotWorking: notWorking.has(key),
-        days: await daysAround(db, employee.id, shiftDate(date, -1), shiftDate(date, 1), now),
-        rules: await rulesFor(db, employee.id),
-        graceMinutes: settings.graceMinutes,
-        correctionsWaiting: corrections.filter(
-          (c) =>
-            localDate(c.fromAt, c.utcOffsetMinutes) === date &&
-            ['requested', 'endorsed'].includes(correctionStatus(c)),
-        ).length,
-      }),
+    const rows = history.filter((r) => r.employeeId === employee.id);
+    const days = await daysAround(db, employee.id, shiftDate(from, -1), shiftDate(to, 1), now);
+    const rules = await rulesFor(db, employee.id);
+    const waiting = (await db.corrections.listForEmployee(employee.id, loadFrom, loadTo)).filter(
+      (c) => ['requested', 'endorsed'].includes(correctionStatus(c)),
     );
+    for (const date of dates) {
+      const key = `${employee.id}:${date}`;
+      out.push(
+        dayRow({
+          employee,
+          date,
+          window: windowOn(rows, date),
+          holiday: holidayOn.get(date) ?? null,
+          inOffice: office.has(key),
+          saidNotWorking: notWorking.has(key),
+          days,
+          rules,
+          graceMinutes: settings.graceMinutes,
+          correctionsWaiting: waiting.filter(
+            (c) => localDate(c.fromAt, c.utcOffsetMinutes) === date,
+          ).length,
+        }),
+      );
+    }
   }
-  return out.sort((a, b) => a.name.localeCompare(b.name));
+  return out;
 }
 
 /** Problems first: not clocked in, late, then the rest; by name within each. */

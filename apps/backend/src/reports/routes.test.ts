@@ -142,3 +142,41 @@ describe('GET /v1/reports/day (ADR-0040 §2, §4)', () => {
     expect(db.reportAudit).toHaveLength(0);
   });
 });
+
+describe('GET /v1/reports/overview (ADR-0040 §3, §4)', () => {
+  const week = `from=${new Date(Date.now() - 6 * 86_400_000).toISOString().slice(0, 10)}&to=${today}`;
+
+  it('HR and Administrators only; the four parts; one audit row', async () => {
+    expect((await get(manager, [AppRole.Manager], `/v1/reports/overview?${week}`)).statusCode).toBe(
+      403,
+    );
+    const res = await get(stranger, [AppRole.Administrator], `/v1/reports/overview?${week}`);
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as Record<string, unknown>;
+    expect(Object.keys(body).sort()).toEqual(['from', 'health', 'people', 'to', 'totals', 'weeks']);
+    expect((body['people'] as unknown[]).length).toBe(3);
+    expect(db.reportAudit.map((a) => a.report)).toEqual(['overview']);
+    const bad = await get(
+      stranger,
+      [AppRole.HR],
+      '/v1/reports/overview?from=2026-01-01&to=2026-12-31',
+    );
+    expect(bad.statusCode).toBe(400);
+  });
+
+  it('CSV for one section, as a download', async () => {
+    const res = await get(
+      stranger,
+      [AppRole.HR],
+      `/v1/reports/overview.csv?${week}&section=lateness`,
+    );
+    expect(res.statusCode).toBe(200);
+    expect(res.headers['content-type']).toBe('text/csv; charset=utf-8');
+    expect(res.headers['content-disposition']).toMatch(
+      /^attachment; filename="cloudpunch-lateness-/,
+    );
+    expect(res.body.split('\r\n')[0]).toBe('Person,Late starts,Average minutes late,Missed starts');
+    const bad = await get(stranger, [AppRole.HR], `/v1/reports/overview.csv?${week}&section=x`);
+    expect(bad.statusCode).toBe(400);
+  });
+});

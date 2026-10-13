@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Server: the overall report (ADR-0040 §3)
+
+- `GET /v1/reports/overview?from&to` (HR and Administrators; up to 93
+  days within the last year), one audit row per request:
+  - **Hours and attendance** per person and in total: days worked,
+    hours worked and scheduled, attendance (shift days with a clock-in
+    out of shift days; holidays, office days and "not working" left
+    out).
+  - **Lateness and missed starts**: late starts, average minutes late,
+    missed starts; week by week for everyone.
+  - **Idle, breaks and Away**: idle hours and share, break minutes per
+    day worked, breaks over their limit, Away hours.
+  - **Adoption and health**: active people, how many have the app and
+    clocked in, who had shifts but never clocked in, computers by app
+    version and how many are behind, corrections waiting. (Refused
+    uploads aren't stored, so they aren't counted yet.)
+- `GET /v1/reports/overview.csv?from&to&section=hours|lateness|activity`.
+- **Monday email:** Administrators and HR now always get it (with the
+  shift-start emails on), headed by last week's attendance, hours,
+  late and missed starts and idle share, and a link to the console.
+- Day rows for a range load each person's days once.
+
 ### Desktop 0.1.36 and web: Reports → Day summary and its email switch (ADR-0040 §2)
 
 - **Reports → Day summary** in the admin console: pick a day (yesterday

@@ -5,7 +5,15 @@ import { activeWindow, dateIn, isoWeekday, shiftDate, type ShiftWindow } from '.
 import { officeDays } from '../office/model.js';
 import { shiftHistory } from '../shifts/resolve.js';
 import { nameOf } from '../team/service.js';
-import { clockIn as clockAt, shiftMailText, weeklyMailText, type ShiftMail } from './mail.js';
+import { rangeRows } from '../reports/day.js';
+import { summarise } from '../reports/overview.js';
+import {
+  clockIn as clockAt,
+  shiftMailText,
+  weeklyMailText,
+  type ShiftMail,
+  type WeekHeadline,
+} from './mail.js';
 import { dueAlerts, firstClockInFor, needsClockIn } from './rules.js';
 import { alertSettings, type AlertSettings } from './settings.js';
 
@@ -165,13 +173,32 @@ export class ShiftAlertJob {
       }))
       .sort((a, b) => b.missed - a.missed || a.name.localeCompare(b.name));
 
-    // Who gets which list: Administrators and HR everyone; managers their reports.
+    // Who gets which list: Administrators and HR everyone, always (with
+    // last week's numbers, ADR-0040 §3); managers their reports, if any.
     const lists = new Map<string, typeof regular>();
+    const everyone = [
+      ...new Set(
+        (await db.roles.holders(['Administrator', 'HR'])).map((h) => h.email.toLowerCase()),
+      ),
+    ];
+    for (const address of everyone) lists.set(address, regular);
+    let headline: WeekHeadline | undefined;
+    if (everyone.length > 0) {
+      const from = shiftDate(monday, -7);
+      const to = shiftDate(monday, -1);
+      const { totals } = summarise(await rangeRows(db, people, from, to, now));
+      headline = {
+        from,
+        to,
+        people: totals.people,
+        attendance: totals.attendance,
+        workedMs: totals.worked_ms,
+        lateStarts: totals.late_starts,
+        missedStarts: totals.missed_starts,
+        idleShare: totals.idle_share,
+      };
+    }
     if (regular.length > 0) {
-      const everyone = (await db.roles.holders(['Administrator', 'HR'])).map((h) =>
-        h.email.toLowerCase(),
-      );
-      for (const address of everyone) lists.set(address, regular);
       const byId = new Map(people.map((p) => [p.id, p]));
       for (const r of regular) {
         const manager = r.person.reportingManagerId
@@ -191,6 +218,7 @@ export class ShiftAlertJob {
         count: s.regularCount,
         days: s.regularDays,
         siteUrl: this.opts.siteUrl,
+        ...(headline && everyone.includes(address) ? { headline } : {}),
       });
       try {
         const claimed = await db.weeklyReports.claimAndSend(monday, address, list.length, now, () =>

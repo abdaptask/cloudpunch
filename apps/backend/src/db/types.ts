@@ -838,7 +838,7 @@ export interface ReportSentClaim {
 /** Opening a report (ADR-0040 §4): one audit row per request, not per person. */
 export interface ReportViewAudit {
   actorUserId: string;
-  report: 'day';
+  report: 'day' | 'overview';
   detail: Record<string, string>;
   correlationId: string;
   at: Date;
