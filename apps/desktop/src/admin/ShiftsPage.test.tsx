@@ -9,6 +9,8 @@ const mocks = vi.hoisted(() => ({
   adminSaveShiftTemplate: vi.fn(),
   adminRetireShiftTemplate: vi.fn(),
   adminShifts: vi.fn(),
+  adminBulkShift: vi.fn(),
+  adminSetNamedShift: vi.fn(),
 }));
 vi.mock('../api.js', () => ({ api: mocks }));
 
@@ -118,5 +120,83 @@ describe('Shifts page (ADR-0038 §6)', () => {
     await user.click(within(ask).getByRole('button', { name: 'Retire' }));
     expect(mocks.adminRetireShiftTemplate).toHaveBeenCalledWith('t-india', '');
     expect(await screen.findByRole('status')).toHaveTextContent('India day is retired.');
+  });
+});
+
+describe('giving a named shift to people (owner report, 2026-10-13)', () => {
+  const DAY = { days: [1, 2, 3, 4, 5], start: '10:00', end: '19:00', tz_iana: 'Asia/Kolkata' };
+  beforeEach(() => {
+    mocks.adminShifts.mockResolvedValue({
+      people: [
+        { employee_id: 'e-masrat', name: 'Masrat Afzal', shift: null },
+        { employee_id: 'e-amit', name: 'Amit Bisht', shift: null },
+        { employee_id: 'e-roshni', name: 'Roshni Sahani', shift: DAY },
+        {
+          employee_id: 'e-nilesh',
+          name: 'Nilesh Darekar',
+          shift: DAY,
+          template: { id: 't-india', name: 'India day' },
+        },
+      ],
+    });
+    mocks.adminBulkShift.mockResolvedValue({
+      template_id: 't-india',
+      effective_from: '2099-10-13',
+      changed: ['e-amit', 'e-masrat'],
+      unchanged: [],
+    });
+  });
+
+  it('Give to people… offers those without a shift, then puts them on it', async () => {
+    const user = userEvent.setup();
+    render(<ShiftsPage />);
+    const india = await screen.findByRole('listitem', { name: 'named shift India day' });
+    await user.click(within(india).getByRole('button', { name: 'Give to people…' }));
+    const give = within(india).getByRole('group', { name: 'give India day' });
+    const list = await within(give).findByRole('list', { name: 'give-people' });
+    expect(
+      within(list)
+        .getAllByRole('checkbox')
+        .map((c) => c.getAttribute('aria-label')),
+    ).toEqual(['give to Amit Bisht', 'give to Masrat Afzal']);
+    // Roshni has a custom shift: offered on request; Nilesh is already on it.
+    await user.click(
+      within(give).getByRole('button', { name: 'Also show the 1 on another shift' }),
+    );
+    expect(within(list).getAllByRole('checkbox')).toHaveLength(3);
+    await user.click(within(give).getByRole('button', { name: 'Only people without a shift' }));
+    await user.click(within(give).getByRole('button', { name: 'All 2 listed' }));
+    await user.click(within(give).getByRole('button', { name: 'Put 2 people on India day' }));
+    expect(mocks.adminBulkShift).toHaveBeenCalledWith(
+      expect.any(String),
+      ['e-amit', 'e-masrat'],
+      { templateId: 't-india' },
+      null,
+      '',
+    );
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      '2 people are on India day from today.',
+    );
+  });
+
+  it("each person's shift offers the named shifts, and Custom can go back", async () => {
+    mocks.adminSetNamedShift.mockResolvedValue({
+      shift: DAY,
+      template_id: 't-india',
+      effective_from: '2099-10-13',
+    });
+    const user = userEvent.setup();
+    render(<ShiftsPage />);
+    await user.click(await screen.findByRole('button', { name: /^Each person's shift/ }));
+    const roshni = await screen.findByText('Roshni Sahani');
+    await user.click(within(roshni.closest('li')!).getByRole('button', { name: 'Edit' }));
+    const select = screen.getByLabelText('shift for Roshni Sahani');
+    await user.selectOptions(select, 'Custom pattern…');
+    expect(screen.getByLabelText('shift editor Roshni Sahani')).toBeInTheDocument();
+    // Still there: back to a named shift in one click.
+    await user.selectOptions(screen.getByLabelText('shift for Roshni Sahani'), 'India day');
+    expect(screen.queryByLabelText('shift editor Roshni Sahani')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Save shift' }));
+    expect(mocks.adminSetNamedShift).toHaveBeenCalledWith('e-roshni', 't-india', null);
   });
 });

@@ -42,20 +42,14 @@ export function ShiftChooser({
 }): JSX.Element {
   const t = useTheme();
   const offered = templates?.filter((x) => !x.retired) ?? [];
-  const [choice, setChoice] = useState<string>(current?.id ?? (offered.length > 0 ? '' : CUSTOM));
+  // Their named shift, or "choose" — never stuck on Custom: the select stays.
+  const [choice, setChoice] = useState<string>(
+    current?.id ?? (offered.length > 0 || templates === null ? '' : CUSTOM),
+  );
   const [from, setFrom] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  if (choice === CUSTOM) {
-    return (
-      <ShiftForm
-        row={{ employee_id: employeeId, name, shift: current ? null : shift }}
-        onCancel={onCancel}
-        onSaved={(s) => onSaved(`Shift saved: ${shiftText(s)}.`)}
-      />
-    );
-  }
   const picked = offered.find((x) => x.id === choice);
   const save = (): void => {
     if (!picked) return;
@@ -89,6 +83,21 @@ export function ShiftChooser({
         ))}
         <option value={CUSTOM}>Custom pattern…</option>
       </select>
+      {offered.length === 0 && (
+        <span style={{ fontSize: 12, color: t.muted }}>
+          {templates === null
+            ? 'Named shifts are loading or unavailable; a custom pattern still works.'
+            : 'No named shifts yet: set them up on the Shifts page.'}
+        </span>
+      )}
+      {/* The select stays above, so switching back to a named shift is one click. */}
+      {choice === CUSTOM && (
+        <ShiftForm
+          row={{ employee_id: employeeId, name, shift: current ? null : shift }}
+          onCancel={onCancel}
+          onSaved={(s) => onSaved(`Shift saved: ${shiftText(s)}.`)}
+        />
+      )}
       {picked && (
         <>
           <span style={{ fontSize: 12, color: t.muted }}>
@@ -117,18 +126,20 @@ export function ShiftChooser({
           {error}
         </span>
       )}
-      <div style={{ display: 'flex', gap: 8 }}>
-        <Button
-          variant="primary"
-          disabled={!picked || busy || (picked.id === current?.id && !from)}
-          onClick={save}
-        >
-          Save shift
-        </Button>
-        <Button variant="chip" disabled={busy} onClick={onCancel}>
-          Cancel
-        </Button>
-      </div>
+      {choice !== CUSTOM && (
+        <div style={{ display: 'flex', gap: 8 }}>
+          <Button
+            variant="primary"
+            disabled={!picked || busy || (picked.id === current?.id && !from)}
+            onClick={save}
+          >
+            Save shift
+          </Button>
+          <Button variant="chip" disabled={busy} onClick={onCancel}>
+            Cancel
+          </Button>
+        </div>
+      )}
     </div>
   );
 }
