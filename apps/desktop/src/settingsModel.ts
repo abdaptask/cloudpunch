@@ -31,6 +31,8 @@ export interface SettingsForm {
   awayCheckMinutes: number;
   /** connections.record (ADR-0029); company-wide only. */
   recordConnections: boolean;
+  /** alerts.location_emails (ADR-0041); company-wide only. */
+  locationEmails: boolean;
   /** alerts.shift_emails (ADR-0037 §3); company-wide only. */
   shiftEmails: boolean;
   /** alerts.missed_clock_in_minutes (ADR-0037 §3); company-wide only. */
@@ -126,6 +128,7 @@ export function formFrom(policy: Doc): SettingsForm {
         : true,
     awayCheckMinutes: num(obj(policy['away'])['check_after_minutes'], 60),
     recordConnections: obj(policy['connections'])['record'] === true,
+    locationEmails: obj(policy['alerts'])['location_emails'] === true,
     shiftEmails: obj(policy['alerts'])['shift_emails'] === true,
     missedClockInMinutes: num(obj(policy['alerts'])['missed_clock_in_minutes'], 15),
   };
@@ -190,6 +193,7 @@ export function overrideWith(current: Doc | null, f: SettingsForm, global = fals
           alerts: {
             ...obj(base['alerts']),
             shift_emails: f.shiftEmails,
+            location_emails: f.locationEmails,
             missed_clock_in_minutes: f.missedClockInMinutes,
           },
         }
@@ -263,7 +267,7 @@ export const RULE_SECTIONS: readonly RuleSection[] = [
   {
     key: 'connections',
     label: 'Connection location',
-    fields: ['recordConnections'],
+    fields: ['recordConnections', 'locationEmails'],
     companyOnly: true,
   },
   {
@@ -390,6 +394,8 @@ export function valueText(k: ScalarKey, f: SettingsForm): string {
       return MINUTES(f.awayCheckMinutes);
     case 'recordConnections':
       return onOff(f.recordConnections);
+    case 'locationEmails':
+      return onOff(f.locationEmails);
     case 'shiftEmails':
       return onOff(f.shiftEmails);
     case 'missedClockInMinutes':

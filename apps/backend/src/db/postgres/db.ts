@@ -19,6 +19,7 @@ import type {
   StartCounts,
   WeeklyReportRepo,
   NewOfficePattern,
+  LocationAlertRepo,
   NewShiftAssignment,
   OfficeDay,
   OfficePattern,
@@ -79,8 +80,22 @@ export class PostgresDb implements DbRepositories {
   readonly weeklyReports: WeeklyReportRepo;
   readonly bulkRequests: BulkRequestRepo;
   readonly office: OfficeRepo;
+  readonly locationAlerts: LocationAlertRepo;
 
   constructor(private readonly sql: postgres.Sql) {
+    this.locationAlerts = {
+      claimAndSend: (c, send) =>
+        this.sql.begin(async (tx) => {
+          const rows = await tx`
+            INSERT INTO location_alert (employee_id, city, country, sent_on, sent_at)
+            VALUES (${c.employeeId}, ${c.city}, ${c.country}, ${c.sentOn}::date, ${c.at})
+            ON CONFLICT DO NOTHING
+            RETURNING employee_id`;
+          if (rows.length === 0) return false;
+          await send();
+          return true;
+        }),
+    };
     this.office = this.buildOfficeRepo();
     this.bulkRequests = {
       find: async (actorUserId, key) => {

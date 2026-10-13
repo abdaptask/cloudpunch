@@ -68,7 +68,7 @@ email, the console page and the overall report all use it.
   ended. Off until switched on, like the shift-start emails.
 - **Once only:** a `report_sent` row per (report, day, recipient)
   claimed before sending, as `weekly_report_sent` does (invariant 4).
-  Migration 0016, append-only.
+  A migration (0017; 0016 went to ADR-0041), append-only.
 - **Console:** **Reports → Day summary** shows the same for any date,
   with the person's day a click away. Managers see their team; HR and
   Administrators everyone.
@@ -143,7 +143,7 @@ explanations, notes or connection locations.
 
 1. This ADR.
 2. Server: day rows, `GET /v1/reports/day`, the day-end email job,
-   migration 0016, Rules → Reports settings.
+   migration 0017, Rules → Reports settings.
 3. Console: Reports → Day summary (desktop 0.1.35).
 4. Server + console: Overview with charts and CSV; the Monday email's
    headline numbers.

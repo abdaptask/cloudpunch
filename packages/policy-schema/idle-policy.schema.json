@@ -372,6 +372,11 @@
           "default": false,
           "description": "Email the person and their manager about a missed clock-in, the late clock-in that follows, and \"Not working today\". Off until the holiday list is in (ADR-0037 §3)."
         },
+        "location_emails": {
+          "type": "boolean",
+          "default": false,
+          "description": "Email the manager, copied to Administrators, when someone connects from a city or country they have not used in 30 days (ADR-0041). Needs connections.record."
+        },
         "missed_clock_in_minutes": {
           "type": "integer",
           "minimum": 5,

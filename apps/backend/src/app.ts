@@ -3,6 +3,7 @@ import type { Logger } from 'pino';
 import { authPlugin } from './auth/plugin.js';
 import { createEntraJwks } from './auth/jwks.js';
 import type { Env } from './config/env.js';
+import { NewPlaceAlerts } from './connections/newPlace.js';
 import { ConnectionRecorder } from './connections/recorder.js';
 import { connectionRoutes } from './connections/routes.js';
 import { correctionRoutes } from './corrections/routes.js';
@@ -115,11 +116,20 @@ export async function buildApp(opts: BuildAppOptions) {
   });
 
   if (opts.db) {
+    // ADR-0037 §3: CloudPunch's mailbox, when configured (shift-start
+    // emails and, ADR-0041, "connecting from a new place").
+    const alertSend =
+      opts.shiftAlertSend === undefined ? shiftAlertSendFromEnv(opts.env) : opts.shiftAlertSend;
+    const db = opts.db;
+    const newPlace = alertSend
+      ? new NewPlaceAlerts({ db, log: app.log, send: alertSend, siteUrl: opts.env.PUBLIC_SITE_URL })
+      : null;
     // ADR-0029: off until the global `connections.record` setting is on.
     const connections = new ConnectionRecorder({
-      db: opts.db,
+      db,
       log: app.log,
       providers: new DbIpProviderLookup(opts.env.DBIP_ASN_MMDB, app.log),
+      ...(newPlace ? { onNewNetwork: (row) => void newPlace.check(row) } : {}),
     });
     // ADR-0037: remember who holds which role, for alert recipients.
     const roleNotes = new RoleNotes(opts.db, app.log);
@@ -138,8 +148,6 @@ export async function buildApp(opts: BuildAppOptions) {
     await app.register(officeRoutes, { db: opts.db });
     // ADR-0037 §3: the shift-start emails, checked every minute while
     // the server runs (only where CloudPunch's mailbox is configured).
-    const alertSend =
-      opts.shiftAlertSend === undefined ? shiftAlertSendFromEnv(opts.env) : opts.shiftAlertSend;
     if (alertSend) {
       const job = new ShiftAlertJob({
         db: opts.db,

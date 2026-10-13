@@ -98,6 +98,11 @@ when you move from home Wi-Fi to mobile data.
   manager (only for people who report to them), and CloudPunch
   administrators. HR, auditors and your colleagues don't. Every time a
   manager or administrator opens your history, that is logged.
+- **New place emails:** when you connect from a city or country you
+  haven't used in the last 30 days, your manager may get one email
+  saying so (CloudPunch administrators copied). It names the place and
+  your internet provider, never your IP address. One email per new
+  place.
 - **How long:** 30 days, then it is deleted automatically.
 
 Location data is provided by Cloudflare, which already carries
