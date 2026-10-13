@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Desktop 0.1.40 and web: Accept explanation (ADR-0030 §4)
+
+- In Team, a person's day shows **Accept explanation** on idle time they
+  explained as working away, a meeting or a phone call. One click sends
+  a correction to worked time for exactly that stretch (endorsed by the
+  manager); an Administrator approves it as usual. Answers of "Nothing,
+  I was idle" aren't offered; "On a break" already counts (ADR-0042).
+- Shown to those who review team corrections (Managers, HR,
+  Administrators with the role).
+
 ### Desktop 0.1.39 and web: the Shifts page uses the width (owner: "squished")
 
 - The Shifts page is 1100 wide instead of 760.
