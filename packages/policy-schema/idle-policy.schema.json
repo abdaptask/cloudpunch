@@ -401,6 +401,24 @@
       },
       "additionalProperties": false
     },
+    "reports": {
+      "type": "object",
+      "description": "Report emails (ADR-0040). Read from the global settings only; a department or employee value is ignored.",
+      "properties": {
+        "day_emails": {
+          "type": "boolean",
+          "default": false,
+          "description": "Each morning, email each manager their team's day before and Administrators everyone's (ADR-0040 §2)."
+        },
+        "day_email_at": {
+          "type": "string",
+          "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$",
+          "default": "08:00",
+          "description": "When the day-end summary goes, HH:MM India time (ADR-0040 §2)."
+        }
+      },
+      "additionalProperties": false
+    },
     "connections": {
       "type": "object",
       "description": "Where people connect from (ADR-0029). Read from the global settings only; a department or employee value is ignored.",

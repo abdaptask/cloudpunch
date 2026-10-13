@@ -169,6 +169,48 @@ describe('PostgresDb — employees + users', () => {
     await expect(sql`DELETE FROM location_alert`).rejects.toThrow(/append-only/);
   });
 
+  it('ADR-0040: a report email is claimed once per day and recipient; opening one is audited', async () => {
+    const claim = {
+      report: 'day' as const,
+      date: '2026-10-12',
+      recipient: 'Boss@aptask.com',
+      people: 3,
+      at: new Date(),
+    };
+    let sent = 0;
+    expect(await db.reports.claimAndSend(claim, async () => void sent++)).toBe(true);
+    const lower = { ...claim, recipient: 'boss@aptask.com' };
+    expect(await db.reports.claimAndSend(lower, async () => void sent++)).toBe(false);
+    expect(sent).toBe(1);
+    const other = { ...claim, date: '2026-10-13' };
+    await expect(
+      db.reports.claimAndSend(other, async () => {
+        throw new Error('mail down');
+      }),
+    ).rejects.toThrow('mail down');
+    expect(await db.reports.claimAndSend(other, async () => void sent++)).toBe(true);
+    await expect(sql`DELETE FROM report_sent`).rejects.toThrow(/append-only/);
+
+    const { userId } = await seedUser({});
+    const correlationId = randomUUID();
+    await db.reports.auditView({
+      actorUserId: userId,
+      report: 'day',
+      detail: { date: '2026-10-12', people: '3' },
+      correlationId,
+      at: new Date(),
+    });
+    const rows = await sql<{ action: string; entity_type: string; new_value: unknown }[]>`
+      SELECT action, entity_type, new_value FROM audit_log WHERE correlation_id = ${correlationId}`;
+    expect(rows).toEqual([
+      {
+        action: 'day_report_viewed',
+        entity_type: 'report',
+        new_value: { date: '2026-10-12', people: '3' },
+      },
+    ]);
+  });
+
   it('ADR-0039: office patterns and one-offs, newest first; append-only', async () => {
     const a = await seedEmployee();
     const { userId } = await seedUser({ employeeId: a });
