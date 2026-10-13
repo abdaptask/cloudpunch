@@ -25,6 +25,8 @@ import type {
   LocationAlertClaim,
   LocationAlertRepo,
   ReportRepo,
+  AuditEntry,
+  AuditRepo,
   ReportSentClaim,
   ReportViewAudit,
   NewShiftAssignment,
@@ -90,6 +92,14 @@ export class InMemoryDb implements DbRepositories {
   readonly office: OfficeRepo;
   readonly locationAlerts: LocationAlertRepo;
   readonly reports: ReportRepo;
+  readonly history: AuditRepo;
+  /**
+   * audit_log as change history reads it (ADR-0038 §8). The other
+   * in-memory writes keep their own lists; tests seed this one.
+   */
+  readonly auditRows: AuditEntry[] = [];
+  /** device id -> employee id, for sign-outs in a person's history. */
+  readonly deviceOwners = new Map<string, string>();
   /** report_sent (ADR-0040 §2). */
   readonly reportSentRows: ReportSentClaim[] = [];
   /** Report opens (ADR-0040 §4). */
@@ -229,6 +239,36 @@ export class InMemoryDb implements DbRepositories {
       this.officePatternRows.push(row);
       this.officeAudit.push('office_pattern_set');
       return { ...row, weekdays: [...row.weekdays] };
+    };
+    const newest = (rows: AuditEntry[], limit: number): AuditEntry[] =>
+      [...rows].sort((a, b) => b.at.getTime() - a.at.getTime()).slice(0, limit);
+    this.history = {
+      personHistory: async (employeeId, oid, limit) =>
+        newest(
+          this.auditRows.filter(
+            (r) =>
+              (r.entityType === 'employee' &&
+                r.entityId === employeeId &&
+                !r.action.endsWith('_viewed')) ||
+              (oid !== null &&
+                ['app_role_assignment', 'welcome_email'].includes(r.entityType) &&
+                r.entityId === oid) ||
+              (r.entityType === 'device' &&
+                r.entityId !== null &&
+                this.deviceOwners.get(r.entityId) === employeeId),
+          ),
+          limit,
+        ),
+      policyHistory: async (scope, scopeId, limit) =>
+        newest(
+          this.auditRows.filter((r) => {
+            const doc = (r.after ?? r.before) as { scope?: string } | null;
+            return (
+              r.entityType === 'policy_override' && r.entityId === scopeId && doc?.scope === scope
+            );
+          }),
+          limit,
+        ),
     };
     this.reports = {
       claimAndSend: async (c, send) => {

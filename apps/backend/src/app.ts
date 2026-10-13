@@ -32,6 +32,7 @@ import { RoleNotes } from './alerts/roles.js';
 import { ShiftAlertJob } from './alerts/job.js';
 import { DayReportJob } from './reports/job.js';
 import { reportRoutes } from './reports/routes.js';
+import { historyRoutes } from './history/routes.js';
 import { sendShiftMail, type ShiftMail } from './alerts/mail.js';
 
 export interface BuildAppOptions {
@@ -150,6 +151,8 @@ export async function buildApp(opts: BuildAppOptions) {
     await app.register(officeRoutes, { db: opts.db });
     // Reports (ADR-0040).
     await app.register(reportRoutes, { db: opts.db });
+    // Change history (ADR-0038 §8).
+    await app.register(historyRoutes, { db: opts.db });
     // ADR-0037 §3: the shift-start emails, checked every minute while
     // the server runs (only where CloudPunch's mailbox is configured).
     if (alertSend) {

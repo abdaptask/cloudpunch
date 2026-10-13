@@ -21,6 +21,8 @@ import type {
   NewOfficePattern,
   LocationAlertRepo,
   ReportRepo,
+  AuditEntry,
+  AuditRepo,
   NewShiftAssignment,
   OfficeDay,
   OfficePattern,
@@ -83,8 +85,10 @@ export class PostgresDb implements DbRepositories {
   readonly office: OfficeRepo;
   readonly locationAlerts: LocationAlertRepo;
   readonly reports: ReportRepo;
+  readonly history: AuditRepo;
 
   constructor(private readonly sql: postgres.Sql) {
+    this.history = this.buildAuditRepo();
     this.reports = {
       claimAndSend: (c, send) =>
         this.sql.begin(async (tx) => {
@@ -825,6 +829,40 @@ export class PostgresDb implements DbRepositories {
           VALUES ('user', ${v.actorUserId}, 'employee', ${v.employeeId}, ${v.action},
                   NULL, ${this.sql.json(v.detail)}, NULL, ${v.correlationId}, ${v.at})`;
       },
+    };
+  }
+
+  // -------------------------------------------------------------------
+  // change history (ADR-0038 §8): reads over audit_log
+  // -------------------------------------------------------------------
+
+  private buildAuditRepo(): AuditRepo {
+    const cols = this.sql`a.occurred_at AS at, u.display_name AS actor_name, a.action,
+      a.entity_type, a.entity_id::text AS entity_id, a.previous_value AS before,
+      a.new_value AS after, a.reason`;
+    return {
+      personHistory: async (employeeId, oid, limit) =>
+        this.sql<AuditEntry[]>`
+          SELECT ${cols}
+          FROM audit_log a LEFT JOIN app_user u ON u.id = a.actor_user_id
+          WHERE (a.entity_type = 'employee' AND a.entity_id = ${employeeId}
+                 AND right(a.action, 7) <> '_viewed')
+             OR (a.entity_type IN ('app_role_assignment', 'welcome_email')
+                 AND ${oid}::uuid IS NOT NULL AND a.entity_id = ${oid}::uuid)
+             OR (a.entity_type = 'device' AND a.entity_id IN (
+                   SELECT d.id FROM device d JOIN app_user du ON du.id = d.user_id
+                   WHERE du.employee_id = ${employeeId}))
+          ORDER BY a.occurred_at DESC
+          LIMIT ${limit}`,
+      policyHistory: async (scope, scopeId, limit) =>
+        this.sql<AuditEntry[]>`
+          SELECT ${cols}
+          FROM audit_log a LEFT JOIN app_user u ON u.id = a.actor_user_id
+          WHERE a.entity_type = 'policy_override'
+            AND a.entity_id IS NOT DISTINCT FROM ${scopeId}::uuid
+            AND coalesce(a.new_value->>'scope', a.previous_value->>'scope') = ${scope}
+          ORDER BY a.occurred_at DESC
+          LIMIT ${limit}`,
     };
   }
 

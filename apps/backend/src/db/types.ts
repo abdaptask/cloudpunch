@@ -853,6 +853,30 @@ export interface ReportRepo {
   auditView(entry: ReportViewAudit): Promise<void>;
 }
 
+/** An audit_log row, for change history (ADR-0038 §3, §8). */
+export interface AuditEntry {
+  at: Date;
+  /** Who did it; null for the system or a removed user. */
+  actorName: string | null;
+  action: string;
+  entityType: string;
+  entityId: string | null;
+  before: unknown;
+  after: unknown;
+  reason: string | null;
+}
+
+export interface AuditRepo {
+  /**
+   * Changes to one person, newest first: their employee rows (not the
+   * "viewed" ones), roles and welcome emails (by Entra object id), and
+   * sign-outs of their computers.
+   */
+  personHistory(employeeId: string, oid: string | null, limit: number): Promise<AuditEntry[]>;
+  /** Saves and clears of one policy scope's settings, newest first. */
+  policyHistory(scope: PolicyScope, scopeId: string | null, limit: number): Promise<AuditEntry[]>;
+}
+
 export interface BulkRequestRepo {
   /** The answer kept for this caller's key, if any. */
   find(
@@ -883,4 +907,5 @@ export interface DbRepositories {
   office: OfficeRepo;
   locationAlerts: LocationAlertRepo;
   reports: ReportRepo;
+  history: AuditRepo;
 }

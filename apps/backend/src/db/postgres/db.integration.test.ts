@@ -52,7 +52,7 @@ beforeEach(async () => {
   // dependencies: event → session → device/employee → user.
   // time_event and audit_log are append-only (row triggers reject
   // DELETE); TRUNCATE is DDL and resets them between tests.
-  await sql`TRUNCATE audit_log, policy_override, time_event, time_session, device, employee_override, time_correction_decision, time_correction, shift_assignment, not_working_day, holiday, shift_alert, role_seen, weekly_report_sent, admin_bulk_request, shift_template_version, shift_template, office_pattern, office_day, location_alert RESTART IDENTITY CASCADE`;
+  await sql`TRUNCATE audit_log, policy_override, time_event, time_session, device, employee_override, time_correction_decision, time_correction, shift_assignment, not_working_day, holiday, shift_alert, role_seen, weekly_report_sent, admin_bulk_request, shift_template_version, shift_template, office_pattern, office_day, location_alert, report_sent RESTART IDENTITY CASCADE`;
   await sql`DELETE FROM admin_review_case`;
   await sql`UPDATE app_user SET employee_id = NULL`;
   await sql`DELETE FROM employee`;
@@ -209,6 +209,78 @@ describe('PostgresDb — employees + users', () => {
         newValue: { date: '2026-10-12', people: '3' },
       },
     ]);
+  });
+
+  it("ADR-0038 §8: change history reads a person's changes and a scope's saves", async () => {
+    const a = await seedEmployee();
+    const oid = randomUUID();
+    const { userId } = await seedUser({ employeeId: a, oid });
+    const other = await seedEmployee();
+    const at = (m: number) => new Date(Date.UTC(2026, 9, 13, 10, m));
+    await db.employees.setReportingManager({
+      employeeId: a,
+      managerId: other,
+      actorUserId: userId,
+      reason: 'new team',
+      correlationId: randomUUID(),
+      at: at(1),
+    });
+    await db.employees.auditView({
+      actorUserId: userId,
+      employeeId: a,
+      action: 'day_viewed',
+      detail: { date: '2026-10-12' },
+      correlationId: randomUUID(),
+      at: at(2),
+    });
+    await db.people.auditRoleChange({
+      actorUserId: userId,
+      targetOid: oid,
+      previousRoles: ['Employee'],
+      newRoles: ['Employee', 'Manager'],
+      reason: null,
+      correlationId: randomUUID(),
+      at: at(3),
+    });
+    // Someone else's change isn't theirs.
+    await db.employees.setReportingManager({
+      employeeId: other,
+      managerId: null,
+      actorUserId: userId,
+      reason: null,
+      correlationId: randomUUID(),
+      at: at(4),
+    });
+    const rows = await db.history.personHistory(a, oid, 10);
+    expect(rows.map((r) => [r.action, r.entityType, r.reason])).toEqual([
+      ['roles_set', 'app_role_assignment', null],
+      ['reporting_manager_set', 'employee', 'new team'],
+    ]);
+    expect(rows[1]).toMatchObject({
+      before: { manager_employee_id: null },
+      after: { manager_employee_id: other },
+    });
+    expect(rows[0]?.at).toBeInstanceOf(Date);
+    expect(await db.history.personHistory(a, null, 10)).toHaveLength(1);
+
+    const change = (m: number) => ({
+      scope: 'global' as const,
+      scopeId: null,
+      reason: `save ${m}`,
+      actorUserId: userId,
+      correlationId: randomUUID(),
+      at: at(m),
+    });
+    await db.policies.put(change(5), { idle: { threshold_seconds: 180 } });
+    await db.policies.put(change(6), { idle: { threshold_seconds: 240 } });
+    const saves = await db.history.policyHistory('global', null, 1);
+    expect(saves).toHaveLength(1);
+    expect(saves[0]).toMatchObject({
+      action: 'policy_set',
+      reason: 'save 6',
+      before: { scope: 'global', document: { idle: { threshold_seconds: 180 } } },
+      after: { scope: 'global', document: { idle: { threshold_seconds: 240 } } },
+    });
   });
 
   it('ADR-0039: office patterns and one-offs, newest first; append-only', async () => {
