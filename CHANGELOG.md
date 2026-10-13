@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Server: change history (ADR-0038 §8, phase 8)
+
+- `GET /v1/admin/employees/:id/history`: the changes made to a person,
+  newest first, in words: manager, roles, shift, office days, record
+  status, welcome email, computer sign-outs; who did it, when and why.
+  Opening their day isn't a change and isn't listed. HR, Administrators
+  and Auditors.
+- `GET /v1/admin/policy/global/history` and
+  `/v1/admin/policy/departments/:id/history`: each settings save with
+  the values it changed ("alerts.shift_emails: off → on"), who, when
+  and why.
+- Read-only over `audit_log`; no migration.
+
 ### Server and desktop 0.1.38: "On a break" after idle counts as a break (ADR-0042)
 
 - The "Welcome back, what were you doing?" question now asks **which
