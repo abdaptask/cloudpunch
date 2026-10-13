@@ -19,6 +19,25 @@ $pilotHost = if ($env:PILOT_HOST) { $env:PILOT_HOST } else { 'aptask@172.16.46.5
 
 if (-not (Test-Path $key)) { Fail "no updater key at $key (docs/ops/pilot-vm.md)" }
 if (-not (Get-Command pnpm -ErrorAction SilentlyContinue)) { Fail 'pnpm not found. Run: corepack enable' }
+
+# Publish only what's on main, as it is on GitHub: this folder may be on
+# a branch someone is working on (2026-10-13: an unmerged 0.1.35 went
+# out this way). build-mac.sh checks the same.
+if ($Publish) {
+  $branch = (& git -C $root rev-parse --abbrev-ref HEAD).Trim()
+  if ($branch -ne 'main') { Fail "this copy is on '$branch', not main. Run: git checkout main; git pull" }
+  if (& git -C $root status --porcelain) { Fail 'this copy has changes that are not committed. Ask Claude, or run: git stash' }
+  # PowerShell 5.1 turns a native command's error output into a stop.
+  try { & git -C $root fetch -q origin main 2>$null; $fetched = ($LASTEXITCODE -eq 0) } catch { $fetched = $false }
+  if ($fetched) {
+    $behind = (& git -C $root rev-list --count HEAD..origin/main).Trim()
+    $ahead = (& git -C $root rev-list --count origin/main..HEAD).Trim()
+    if ($behind -ne '0') { Fail "this copy is $behind commit(s) behind main. Run: git pull" }
+    if ($ahead -ne '0') { Fail "this copy has $ahead commit(s) that aren't on GitHub's main yet" }
+  } else {
+    Write-Host "build-windows: couldn't check GitHub for newer code; building this copy as it is." -ForegroundColor Yellow
+  }
+}
 $version = (Get-Content (Join-Path $root 'apps\desktop\src-tauri\tauri.conf.json') -Raw | ConvertFrom-Json).version
 
 $notes = @()
