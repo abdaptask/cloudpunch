@@ -208,7 +208,13 @@ describe('web dashboard shell (ADR-0033)', () => {
 describe('the admin console on the web (ADR-0038 §2)', () => {
   afterEach(() => window.history.replaceState(null, '', '/'));
 
-  const HR = ['team.timeline.read', 'hr.employee.write', 'hr.holiday.write', 'hr.policy.write'];
+  const HR = [
+    'team.timeline.read',
+    'hr.employee.read',
+    'hr.employee.write',
+    'hr.holiday.write',
+    'hr.policy.write',
+  ];
   const sections = (): string[] =>
     within(screen.getByRole('navigation', { name: 'admin-sections' }))
       .getAllByRole('button')
@@ -218,7 +224,7 @@ describe('the admin console on the web (ADR-0038 §2)', () => {
     window.history.replaceState(null, '', ADMIN_PATH);
     render(<App deps={deps(fakeAuth(true), json(200, me(HR)))} />);
     await screen.findByRole('navigation', { name: 'admin-sections' });
-    expect(sections()).toEqual(['People', 'Managers', 'Holidays', 'Rules']);
+    expect(sections()).toEqual(['People', 'Managers', 'Holidays', 'Rules', 'Reports']);
     expect(screen.queryByRole('list', { name: 'team-today' })).not.toBeInTheDocument();
   });
 

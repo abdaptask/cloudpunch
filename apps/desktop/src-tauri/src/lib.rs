@@ -352,6 +352,7 @@ pub fn run() {
             commands::admin_set_office_pattern,
             commands::admin_set_office_day,
             commands::admin_bulk_office,
+            commands::report_day,
             commands::admin_devices,
             commands::my_connections,
             commands::team_connections,

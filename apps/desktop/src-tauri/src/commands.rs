@@ -1324,6 +1324,19 @@ pub async fn admin_bulk_office(
     answer(fetched)
 }
 
+/// The day-end summary for `date` (ADR-0040 §2).
+#[tauri::command]
+pub async fn report_day(
+    auth: State<'_, Arc<Auth>>,
+    date: String,
+) -> Result<serde_json::Value, String> {
+    let (_, fetched) = fetch_as_user(&auth, move |http, base, token| {
+        admin::report_day(http, base, token, &date)
+    })
+    .await?;
+    answer(fetched)
+}
+
 /// The company holidays (ADR-0037 §1).
 #[tauri::command]
 pub async fn holidays(auth: State<'_, Arc<Auth>>) -> Result<serde_json::Value, String> {

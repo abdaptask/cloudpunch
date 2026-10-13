@@ -37,6 +37,10 @@ export interface SettingsForm {
   shiftEmails: boolean;
   /** alerts.missed_clock_in_minutes (ADR-0037 §3); company-wide only. */
   missedClockInMinutes: number;
+  /** reports.day_emails (ADR-0040 §2); company-wide only. */
+  dayEmails: boolean;
+  /** reports.day_email_at, HH:MM India time (ADR-0040 §2); company-wide only. */
+  dayEmailAt: string;
 }
 
 export type BreakId = 'bio' | 'meal' | 'rest' | 'personal' | 'other';
@@ -131,6 +135,11 @@ export function formFrom(policy: Doc): SettingsForm {
     locationEmails: obj(policy['alerts'])['location_emails'] === true,
     shiftEmails: obj(policy['alerts'])['shift_emails'] === true,
     missedClockInMinutes: num(obj(policy['alerts'])['missed_clock_in_minutes'], 15),
+    dayEmails: obj(policy['reports'])['day_emails'] === true,
+    dayEmailAt:
+      typeof obj(policy['reports'])['day_email_at'] === 'string'
+        ? (obj(policy['reports'])['day_email_at'] as string)
+        : '08:00',
   };
 }
 
@@ -161,6 +170,7 @@ export function formIssues(f: SettingsForm): Partial<Record<keyof SettingsForm, 
   if (f.idleCapMinutes !== null && !whole(f.idleCapMinutes, 15, 480)) {
     out.idleCapMinutes = 'Between 15 and 480 minutes';
   }
+  if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(f.dayEmailAt)) out.dayEmailAt = 'A time like 08:00';
   if (f.clockInPromptAt !== null && !/^([01]\d|2[0-3]):[0-5]\d$/.test(f.clockInPromptAt)) {
     out.clockInPromptAt = 'A time like 08:00';
   }
@@ -195,6 +205,11 @@ export function overrideWith(current: Doc | null, f: SettingsForm, global = fals
             shift_emails: f.shiftEmails,
             location_emails: f.locationEmails,
             missed_clock_in_minutes: f.missedClockInMinutes,
+          },
+          reports: {
+            ...obj(base['reports']),
+            day_emails: f.dayEmails,
+            day_email_at: f.dayEmailAt,
           },
         }
       : {}),
@@ -244,7 +259,7 @@ export function overrideWith(current: Doc | null, f: SettingsForm, global = fals
 export type ScalarKey = Exclude<keyof SettingsForm, 'breaks'>;
 
 export type RuleSectionKey =
-  'idle' | 'clockIn' | 'longDays' | 'breaks' | 'away' | 'connections' | 'alerts';
+  'idle' | 'clockIn' | 'longDays' | 'breaks' | 'away' | 'connections' | 'alerts' | 'reports';
 
 export interface RuleSection {
   key: RuleSectionKey;
@@ -274,6 +289,12 @@ export const RULE_SECTIONS: readonly RuleSection[] = [
     key: 'alerts',
     label: 'Shift-start emails',
     fields: ['shiftEmails', 'missedClockInMinutes'],
+    companyOnly: true,
+  },
+  {
+    key: 'reports',
+    label: 'Day-end summary',
+    fields: ['dayEmails', 'dayEmailAt'],
     companyOnly: true,
   },
 ];
@@ -400,6 +421,10 @@ export function valueText(k: ScalarKey, f: SettingsForm): string {
       return onOff(f.shiftEmails);
     case 'missedClockInMinutes':
       return MINUTES(f.missedClockInMinutes);
+    case 'dayEmails':
+      return onOff(f.dayEmails);
+    case 'dayEmailAt':
+      return `${f.dayEmailAt} India time`;
   }
 }
 

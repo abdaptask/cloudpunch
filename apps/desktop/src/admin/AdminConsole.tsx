@@ -5,6 +5,7 @@ import { ComputersPage } from './ComputersPage.js';
 import { ConnectionsPage } from './ConnectionsPage.js';
 import { HolidaysPage } from './HolidaysPage.js';
 import { PeopleTable } from './PeopleTable.js';
+import { ReportsPage } from './ReportsPage.js';
 import { RulesPage } from './RulesPage.js';
 import { ShiftsPage } from './ShiftsPage.js';
 import { pickSection, sectionsFor, type SectionKey } from './sections.js';
@@ -89,6 +90,8 @@ export function AdminConsole({
         return <ComputersPage />;
       case 'connections':
         return <ConnectionsPage />;
+      case 'reports':
+        return <ReportsPage canOpenDays={has('team.timeline.read')} />;
     }
   };
 
@@ -116,7 +119,7 @@ export function AdminConsole({
           style={{
             // People is a table with a panel beside it: it takes the width.
             maxWidth:
-              section === 'people' || section === 'connections'
+              section === 'people' || section === 'connections' || section === 'reports'
                 ? 1400
                 : section === 'shifts'
                   ? 760

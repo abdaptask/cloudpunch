@@ -67,6 +67,7 @@ export type WebApi = Pick<
   | 'adminSetOfficePattern'
   | 'adminSetOfficeDay'
   | 'adminBulkOffice'
+  | 'reportDay'
 >;
 
 export interface Transport {
@@ -329,6 +330,10 @@ export const api: WebApi = {
       employee_ids: employeeIds,
       ...officePatternBody(weekdays, effectiveFrom, reason),
     }),
+  reportDay: async (date) => {
+    check(DATE.test(date));
+    return get(`/v1/reports/day?date=${date}`);
+  },
   adminBulkWelcome: async (key, oids, note) =>
     send(
       'POST',

@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Desktop 0.1.36 and web: Reports → Day summary and its email switch (ADR-0040 §2)
+
+- **Reports → Day summary** in the admin console: pick a day (yesterday
+  by default); the counts, then each person's status, shift, in (and
+  how late), out, worked against the shift, idle, breaks (and how many
+  over their limit) and corrections waiting, problems first. Filter by
+  status ("off" is hidden until asked for); a click opens the person's
+  day. HR and Administrators; Managers get their team by email (the
+  console stays for admin roles).
+- **Rules → Day-end summary** (company-wide): "Email the day-end summary
+  each morning" (off) and the time, India time (08:00).
+
 ### Server: the day-end summary (ADR-0040 §1–2; migration 0017)
 
 - **One row per person and day:** status (worked, late, not clocked in,
