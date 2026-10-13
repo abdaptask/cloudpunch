@@ -27,6 +27,8 @@ import type {
   ReportRepo,
   AuditEntry,
   AuditRepo,
+  UploadRefusalRepo,
+  UploadRefusalRow,
   ReportSentClaim,
   ReportViewAudit,
   NewShiftAssignment,
@@ -93,6 +95,9 @@ export class InMemoryDb implements DbRepositories {
   readonly locationAlerts: LocationAlertRepo;
   readonly reports: ReportRepo;
   readonly history: AuditRepo;
+  readonly refusals: UploadRefusalRepo;
+  /** upload_refusal (ADR-0040 §3.4). */
+  readonly refusalRows: UploadRefusalRow[] = [];
   /**
    * audit_log as change history reads it (ADR-0038 §8). The other
    * in-memory writes keep their own lists; tests seed this one.
@@ -242,6 +247,41 @@ export class InMemoryDb implements DbRepositories {
     };
     const newest = (rows: AuditEntry[], limit: number): AuditEntry[] =>
       [...rows].sort((a, b) => b.at.getTime() - a.at.getTime()).slice(0, limit);
+    this.refusals = {
+      note: async (r) => {
+        const day = r.at.toISOString().slice(0, 10);
+        const same = this.refusalRows.find(
+          (x) =>
+            x.deviceId === r.deviceId &&
+            x.employeeId === r.employeeId &&
+            x.reason === r.reason &&
+            x.day === day,
+        );
+        if (!same) {
+          this.refusalRows.push({
+            deviceId: r.deviceId,
+            employeeId: r.employeeId,
+            reason: r.reason,
+            day,
+            events: r.events,
+            aheadSeconds: r.aheadSeconds,
+            firstAt: r.at,
+            lastAt: r.at,
+          });
+          return;
+        }
+        same.events += r.events;
+        if (r.aheadSeconds !== null) {
+          same.aheadSeconds = Math.max(same.aheadSeconds ?? 0, r.aheadSeconds);
+        }
+        if (r.at > same.lastAt) same.lastAt = r.at;
+      },
+      between: async (from, to) =>
+        this.refusalRows
+          .filter((x) => x.day >= from && x.day <= to)
+          .sort((a, b) => b.lastAt.getTime() - a.lastAt.getTime())
+          .map((x) => ({ ...x })),
+    };
     this.history = {
       personHistory: async (employeeId, oid, limit) =>
         newest(

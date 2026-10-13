@@ -29,7 +29,46 @@ const HTTP_STATUS_FOR: Record<Exclude<IngestBatchOutcome['status'], 'batch_accep
   multi_device_conflict: 409,
 };
 
+/**
+ * Batch refusals worth counting (ADR-0040 §3.4): after the caller's
+ * identity was checked, so the ids are theirs. Not a second computer
+ * (that's the one-machine rule working) or an unknown one.
+ */
+const COUNTED: ReadonlySet<string> = new Set([
+  'device_revoked',
+  'device_signed_out',
+  'session_not_open',
+  'session_closed',
+  'session_owner_mismatch',
+  'session_device_mismatch',
+]);
+
+/** The database refuses events stamped more than this ahead of it (time_event_check). */
+const CLOCK_AHEAD_MS = 10_000;
+
 const eventsRoutesImpl: FastifyPluginAsync<EventsRoutesOptions> = async (app, opts) => {
+  /** Count a refusal; never fails the request. */
+  const refused = async (
+    deviceId: string,
+    employeeId: string,
+    reason: string,
+    events: number,
+    aheadSeconds: number | null = null,
+  ): Promise<void> => {
+    try {
+      await opts.db.refusals.note({
+        deviceId,
+        employeeId,
+        reason,
+        events,
+        aheadSeconds,
+        at: new Date(),
+      });
+    } catch (err) {
+      app.log.warn({ err }, 'events: could not count a refused upload');
+    }
+  };
+
   app.post(
     '/v1/events',
     { preHandler: [requireCapability(Capability.SelfClockWrite)] },
@@ -51,23 +90,49 @@ const eventsRoutesImpl: FastifyPluginAsync<EventsRoutesOptions> = async (app, op
           .send({ code: 'internal', message: 'auth preHandler did not populate req.auth' });
       }
 
-      const outcome = await ingestBatch({
-        db: opts.db,
-        authOid: auth.oid,
-        deviceId: parsed.data.device_id,
-        sessionId: parsed.data.session_id,
-        employeeId: parsed.data.employee_id,
-        correlationId: parsed.data.correlation_id,
-        events: parsed.data.events,
-        // Only an Administrator may take over another machine's
-        // session (ADR-0028 §3); for anyone else it is ignored, so a
-        // second-device clock-in still gets multi_device_conflict.
-        takeOver: parsed.data.take_over && auth.roles.includes(AppRole.Administrator),
-      });
+      // How far ahead of the server the computer's clock stamped them.
+      const aheadMs = Math.max(
+        ...parsed.data.events.map((e) => Date.parse(e.client_ts) - Date.now()),
+      );
+      let outcome: IngestBatchOutcome;
+      try {
+        outcome = await ingestBatch({
+          db: opts.db,
+          authOid: auth.oid,
+          deviceId: parsed.data.device_id,
+          sessionId: parsed.data.session_id,
+          employeeId: parsed.data.employee_id,
+          correlationId: parsed.data.correlation_id,
+          events: parsed.data.events,
+          // Only an Administrator may take over another machine's
+          // session (ADR-0028 §3); for anyone else it is ignored, so a
+          // second-device clock-in still gets multi_device_conflict.
+          takeOver: parsed.data.take_over && auth.roles.includes(AppRole.Administrator),
+        });
+      } catch (err) {
+        // Still a server error for the app (it keeps and retries the
+        // events), but counted, with the likeliest reason.
+        const ahead = aheadMs > CLOCK_AHEAD_MS;
+        await refused(
+          parsed.data.device_id,
+          parsed.data.employee_id,
+          ahead ? 'clock_ahead' : 'server_error',
+          parsed.data.events.length,
+          ahead ? Math.round(aheadMs / 1000) : null,
+        );
+        throw err;
+      }
 
       if (outcome.status === 'batch_accepted') {
         // Accepted means the device and employee were checked as the caller's.
         await opts.connections?.record(req, parsed.data.employee_id, parsed.data.device_id);
+        const codes = new Map<string, number>();
+        for (const r of outcome.results) {
+          if (r.status === 'rejected') codes.set(r.code, (codes.get(r.code) ?? 0) + 1);
+        }
+        for (const [code, n] of codes) {
+          await refused(parsed.data.device_id, parsed.data.employee_id, code, n);
+        }
         return reply.code(200).send({
           correlation_id: outcome.correlationId,
           server_ts: outcome.serverTs.toISOString(),
@@ -76,6 +141,14 @@ const eventsRoutesImpl: FastifyPluginAsync<EventsRoutesOptions> = async (app, op
         });
       }
 
+      if (COUNTED.has(outcome.status)) {
+        await refused(
+          parsed.data.device_id,
+          parsed.data.employee_id,
+          outcome.status,
+          parsed.data.events.length,
+        );
+      }
       const status = HTTP_STATUS_FOR[outcome.status];
       const body: Record<string, unknown> = {
         code: outcome.status,

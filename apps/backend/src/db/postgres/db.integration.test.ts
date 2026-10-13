@@ -52,7 +52,7 @@ beforeEach(async () => {
   // dependencies: event → session → device/employee → user.
   // time_event and audit_log are append-only (row triggers reject
   // DELETE); TRUNCATE is DDL and resets them between tests.
-  await sql`TRUNCATE audit_log, policy_override, time_event, time_session, device, employee_override, time_correction_decision, time_correction, shift_assignment, not_working_day, holiday, shift_alert, role_seen, weekly_report_sent, admin_bulk_request, shift_template_version, shift_template, office_pattern, office_day, location_alert, report_sent RESTART IDENTITY CASCADE`;
+  await sql`TRUNCATE audit_log, policy_override, time_event, time_session, device, employee_override, time_correction_decision, time_correction, shift_assignment, not_working_day, holiday, shift_alert, role_seen, weekly_report_sent, admin_bulk_request, shift_template_version, shift_template, office_pattern, office_day, location_alert, report_sent, upload_refusal RESTART IDENTITY CASCADE`;
   await sql`DELETE FROM admin_review_case`;
   await sql`UPDATE app_user SET employee_id = NULL`;
   await sql`DELETE FROM employee`;
@@ -281,6 +281,32 @@ describe('PostgresDb — employees + users', () => {
       before: { scope: 'global', document: { idle: { threshold_seconds: 180 } } },
       after: { scope: 'global', document: { idle: { threshold_seconds: 240 } } },
     });
+  });
+
+  it('ADR-0040 §3.4: refused uploads add up per computer, person, reason and day', async () => {
+    const device = randomUUID();
+    const employee = randomUUID();
+    const note = (events: number, ahead: number | null, at: string, reason = 'clock_ahead') =>
+      db.refusals.note({
+        deviceId: device,
+        employeeId: employee,
+        reason,
+        events,
+        aheadSeconds: ahead,
+        at: new Date(at),
+      });
+    await note(3, 150, '2026-10-12T10:00:00Z');
+    await note(2, 170, '2026-10-12T11:00:00Z');
+    await note(1, 120, '2026-10-13T09:00:00Z');
+    await note(4, null, '2026-10-12T12:00:00Z', 'signature_invalid');
+    const rows = await db.refusals.between('2026-10-12', '2026-10-12');
+    expect(rows.map((r) => [r.reason, r.day, r.events, r.aheadSeconds])).toEqual([
+      ['signature_invalid', '2026-10-12', 4, null],
+      ['clock_ahead', '2026-10-12', 5, 170],
+    ]);
+    expect(rows[1]?.firstAt.toISOString()).toBe('2026-10-12T10:00:00.000Z');
+    expect(rows[1]?.lastAt.toISOString()).toBe('2026-10-12T11:00:00.000Z');
+    expect(await db.refusals.between('2026-10-12', '2026-10-13')).toHaveLength(3);
   });
 
   it('ADR-0039: office patterns and one-offs, newest first; append-only', async () => {

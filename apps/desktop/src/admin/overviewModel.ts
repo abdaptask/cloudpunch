@@ -51,6 +51,33 @@ export function rangeIssue(from: string, to: string): string | null {
   return days > MAX_DAYS ? `At most ${MAX_DAYS} days` : null;
 }
 
+/** Why the server refused an upload, in words (ADR-0040 §3.4). */
+const REFUSAL: Record<string, string> = {
+  clock_ahead: "computer's clock is ahead",
+  server_error: "the server couldn't store them",
+  signature_invalid: 'signature check failed',
+  sequence_gap_too_large: 'events missing in between',
+  state_transition_invalid: 'out of order',
+  duplicate_sequence: 'sent twice with different numbers',
+  duplicate_ulid_different_payload: 'sent twice with different contents',
+  event_out_of_session: 'outside a session',
+  device_revoked: 'computer removed',
+  device_signed_out: 'computer signed out by an Administrator',
+  session_not_open: 'no open session',
+  session_closed: 'session already closed',
+  session_owner_mismatch: "someone else's session",
+  session_device_mismatch: 'session from another computer',
+};
+
+/** "computer's clock is ahead by 2 min 30 s". */
+export function refusalText(reason: string, aheadSeconds: number | null): string {
+  const why = REFUSAL[reason] ?? reason.replace(/_/g, ' ');
+  if (reason !== 'clock_ahead' || aheadSeconds === null) return why;
+  const m = Math.floor(aheadSeconds / 60);
+  const s = aheadSeconds % 60;
+  return `${why} by ${m > 0 ? `${m} min ` : ''}${s} s`.replace(' 0 s', '').trim();
+}
+
 export const pct = (x: number | null): string => (x === null ? '—' : `${Math.round(x * 100)}%`);
 
 /** Whole hours past 10, one decimal below. */

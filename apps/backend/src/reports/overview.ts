@@ -63,6 +63,20 @@ export interface Health {
   newest_version: string | null;
   computers_behind: number;
   corrections_waiting: number;
+  /**
+   * Uploads the server refused in the range, per computer and reason,
+   * most recent first (a wrong clock, a signed-out computer, …).
+   */
+  refused: {
+    employee_id: string;
+    name: string;
+    os: string | null;
+    reason: string;
+    events: number;
+    /** How far ahead the clock was at most, for `clock_ahead`. */
+    ahead_seconds: number | null;
+    last_at: string;
+  }[];
 }
 
 export interface Overview {
@@ -176,6 +190,7 @@ export async function health(
   people: readonly Employee[],
   totals: readonly PersonTotals[],
   now: Date,
+  range: { from: string; to: string },
 ): Promise<Health> {
   const devices = (await db.devices.listWithOwners()).filter((d) => d.revokedAt === null);
   const emails = new Set(devices.map((d) => d.ownerWorkEmail.toLowerCase()));
@@ -189,6 +204,31 @@ export async function health(
     .sort((a, b) => compareVersions(b.version, a.version));
   const newest = versions[0]?.version ?? null;
   const byId = new Map(totals.map((t) => [t.employee_id, t]));
+  const names = new Map(people.map((p) => [p.id, nameOf(p)]));
+  const os = new Map(devices.map((d) => [d.id, d.os]));
+  // Per computer and reason over the range (the rows are per day).
+  const refused = new Map<string, Health['refused'][number]>();
+  for (const r of await db.refusals.between(range.from, range.to)) {
+    const key = `${r.deviceId}:${r.employeeId}:${r.reason}`;
+    const seen = refused.get(key);
+    if (seen) {
+      seen.events += r.events;
+      if (r.aheadSeconds !== null) {
+        seen.ahead_seconds = Math.max(seen.ahead_seconds ?? 0, r.aheadSeconds);
+      }
+      if (r.lastAt.toISOString() > seen.last_at) seen.last_at = r.lastAt.toISOString();
+      continue;
+    }
+    refused.set(key, {
+      employee_id: r.employeeId,
+      name: names.get(r.employeeId) ?? 'Someone no longer listed',
+      os: os.get(r.deviceId) ?? null,
+      reason: r.reason,
+      events: r.events,
+      ahead_seconds: r.aheadSeconds,
+      last_at: r.lastAt.toISOString(),
+    });
+  }
   return {
     active_people: people.length,
     with_app: people.filter((p) => p.workEmail && emails.has(p.workEmail.toLowerCase())).length,
@@ -206,6 +246,7 @@ export async function health(
       ? recent.filter((d) => compareVersions(d.appVersion, newest) < 0).length
       : 0,
     corrections_waiting: (await db.corrections.listOpen()).length,
+    refused: [...refused.values()].sort((a, b) => b.last_at.localeCompare(a.last_at)),
   };
 }
 
@@ -218,7 +259,7 @@ export async function overview(
 ): Promise<Overview> {
   const people = await db.employees.listActive();
   const s = summarise(await rangeRows(db, people, from, to, now));
-  return { from, to, ...s, health: await health(db, people, s.people, now) };
+  return { from, to, ...s, health: await health(db, people, s.people, now, { from, to }) };
 }
 
 // CSV (ADR-0040 §3): one row per person, the columns of one section.

@@ -11,6 +11,7 @@ import {
   mins,
   pct,
   PRESETS,
+  refusalText,
   rangeIssue,
   rangeOf,
   weekLabel,
@@ -497,6 +498,34 @@ function Health({ t, o }: { t: Theme; o: Overview }): JSX.Element {
           <span style={{ color: h.corrections_waiting > 0 ? t.danger : t.text }}>
             {h.corrections_waiting}
           </span>,
+        )}
+        {(h.refused ?? []).length > 0 && (
+          <div
+            aria-label="uploads-refused"
+            style={{ display: 'flex', flexDirection: 'column', gap: 4 }}
+          >
+            <span style={{ fontSize: 13, color: t.danger }}>Uploads refused</span>
+            {(h.refused ?? []).map((r) => (
+              <span
+                key={`${r.employee_id}-${r.reason}-${r.os ?? ''}`}
+                style={{ fontSize: 12.5, lineHeight: 1.4 }}
+              >
+                <strong style={{ fontWeight: 600 }}>{r.name}</strong>
+                {r.os ? ` (${r.os === 'macos' ? 'Mac' : 'Windows'})` : ''}:{' '}
+                {refusalText(r.reason, r.ahead_seconds)}
+                <span style={{ color: t.muted }}>
+                  {' '}
+                  · {r.events} event{r.events === 1 ? '' : 's'} · last{' '}
+                  {new Date(r.last_at).toLocaleString('en-GB', {
+                    day: 'numeric',
+                    month: 'short',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                  })}
+                </span>
+              </span>
+            ))}
+          </div>
         )}
         {h.never_clocked_in.length > 0 &&
           line(

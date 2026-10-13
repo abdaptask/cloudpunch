@@ -508,3 +508,58 @@ describe('POST /v1/events records the connection (ADR-0029)', () => {
     await app.close();
   });
 });
+
+describe('POST /v1/events counts refused uploads (ADR-0040 §3.4)', () => {
+  const post = async (app: Awaited<ReturnType<typeof buildApp>>, events: EventItem[]) =>
+    app.inject({
+      method: 'POST',
+      url: '/v1/events',
+      headers: { authorization: `Bearer ${await signToken()}` },
+      payload: batch(events),
+    });
+
+  it('a clock running ahead: still a server error for the app, counted as clock_ahead', async () => {
+    const app = await buildApp();
+    // The database refuses events stamped ahead of it (time_event_check).
+    db.timeEvents.insertOne = () => Promise.reject(new Error('violates check constraint'));
+    const ahead = new Date(Date.now() + 150_000).toISOString();
+    const evt = await signedEvent({
+      event_type: 'USER_CLOCK_IN',
+      sequence_number: 1,
+      client_ts: ahead,
+    });
+    const res = await post(app, [evt]);
+    expect(res.statusCode).toBe(500);
+    expect(db.refusalRows).toEqual([
+      expect.objectContaining({
+        deviceId,
+        employeeId,
+        reason: 'clock_ahead',
+        events: 1,
+      }),
+    ]);
+    expect(db.refusalRows[0]?.aheadSeconds).toBeGreaterThanOrEqual(145);
+    await app.close();
+  });
+
+  it('per-event rejections and counted batch refusals; never a second computer', async () => {
+    const app = await buildApp();
+    const inEvt = await signedEvent({ event_type: 'USER_CLOCK_IN', sequence_number: 1 });
+    const bad: EventItem = {
+      ...(await signedEvent({
+        event_type: 'INPUT_ACTIVITY',
+        sequence_number: 2,
+        origin: 'system_watcher',
+      })),
+      integrity_signature: Buffer.from(new Uint8Array(64).fill(0x77)).toString('base64'),
+    };
+    expect((await post(app, [inEvt, bad])).statusCode).toBe(200);
+    await db.devices.revoke(deviceId, 'test', randomUUID(), new Date());
+    expect((await post(app, [inEvt])).statusCode).toBe(409);
+    expect(db.refusalRows.map((r) => [r.reason, r.events])).toEqual([
+      ['signature_invalid', 1],
+      ['device_revoked', 1],
+    ]);
+    await app.close();
+  });
+});
