@@ -1,5 +1,13 @@
 import { useEffect, useState, type CSSProperties } from 'react';
-import { api, type TeamDay, type TeamException, type TeamPerson } from './api.js';
+import {
+  api,
+  type DayReport,
+  type DayReportRow,
+  type TeamDay,
+  type TeamException,
+  type TeamPerson,
+} from './api.js';
+import { endText, headline, startText, STATUS_LABEL, workedText } from './admin/dayReportModel.js';
 import { PersonConnections } from './ConnectionsView.js';
 import { CorrectionForm, DayCorrections } from './Corrections.js';
 import { placeOf } from './connectionsModel.js';
@@ -50,7 +58,7 @@ export function TeamScreen({
   canCorrect?: boolean;
 }): JSX.Element {
   const t = useTheme();
-  const [tab, setTab] = useState<'today' | 'exceptions'>('today');
+  const [tab, setTab] = useState<'today' | 'day' | 'exceptions'>('today');
   const [person, setPerson] = useState<{
     id: string;
     name: string;
@@ -83,6 +91,7 @@ export function TeamScreen({
             {(
               [
                 ['today', 'Today'],
+                ['day', 'Day summary'],
                 ['exceptions', 'Exceptions'],
               ] as const
             ).map(([key, label]) => (
@@ -110,6 +119,12 @@ export function TeamScreen({
                   subtitle: place ? `${statusText(p)} · ${place}` : statusText(p),
                   starts: startsText(p),
                 })
+              }
+            />
+          ) : tab === 'day' ? (
+            <DaySummary
+              onOpen={(r) =>
+                setPerson({ id: r.employee_id, name: r.name, subtitle: STATUS_LABEL[r.status] })
               }
             />
           ) : (
@@ -713,6 +728,127 @@ function DayDetail({
             Correct this day
           </Button>
         ))}
+    </div>
+  );
+}
+
+/**
+ * The day-end summary in Team (ADR-0040 §2): a day (yesterday first),
+ * the counts, and each person's day, problems first. The same rows as
+ * the morning email; the server decides whose (a Manager's team).
+ */
+function DaySummary({ onOpen }: { onOpen: (r: DayReportRow) => void }): JSX.Element {
+  const t = useTheme();
+  const today = localDateOf(Date.now());
+  const [date, setDate] = useState(() => shiftDate(today, -1));
+  const [report, setReport] = useState<DayReport | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [offShown, setOffShown] = useState(false);
+  useEffect(() => {
+    let current = true;
+    setReport(null);
+    setError(null);
+    api.reportDay(date).then(
+      (r) => {
+        if (current) setReport(r);
+      },
+      (e: unknown) => {
+        if (current) setError(String(e));
+      },
+    );
+    return () => {
+      current = false;
+    };
+  }, [date]);
+  const rows = (report?.people ?? []).filter((r) => offShown || r.status !== 'off');
+  const off = report?.counts.off ?? 0;
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+        <input
+          aria-label="summary-date"
+          type="date"
+          value={date}
+          min={shiftDate(today, -LOOKBACK_DAYS)}
+          max={today}
+          onChange={(e) => e.target.value && setDate(e.target.value)}
+          style={{
+            font: 'inherit',
+            fontSize: 13,
+            padding: '5px 8px',
+            borderRadius: 8,
+            border: `1px solid ${t.border}`,
+            background: t.bg,
+            color: t.text,
+          }}
+        />
+        {report && (
+          <span aria-label="summary-headline" style={{ fontSize: 12.5, color: t.muted }}>
+            {headline(report.counts)}
+          </span>
+        )}
+      </div>
+      {error && <Note t={t} alert text={errorText(error)} />}
+      {!report && !error && <Note t={t} text="Loading…" />}
+      {report && rows.length === 0 && <Note t={t} text="Nobody had a shift or worked that day." />}
+      {report && rows.length > 0 && (
+        <ul aria-label="day-summary" style={{ listStyle: 'none', margin: 0, padding: 0 }}>
+          {rows.map((r) => {
+            const problem = r.status === 'not_clocked_in' || r.status === 'late';
+            const worked = r.status === 'worked' || r.status === 'late';
+            return (
+              <li key={r.employee_id}>
+                <button
+                  type="button"
+                  onClick={() => onOpen(r)}
+                  style={{
+                    width: '100%',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 10,
+                    padding: '9px 4px',
+                    border: 'none',
+                    borderBottom: `1px solid ${t.border}`,
+                    background: 'none',
+                    color: t.text,
+                    font: 'inherit',
+                    textAlign: 'left',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <span style={{ flex: 1, minWidth: 0 }}>
+                    <span style={{ display: 'block', fontSize: 14, fontWeight: 600 }}>
+                      {r.name}
+                    </span>
+                    <span
+                      style={{
+                        display: 'block',
+                        fontSize: 12,
+                        color: problem ? t.danger : t.muted,
+                      }}
+                    >
+                      {r.status === 'holiday' && r.holiday ? r.holiday : STATUS_LABEL[r.status]}
+                      {worked && ` · ${startText(r)}–${endText(r)}`}
+                      {r.corrections_waiting > 0 &&
+                        ` · ${r.corrections_waiting} correction${r.corrections_waiting === 1 ? '' : 's'} waiting`}
+                    </span>
+                  </span>
+                  <span
+                    style={{ fontSize: 12, color: t.muted, fontVariantNumeric: 'tabular-nums' }}
+                  >
+                    {worked ? workedText(r) : ''}
+                  </span>
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      {report && off > 0 && (
+        <button type="button" onClick={() => setOffShown((s) => !s)} style={link(t)}>
+          {offShown ? 'Hide' : 'Show'} the {off} off that day
+        </button>
+      )}
     </div>
   );
 }
