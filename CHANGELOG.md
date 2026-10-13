@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Docs: ADR-0039 in-office days (proposed)
+
+- Hybrid workers: admins set each person's usual office weekdays and
+  one-off dates; on an office day CloudPunch steps back (no clock-in
+  popup, no late or missed emails, Team shows "In office", no hours),
+  reusing the holiday "day off" path. Two questions for the owner.
+
 ### Desktop 0.1.33 and web: giving out named shifts, and the window after an update (owner reports)
 
 - **Named shifts can be given out from the Shifts page.** Each named
