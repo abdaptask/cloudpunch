@@ -16,6 +16,7 @@ import type { Employee } from '../db/index.js';
 import { teamNow } from '../team/service.js';
 import { shiftOn } from './model.js';
 import { shiftHistory } from './resolve.js';
+import { officeRoutes } from '../office/routes.js';
 import { shiftRoutes } from './routes.js';
 
 const TENANT_ID = '12345678-1234-1234-1234-123456789012';
@@ -114,6 +115,7 @@ async function call(
     requiredScope: 'api.access',
   });
   await app.register(shiftRoutes, { db });
+  await app.register(officeRoutes, { db });
   return app.inject({
     method,
     url,
@@ -464,5 +466,80 @@ describe('named shifts (ADR-0038 §6)', () => {
     expect((await call(hema, HR, 'PUT', '/v1/admin/employees/bulk/shift', body)).statusCode).toBe(
       403,
     );
+  });
+});
+
+describe('in-office days (ADR-0039)', () => {
+  const today = () => new Date().toISOString().slice(0, 10);
+  const ALL = [1, 2, 3, 4, 5, 6, 7];
+
+  it('an office day steps back: no popups in the app, In office on Team', async () => {
+    await seed(now());
+    // Employees can't set it; HR (and Administrators) can.
+    const url = `/v1/admin/employees/${roshni}/office-pattern`;
+    expect((await call(roshni, EMP, 'PUT', url, { weekdays: ALL })).statusCode).toBe(403);
+    const set = await call(hema, HR, 'PUT', url, { weekdays: ALL, reason: 'hybrid' });
+    expect(set.statusCode).toBe(200);
+    expect(set.json()).toMatchObject({ weekdays: ALL, effective_from: today() });
+
+    const mine = (await call(roshni, EMP, 'GET', '/v1/me/shift')).json() as {
+      day_off: { kind: string; name: string } | null;
+      holidays: { date: string; name: string }[];
+    };
+    expect(mine.day_off).toEqual({ kind: 'office', name: 'In office' });
+    // On the app's own list, so its popups stop, offline too.
+    expect(mine.holidays).toContainEqual({ date: today(), name: 'In office' });
+
+    const [r] = await teamNow(db, [people[roshni] as Employee], new Date());
+    expect(r).toMatchObject({ status: 'holiday', holiday: 'In office', in_office: true });
+    expect(db.officeAudit).toEqual(['office_pattern_set']);
+  });
+
+  it('a one-off untick puts the day back to normal', async () => {
+    await seed(now());
+    await call(hema, HR, 'PUT', `/v1/admin/employees/${roshni}/office-pattern`, { weekdays: ALL });
+    const day = `/v1/admin/employees/${roshni}/office-days/${today()}`;
+    expect((await call(hema, HR, 'PUT', day, { in_office: false })).json()).toMatchObject({
+      in_office: false,
+    });
+    const mine = (await call(roshni, EMP, 'GET', '/v1/me/shift')).json() as {
+      day_off: unknown;
+    };
+    expect(mine.day_off).toBeNull();
+    const [r] = await teamNow(db, [people[roshni] as Employee], new Date());
+    expect(r?.status).toBe('shift_not_started');
+    // A one-off can't be far in the past.
+    const old = `/v1/admin/employees/${roshni}/office-days/2020-01-01`;
+    expect((await call(hema, HR, 'PUT', old, { in_office: true })).statusCode).toBe(400);
+
+    const list = (
+      await call(hema, HR, 'GET', `/v1/admin/office-days?from=${today()}&to=${today()}`)
+    ).json() as { people: { employee_id: string; weekdays: number[]; days: unknown[] }[] };
+    expect(list.people.find((p) => p.employee_id === roshni)).toEqual({
+      employee_id: roshni,
+      weekdays: ALL,
+      days: [{ date: today(), in_office: false }],
+    });
+  });
+
+  it('bulk office weekdays: all or nothing, once per key', async () => {
+    const body = {
+      idempotency_key: randomUUID(),
+      employee_ids: [roshni, hema],
+      weekdays: [2, 4],
+    };
+    const url = '/v1/admin/employees/bulk/office-pattern';
+    const res = await call(admin, ADMIN, 'PUT', url, body);
+    expect(res.json()).toMatchObject({ weekdays: [2, 4], changed: [roshni, hema], unchanged: [] });
+    const again = await call(admin, ADMIN, 'PUT', url, body);
+    expect(again.json()).toEqual(res.json());
+    expect(db.officePatternRows).toHaveLength(2);
+    const missing = await call(admin, ADMIN, 'PUT', url, {
+      ...body,
+      idempotency_key: randomUUID(),
+      employee_ids: [roshni, randomUUID()],
+    });
+    expect(missing.statusCode).toBe(404);
+    expect(db.officePatternRows).toHaveLength(2);
   });
 });

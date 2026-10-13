@@ -20,7 +20,12 @@ import type {
   ShiftAlertRepo,
   StartCounts,
   WeeklyReportRepo,
+  NewOfficeDay,
+  NewOfficePattern,
   NewShiftAssignment,
+  OfficeDay,
+  OfficePattern,
+  OfficeRepo,
   ShiftAssignment,
   ShiftRepo,
   ShiftTemplateVersion,
@@ -77,6 +82,11 @@ export class InMemoryDb implements DbRepositories {
   readonly roles: RoleDirectoryRepo;
   readonly weeklyReports: WeeklyReportRepo;
   readonly bulkRequests: BulkRequestRepo;
+  readonly office: OfficeRepo;
+  /** office_pattern / office_day (ADR-0039). */
+  readonly officePatternRows: OfficePattern[] = [];
+  readonly officeDayRows: OfficeDay[] = [];
+  readonly officeAudit: string[] = [];
   /** admin_bulk_request (ADR-0038 §5). */
   readonly bulkRows: BulkRecord[] = [];
   /** weekly_report_sent (ADR-0037 §4) as `${weekStart}:${recipient}`, for tests. */
@@ -192,6 +202,54 @@ export class InMemoryDb implements DbRepositories {
           out.set(r.employeeId, c);
         }
         return out;
+      },
+    };
+    const pattern = (i: NewOfficePattern): OfficePattern => {
+      const row: OfficePattern = {
+        employeeId: i.employeeId,
+        weekdays: [...i.weekdays],
+        effectiveFrom: i.effectiveFrom,
+        reason: i.reason,
+        setByUserId: i.setByUserId,
+        setAt: i.at,
+      };
+      this.officePatternRows.push(row);
+      this.officeAudit.push('office_pattern_set');
+      return { ...row, weekdays: [...row.weekdays] };
+    };
+    this.office = {
+      patterns: async (ids) =>
+        this.officePatternRows
+          .filter((r) => ids.includes(r.employeeId))
+          .sort(
+            (a, b) =>
+              b.effectiveFrom.localeCompare(a.effectiveFrom) ||
+              b.setAt.getTime() - a.setAt.getTime(),
+          )
+          .map((r) => ({ ...r, weekdays: [...r.weekdays] })),
+      days: async (ids, from, to) =>
+        this.officeDayRows
+          .filter((r) => ids.includes(r.employeeId) && r.date >= from && r.date <= to)
+          .sort((a, b) => b.setAt.getTime() - a.setAt.getTime())
+          .map((r) => ({ ...r })),
+      setPattern: async (i) => pattern(i),
+      setDay: async (i: NewOfficeDay) => {
+        const row: OfficeDay = {
+          employeeId: i.employeeId,
+          date: i.date,
+          inOffice: i.inOffice,
+          reason: i.reason,
+          setByUserId: i.setByUserId,
+          setAt: i.at,
+        };
+        this.officeDayRows.push(row);
+        this.officeAudit.push('office_day_set');
+        return { ...row };
+      },
+      setPatterns: async (rows, record) => {
+        if (!(await this.bulkRequests.save(record))) return false;
+        for (const r of rows) pattern(r);
+        return true;
       },
     };
     const bulkFind = (actorUserId: string, key: string): BulkRecord | undefined =>
