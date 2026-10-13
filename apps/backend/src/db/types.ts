@@ -877,6 +877,38 @@ export interface AuditRepo {
   policyHistory(scope: PolicyScope, scopeId: string | null, limit: number): Promise<AuditEntry[]>;
 }
 
+/** An upload the server refused (ADR-0040 §3.4), to count. */
+export interface UploadRefusal {
+  deviceId: string;
+  employeeId: string;
+  /** A refusal code (`clock_ahead`, `signature_invalid`, `device_revoked`, …). */
+  reason: string;
+  events: number;
+  /** How far ahead the computer's clock was, when that's the reason. */
+  aheadSeconds: number | null;
+  at: Date;
+}
+
+/** One computer's refusals for a reason on a day. */
+export interface UploadRefusalRow {
+  deviceId: string;
+  employeeId: string;
+  reason: string;
+  /** `YYYY-MM-DD` (UTC). */
+  day: string;
+  events: number;
+  aheadSeconds: number | null;
+  firstAt: Date;
+  lastAt: Date;
+}
+
+export interface UploadRefusalRepo {
+  /** Add to the day's count for that computer, person and reason. */
+  note(r: UploadRefusal): Promise<void>;
+  /** The rows for days `from` to `to` (inclusive). */
+  between(from: string, to: string): Promise<UploadRefusalRow[]>;
+}
+
 export interface BulkRequestRepo {
   /** The answer kept for this caller's key, if any. */
   find(
@@ -908,4 +940,5 @@ export interface DbRepositories {
   locationAlerts: LocationAlertRepo;
   reports: ReportRepo;
   history: AuditRepo;
+  refusals: UploadRefusalRepo;
 }

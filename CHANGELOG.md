@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Server, web and desktop 0.1.40: refused uploads in the Overview (ADR-0040 §3.4; migration 0018)
+
+- The server now counts uploads it refuses, per computer, person,
+  reason and day (`upload_refusal`; a counter, not part of the time
+  record): a computer clock ahead of the server (the database refuses
+  events stamped more than 10 s ahead; the app still keeps and retries
+  them), per-event rejections (signature, gaps, order), and refusals
+  for a removed or signed-out computer or a closed session. A second
+  computer (the one-machine rule) isn't counted.
+- **Reports → Overview → Adoption and health** lists them: who, which
+  computer, why ("computer's clock is ahead by 2 min 30 s"), how many
+  events and when last.
 ### Desktop 0.1.40 and web: Accept explanation (ADR-0030 §4)
 
 - In Team, a person's day shows **Accept explanation** on idle time they

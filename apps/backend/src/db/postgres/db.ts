@@ -23,6 +23,8 @@ import type {
   ReportRepo,
   AuditEntry,
   AuditRepo,
+  UploadRefusalRepo,
+  UploadRefusalRow,
   NewShiftAssignment,
   OfficeDay,
   OfficePattern,
@@ -86,9 +88,32 @@ export class PostgresDb implements DbRepositories {
   readonly locationAlerts: LocationAlertRepo;
   readonly reports: ReportRepo;
   readonly history: AuditRepo;
+  readonly refusals: UploadRefusalRepo;
 
   constructor(private readonly sql: postgres.Sql) {
     this.history = this.buildAuditRepo();
+    this.refusals = {
+      note: async (r) => {
+        await this.sql`
+          INSERT INTO upload_refusal (device_id, employee_id, reason, refused_on, events,
+                                      ahead_seconds, first_at, last_at)
+          VALUES (${r.deviceId}, ${r.employeeId}, ${r.reason},
+                  (${r.at}::timestamptz AT TIME ZONE 'UTC')::date, ${r.events},
+                  ${r.aheadSeconds}, ${r.at}, ${r.at})
+          ON CONFLICT (device_id, employee_id, reason, refused_on) DO UPDATE SET
+            events = upload_refusal.events + EXCLUDED.events,
+            ahead_seconds = GREATEST(upload_refusal.ahead_seconds, EXCLUDED.ahead_seconds),
+            last_at = GREATEST(upload_refusal.last_at, EXCLUDED.last_at)`;
+      },
+      between: async (from, to) =>
+        this.sql<UploadRefusalRow[]>`
+          SELECT device_id::text AS device_id, employee_id::text AS employee_id, reason,
+                 to_char(refused_on, 'YYYY-MM-DD') AS day, events, ahead_seconds,
+                 first_at, last_at
+          FROM upload_refusal
+          WHERE refused_on BETWEEN ${from}::date AND ${to}::date
+          ORDER BY last_at DESC`,
+    };
     this.reports = {
       claimAndSend: (c, send) =>
         this.sql.begin(async (tx) => {

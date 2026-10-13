@@ -167,7 +167,23 @@ describe('adoption and health (ADR-0040 §3.4)', () => {
       row('Farheen Test', '2026-10-12', 'not_clocked_in', { employee_id: people[1]?.id ?? '' }),
       row('Nilesh Test', '2026-10-12', 'off', { employee_id: people[2]?.id ?? '' }),
     ]).people;
-    const h = await health(db, people, totals, now);
+    await db.refusals.note({
+      deviceId: 'dev-x',
+      employeeId: people[1]?.id ?? '',
+      reason: 'clock_ahead',
+      events: 3,
+      aheadSeconds: 150,
+      at: new Date('2026-10-12T10:00:00Z'),
+    });
+    await db.refusals.note({
+      deviceId: 'dev-x',
+      employeeId: people[1]?.id ?? '',
+      reason: 'clock_ahead',
+      events: 2,
+      aheadSeconds: 140,
+      at: new Date('2026-10-13T09:00:00Z'),
+    });
+    const h = await health(db, people, totals, now, { from: '2026-10-12', to: '2026-10-13' });
     expect(h).toMatchObject({
       active_people: 3,
       with_app: 2,
@@ -180,6 +196,16 @@ describe('adoption and health (ADR-0040 §3.4)', () => {
       newest_version: '0.1.35',
       computers_behind: 1,
       corrections_waiting: 0,
+      refused: [
+        {
+          name: 'Farheen Test',
+          os: null,
+          reason: 'clock_ahead',
+          events: 5,
+          ahead_seconds: 150,
+          last_at: '2026-10-13T09:00:00.000Z',
+        },
+      ],
     });
     expect(compareVersions('0.1.9', '0.1.10')).toBeLessThan(0);
   });

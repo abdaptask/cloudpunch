@@ -2,7 +2,7 @@ import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Overview, OverviewPerson } from '../api.js';
-import { csvName, csvOf, hrs, rangeIssue, rangeOf } from './overviewModel.js';
+import { csvName, csvOf, hrs, rangeIssue, rangeOf, refusalText } from './overviewModel.js';
 import { Reports } from './ReportsPage.js';
 
 const mocks = vi.hoisted(() => ({
@@ -64,6 +64,17 @@ const OVERVIEW: Overview = {
     newest_version: '0.1.36',
     computers_behind: 1,
     corrections_waiting: 2,
+    refused: [
+      {
+        employee_id: 'e-m',
+        name: 'Masrat Afzal',
+        os: 'windows',
+        reason: 'clock_ahead',
+        events: 40,
+        ahead_seconds: 150,
+        last_at: '2026-10-13T09:00:00Z',
+      },
+    ],
   },
 };
 
@@ -99,6 +110,9 @@ describe('overview model (ADR-0040 §3)', () => {
     expect(rangeIssue('2026-10-14', '2026-10-13')).toBe('The start is after the end');
     expect(hrs(32 * H)).toBe('32h');
     expect(hrs(1.25 * H)).toBe('1.3h');
+    expect(refusalText('clock_ahead', 150)).toBe("computer's clock is ahead by 2 min 30 s");
+    expect(refusalText('clock_ahead', 120)).toBe("computer's clock is ahead by 2 min");
+    expect(refusalText('device_signed_out', null)).toBe('computer signed out by an Administrator');
   });
 
   it('CSV as the server writes it, formula-safe', () => {
@@ -140,6 +154,9 @@ describe('Reports → Overview (ADR-0040 §3)', () => {
     expect(health).toHaveTextContent('Nilesh Test');
     expect(within(health).getByRole('img', { name: '0.1.27: 1' })).toBeTruthy();
     expect(health).toHaveTextContent('1 behind 0.1.36');
+    expect(within(health).getByLabelText('uploads-refused')).toHaveTextContent(
+      "Masrat Afzal (Windows): computer's clock is ahead by 2 min 30 s · 40 events",
+    );
   });
 
   it('a range over 93 days is not asked for', async () => {

@@ -277,6 +277,16 @@ export interface Overview {
     newest_version: string | null;
     computers_behind: number;
     corrections_waiting: number;
+    /** Uploads the server refused in the range, per computer and reason. */
+    refused?: {
+      employee_id: string;
+      name: string;
+      os: string | null;
+      reason: string;
+      events: number;
+      ahead_seconds: number | null;
+      last_at: string;
+    }[];
   };
 }
 
