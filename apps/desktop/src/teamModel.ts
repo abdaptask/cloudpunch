@@ -134,7 +134,15 @@ export interface DayRow {
   detail: string | null;
   /** The break went over the plan. */
   late: boolean;
+  /**
+   * An idle stretch with an account a manager can accept (ADR-0030 §4):
+   * the correction to send, to `working`, for exactly that stretch.
+   */
+  accept?: { from: string; to: string; tzIana: string; reason: string };
 }
+
+/** Answers a manager can accept as worked time; a break already counts (ADR-0042). */
+const ACCEPTABLE = new Set(['working_away', 'meeting', 'phone_call']);
 
 /** A team member's day as rows, on the clock where the work happened. */
 export function dayRows(day: TeamDay): DayRow[] {
@@ -166,6 +174,7 @@ export function dayRows(day: TeamDay): DayRow[] {
           : 'No explanation given';
         if (g.presence_check) detail = `Presence check not answered · ${detail}`;
       }
+      const x = g.kind === 'idle' && !g.correction_id ? g.explanation : undefined;
       return {
         kind: g.kind,
         label: g.presence_check && g.kind === 'prompt' ? 'Presence check' : label(g.kind),
@@ -173,6 +182,18 @@ export function dayRows(day: TeamDay): DayRow[] {
         to,
         detail,
         late: late || (g.kind === 'idle' && !!g.presence_check),
+        ...(x && ACCEPTABLE.has(x.explanation)
+          ? {
+              accept: {
+                from: g.started_at,
+                to: g.ended_at,
+                tzIana: s.tz_iana,
+                reason: `Accepted idle explanation: ${EXPLANATION[x.explanation] ?? x.explanation}${
+                  x.note ? ` (“${x.note}”)` : ''
+                }`.slice(0, 500),
+              },
+            }
+          : {}),
       };
     }),
   );

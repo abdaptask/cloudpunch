@@ -14,6 +14,7 @@ import {
   statusText,
   type DayRow,
 } from './teamModel.js';
+import { correctionErrorText } from './correctionModel.js';
 import { formatClock, type SegmentKind } from './timelineModel.js';
 import { Button } from './ui/Button.js';
 import { useTheme, type Theme } from './ui/theme.js';
@@ -578,7 +579,28 @@ function DayDetail({
 }): JSX.Element {
   const t = useTheme();
   const [correcting, setCorrecting] = useState(false);
+  // "Accept explanation" (ADR-0030 §4): the row being sent, and what came back.
+  const [accepting, setAccepting] = useState<number | null>(null);
+  const [accepted, setAccepted] = useState<{ kind: 'saved' | 'error'; text: string } | null>(null);
   const rows = dayRows(day);
+  const accept = (i: number, a: NonNullable<DayRow['accept']>): void => {
+    setAccepting(i);
+    setAccepted(null);
+    api.requestCorrection({ ...a, employeeId: id, kind: 'working' }).then(
+      () => {
+        setAccepting(null);
+        setAccepted({
+          kind: 'saved',
+          text: 'Sent: that idle time counts as worked once an Administrator approves it.',
+        });
+        onChanged();
+      },
+      (e: unknown) => {
+        setAccepting(null);
+        setAccepted({ kind: 'error', text: correctionErrorText(String(e)) });
+      },
+    );
+  };
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
       <p aria-label="team-day-totals" style={{ margin: 0, fontSize: 13, lineHeight: 1.5 }}>
@@ -629,6 +651,25 @@ function DayDetail({
                     {r.detail}
                   </span>
                 )}
+                {canCorrect && r.accept && (
+                  <button
+                    type="button"
+                    disabled={accepting !== null}
+                    onClick={() => r.accept && accept(i, r.accept)}
+                    style={{
+                      padding: 0,
+                      marginTop: 2,
+                      border: 'none',
+                      background: 'none',
+                      color: t.accent,
+                      font: 'inherit',
+                      fontSize: 12,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {accepting === i ? 'Sending…' : 'Accept explanation'}
+                  </button>
+                )}
               </span>
               <span style={{ color: t.muted, fontVariantNumeric: 'tabular-nums' }}>
                 {hm((r.to - r.from) / 60_000)}
@@ -636,6 +677,18 @@ function DayDetail({
             </li>
           ))}
         </ul>
+      )}
+      {accepted && (
+        <p
+          role={accepted.kind === 'error' ? 'alert' : 'status'}
+          style={{
+            margin: 0,
+            fontSize: 12.5,
+            color: accepted.kind === 'error' ? t.danger : t.text,
+          }}
+        >
+          {accepted.text}
+        </p>
       )}
       <DayCorrections corrections={day.corrections} />
       {canCorrect &&
