@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Desktop 0.1.39 and web: the Shifts page uses the width (owner: "squished")
+
+- The Shifts page is 1100 wide instead of 760.
+- **Named shifts** are a table: Name | Days and hours | People | actions.
+  Edit, Give to people… and the new-shift form open under their row
+  across the whole width, not inside a narrow column.
+- **Each person's shift** lists name, shift and buttons side by side,
+  wrapping only on a narrow window.
+
 ### Desktop 0.1.39 and web: change history; the old admin screens leave the small window (ADR-0038 phase 8)
 
 - **Person panel → Changes:** "Show changes" lists what was changed for

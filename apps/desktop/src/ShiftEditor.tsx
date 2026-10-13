@@ -388,18 +388,29 @@ export function ShiftEditor({
         {rows?.map((row) => (
           <li
             key={row.employee_id}
-            style={{ borderTop: `1px solid ${t.border}`, padding: '6px 0', fontSize: 13 }}
+            style={{ borderTop: `1px solid ${t.border}`, padding: '8px 0', fontSize: 13 }}
           >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={{ flex: 1, minWidth: 0 }}>
-                <strong style={{ fontWeight: 600 }}>{row.name}</strong>
-                <span
-                  aria-label={`shift of ${row.name}`}
-                  style={{ display: 'block', fontSize: 12, color: t.muted }}
-                >
-                  {row.template && row.shift ? `${row.template.name} · ` : ''}
-                  {shiftText(row.shift)}
-                </span>
+            {/* Person | shift | actions: wraps on a narrow window. */}
+            <div
+              style={{
+                display: 'flex',
+                flexWrap: 'wrap',
+                alignItems: 'center',
+                columnGap: 16,
+                rowGap: 4,
+              }}
+            >
+              <strong style={{ fontWeight: 600, flex: '1 1 160px', minWidth: 0 }}>
+                {row.name}
+              </strong>
+              <span
+                aria-label={`shift of ${row.name}`}
+                style={{ flex: '3 1 260px', minWidth: 0, color: row.shift ? t.text : t.muted }}
+              >
+                {row.template && row.shift ? (
+                  <strong style={{ fontWeight: 600 }}>{row.template.name} · </strong>
+                ) : null}
+                {shiftText(row.shift)}
               </span>
               {editing !== row.employee_id && copying !== row.employee_id && (
                 <>

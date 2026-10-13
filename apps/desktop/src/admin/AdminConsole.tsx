@@ -122,7 +122,7 @@ export function AdminConsole({
               section === 'people' || section === 'connections' || section === 'reports'
                 ? 1400
                 : section === 'shifts'
-                  ? 760
+                  ? 1100
                   : 960,
             padding: '20px 28px 40px',
             display: 'flex',
