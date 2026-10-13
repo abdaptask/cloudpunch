@@ -18,6 +18,20 @@ export function patternBody(t: ShiftPattern, reason: string): Record<string, unk
   };
 }
 
+/** Office weekdays (ADR-0039) as the server takes them. */
+export function officePatternBody(
+  weekdays: number[],
+  effectiveFrom: string | null,
+  reason: string,
+): Record<string, unknown> {
+  const r = reason.trim();
+  return {
+    weekdays,
+    ...(effectiveFrom ? { effective_from: effectiveFrom } : {}),
+    ...(r ? { reason: r } : {}),
+  };
+}
+
 /** A bulk shift request as the server takes it. */
 export function bulkShiftBody(
   key: string,

@@ -1,4 +1,4 @@
-import { bulkShiftBody, patternBody } from './admin/shiftBodies.js';
+import { bulkShiftBody, officePatternBody, patternBody } from './admin/shiftBodies.js';
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
@@ -98,6 +98,8 @@ export interface TeamPerson {
   worked_ms: number;
   /** The holiday's name, when `status` is `holiday`. */
   holiday?: string;
+  /** In the office today (ADR-0039): `status` is `holiday`, named "In office". */
+  in_office?: true;
   /** Missed starts and "not working" days lately (ADR-0037 §4), when any. */
   starts?: { missed: number; not_working: number; days: number; regular: boolean };
 }
@@ -193,6 +195,14 @@ export interface ShiftRow {
   shift: Shift | null;
   /** The named shift they're on (ADR-0038 §6); null or absent: custom. */
   template?: { id: string; name: string } | null;
+}
+
+/** Someone's in-office days (ADR-0039): usual weekdays and one-offs in a range. */
+export interface OfficeDays {
+  employee_id: string;
+  /** ISO weekdays, 1 = Monday … 7 = Sunday. */
+  weekdays: number[];
+  days: { date: string; in_office: boolean }[];
 }
 
 /** A named shift's pattern, as it's set up (ADR-0038 §6). */
@@ -629,6 +639,52 @@ export const api = {
   }> =>
     invoke('admin_bulk_shift', {
       body: bulkShiftBody(key, employeeIds, target, effectiveFrom, reason),
+    }),
+  /** In-office days (ADR-0039), Administrators and HR. */
+  adminOfficeDays: (from: string, to: string): Promise<{ people: OfficeDays[] }> =>
+    invoke('admin_office_days', { from, to }),
+  adminSetOfficePattern: (
+    employeeId: string,
+    weekdays: number[],
+    effectiveFrom: string | null,
+    reason: string,
+  ): Promise<{ weekdays: number[]; effective_from: string }> =>
+    invoke('admin_set_office_pattern', {
+      employeeId,
+      body: officePatternBody(weekdays, effectiveFrom, reason),
+    }),
+  adminSetOfficeDay: (
+    employeeId: string,
+    date: string,
+    inOffice: boolean,
+    reason: string,
+  ): Promise<{ date: string; in_office: boolean }> =>
+    invoke('admin_set_office_day', {
+      employeeId,
+      date,
+      body: reason.trim()
+        ? { in_office: inOffice, reason: reason.trim() }
+        : { in_office: inOffice },
+    }),
+  /** Bulk (ADR-0038 §5): the same office weekdays for many, all or nothing. */
+  adminBulkOffice: (
+    key: string,
+    employeeIds: string[],
+    weekdays: number[],
+    effectiveFrom: string | null,
+    reason: string,
+  ): Promise<{
+    weekdays: number[];
+    effective_from: string;
+    changed: string[];
+    unchanged: string[];
+  }> =>
+    invoke('admin_bulk_office', {
+      body: {
+        idempotency_key: key,
+        employee_ids: employeeIds,
+        ...officePatternBody(weekdays, effectiveFrom, reason),
+      },
     }),
   /** The company holidays, last month to a year ahead (ADR-0037). */
   holidays: (): Promise<{ holidays: Holiday[] }> => invoke<{ holidays: Holiday[] }>('holidays'),

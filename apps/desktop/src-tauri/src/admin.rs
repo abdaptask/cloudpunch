@@ -358,6 +358,89 @@ pub fn bulk_shift(http: &Client, base: &str, token: &str, body: &Value) -> Resul
     )
 }
 
+// In-office days (ADR-0039): Administrators and HR; the server checks.
+
+/// Everyone's office weekdays and one-offs from `from` to `to`.
+pub fn office_days(
+    http: &Client,
+    base: &str,
+    token: &str,
+    from: &str,
+    to: &str,
+) -> Result<Value, DayError> {
+    if !is_date(from) || !is_date(to) {
+        return Err(DayError::Refused("invalid_argument".into()));
+    }
+    send(
+        http,
+        base,
+        token,
+        reqwest::Method::GET,
+        &format!("/v1/admin/office-days?from={from}&to={to}"),
+        None,
+    )
+}
+
+/// Someone's usual office weekdays (`{weekdays, effective_from?, reason?}`).
+pub fn set_office_pattern(
+    http: &Client,
+    base: &str,
+    token: &str,
+    employee_id: &str,
+    body: &Value,
+) -> Result<Value, DayError> {
+    if !is_uuid(employee_id) {
+        return Err(DayError::Refused("invalid_argument".into()));
+    }
+    send(
+        http,
+        base,
+        token,
+        reqwest::Method::PUT,
+        &format!("/v1/admin/employees/{employee_id}/office-pattern"),
+        Some(body),
+    )
+}
+
+/// A one-off: in the office or not on `date`.
+pub fn set_office_day(
+    http: &Client,
+    base: &str,
+    token: &str,
+    employee_id: &str,
+    date: &str,
+    body: &Value,
+) -> Result<Value, DayError> {
+    if !is_uuid(employee_id) || !is_date(date) {
+        return Err(DayError::Refused("invalid_argument".into()));
+    }
+    send(
+        http,
+        base,
+        token,
+        reqwest::Method::PUT,
+        &format!("/v1/admin/employees/{employee_id}/office-days/{date}"),
+        Some(body),
+    )
+}
+
+/// The same office weekdays for many (ADR-0038 §5), all or nothing.
+pub fn bulk_office(
+    http: &Client,
+    base: &str,
+    token: &str,
+    body: &Value,
+) -> Result<Value, DayError> {
+    send(
+        http,
+        base,
+        token,
+        reqwest::Method::PUT,
+        "/v1/admin/employees/bulk/office-pattern",
+        Some(body),
+    )
+}
+
 /// The company holidays (ADR-0037 §1), last month to a year ahead.
 pub fn holidays(http: &Client, base: &str, token: &str) -> Result<Value, DayError> {
     send(
@@ -927,6 +1010,35 @@ mod tests {
             "t",
             "x/retire",
             None
+        )));
+    }
+
+    #[test]
+    fn office_calls_refuse_bad_ids_and_dates_before_sending() {
+        let bad = |r: Result<Value, DayError>| matches!(r, Err(DayError::Refused(c)) if c == "invalid_argument");
+        let base = "http://127.0.0.1:9";
+        let id = "0f8e1c2a-3b4d-4e5f-8a9b-0c1d2e3f4a5b";
+        assert!(bad(office_days(
+            &client(),
+            base,
+            "t",
+            "today",
+            "2026-10-30"
+        )));
+        assert!(bad(set_office_pattern(
+            &client(),
+            base,
+            "t",
+            "../x",
+            &json!({})
+        )));
+        assert!(bad(set_office_day(
+            &client(),
+            base,
+            "t",
+            id,
+            "13 Oct",
+            &json!({})
         )));
     }
 

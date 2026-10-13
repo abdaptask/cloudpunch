@@ -16,6 +16,13 @@ const person = (over: Partial<TeamPerson>): TeamPerson => ({
 });
 
 describe('Team today wording (ADR-0025)', () => {
+  it('a holiday, and an office day (ADR-0039)', () => {
+    expect(statusText(person({ status: 'holiday', holiday: 'Diwali' }))).toBe('Holiday: Diwali');
+    expect(statusText(person({ status: 'holiday', holiday: 'In office', in_office: true }))).toBe(
+      'In office',
+    );
+  });
+
   it('says what each person is doing', () => {
     expect(statusText(person({}))).toBe(`Working since ${formatClock(Date.parse(at(9, 2)))}`);
     expect(

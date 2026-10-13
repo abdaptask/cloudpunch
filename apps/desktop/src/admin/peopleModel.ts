@@ -1,4 +1,4 @@
-import type { EmployeeRow, Person, Shift, ShiftRow } from '../api.js';
+import type { EmployeeRow, OfficeDays, Person, Shift, ShiftRow } from '../api.js';
 
 /**
  * The People table (ADR-0038 §3): one row per person, joined from the
@@ -22,6 +22,8 @@ export interface PersonRow {
   shift: Shift | null | undefined;
   /** The named shift they're on (ADR-0038 §6); null: custom or none. */
   template: { id: string; name: string } | null;
+  /** Their in-office days (ADR-0039); undefined when not loaded. */
+  office?: { weekdays: number[]; days: { date: string; in_office: boolean }[] };
 }
 
 /** Roles that can see others' time, so can be someone's manager (ADR-0025). */
@@ -31,6 +33,7 @@ export function buildRows(
   people: readonly Person[],
   employees: readonly EmployeeRow[],
   shifts: readonly ShiftRow[] | null,
+  office: readonly OfficeDays[] | null = null,
 ): PersonRow[] {
   const byId = new Map(employees.map((e) => [e.id, e]));
   const shiftOf = (employeeId: string | null): Shift | null | undefined => {
@@ -40,6 +43,11 @@ export function buildRows(
   };
   const templateOf = (employeeId: string | null) =>
     (employeeId && shifts?.find((s) => s.employee_id === employeeId)?.template) || null;
+  const officeOf = (employeeId: string | null): Pick<PersonRow, 'office'> => {
+    if (!office || !employeeId) return {};
+    const o = office.find((x) => x.employee_id === employeeId);
+    return { office: { weekdays: o?.weekdays ?? [], days: o?.days ?? [] } };
+  };
   const row = (p: Person | null, e: EmployeeRow | null): PersonRow => {
     const managerId = e?.reporting_manager_id ?? null;
     return {
@@ -53,6 +61,7 @@ export function buildRows(
       managerName: managerId ? (byId.get(managerId)?.name ?? null) : null,
       shift: shiftOf(e?.id ?? null),
       template: templateOf(e?.id ?? null),
+      ...officeOf(e?.id ?? null),
     };
   };
   const rows = people.map((p) => row(p, employees.find((e) => e.oid === p.oid) ?? null));
@@ -144,7 +153,7 @@ export function applyFilter(rows: readonly PersonRow[], f: Filter): PersonRow[] 
   );
 }
 
-export type SortKey = 'name' | 'roles' | 'manager' | 'shift' | 'status';
+export type SortKey = 'name' | 'roles' | 'manager' | 'shift' | 'office' | 'status';
 export interface Sort {
   key: SortKey;
   dir: 'asc' | 'desc';

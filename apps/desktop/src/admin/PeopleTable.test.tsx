@@ -18,6 +18,10 @@ const mocks = vi.hoisted(() => ({
   adminShiftTemplates: vi.fn(),
   adminSetNamedShift: vi.fn(),
   adminBulkShift: vi.fn(),
+  adminOfficeDays: vi.fn(),
+  adminSetOfficePattern: vi.fn(),
+  adminSetOfficeDay: vi.fn(),
+  adminBulkOffice: vi.fn(),
 }));
 vi.mock('../api.js', () => ({ api: mocks }));
 
@@ -92,6 +96,13 @@ beforeEach(() => {
     ],
     custom: 0,
     none: 1,
+  });
+  mocks.adminOfficeDays.mockResolvedValue({
+    people: [
+      { employee_id: 'e-priya', weekdays: [2, 4], days: [] },
+      { employee_id: 'e-hr', weekdays: [], days: [] },
+      { employee_id: 'e-roshni', weekdays: [], days: [] },
+    ],
   });
   mocks.adminSetManager.mockResolvedValue({ id: 'e-roshni', reporting_manager_id: 'e-priya' });
   mocks.adminActiveDevice.mockResolvedValue(null);
@@ -381,5 +392,65 @@ describe('named shifts in People (ADR-0038 §6)', () => {
     const bar = screen.getByRole('toolbar', { name: 'bulk-actions' });
     expect(within(bar).queryByRole('button', { name: 'Set shift' })).not.toBeInTheDocument();
     expect(within(bar).getByRole('button', { name: 'Set manager' })).toBeInTheDocument();
+  });
+});
+
+describe('in-office days in People (ADR-0039)', () => {
+  it('the Office column, and the panel sets weekdays and one-off dates', async () => {
+    mocks.adminSetOfficePattern.mockResolvedValue({
+      weekdays: [1, 5],
+      effective_from: '2099-10-13',
+    });
+    mocks.adminSetOfficeDay.mockResolvedValue({ date: '2099-10-20', in_office: true });
+    const user = userEvent.setup();
+    render(<PeopleTable canAssignAll onClose={() => undefined} />);
+    const priya = (await screen.findByRole('button', { name: 'Priya Shah' })).closest('tr')!;
+    expect(screen.getByRole('columnheader', { name: /Office/ })).toBeInTheDocument();
+    expect(priya).toHaveTextContent('Tue, Thu');
+
+    await user.click(screen.getByRole('button', { name: 'Roshni Sahani' }));
+    const panel = screen.getByRole('complementary', { name: 'person Roshni Sahani' });
+    const days = within(panel).getByRole('group', { name: 'office-weekdays' });
+    await user.click(within(days).getByRole('button', { name: 'Mon' }));
+    await user.click(within(days).getByRole('button', { name: 'Fri' }));
+    await user.type(within(panel).getByLabelText('person-reason'), 'hybrid');
+    await user.click(within(panel).getByRole('button', { name: 'Save office weekdays' }));
+    expect(mocks.adminSetOfficePattern).toHaveBeenCalledWith('e-roshni', [1, 5], null, 'hybrid');
+    expect(await within(panel).findByRole('status')).toHaveTextContent('Office days: Mon, Fri');
+
+    await user.type(within(panel).getByLabelText('office-date'), '2099-10-20');
+    await user.click(within(panel).getByRole('button', { name: 'Add date' }));
+    expect(mocks.adminSetOfficeDay).toHaveBeenCalledWith('e-roshni', '2099-10-20', true, 'hybrid');
+  });
+
+  it('bulk: Set office days, with a preview', async () => {
+    mocks.adminBulkOffice.mockResolvedValue({
+      weekdays: [2, 4],
+      effective_from: '2099-10-13',
+      changed: ['e-hr', 'e-roshni'],
+      unchanged: ['e-priya'],
+    });
+    const user = userEvent.setup();
+    render(<PeopleTable canAssignAll onClose={() => undefined} />);
+    await user.click(await screen.findByRole('checkbox', { name: 'select this page' }));
+    await user.click(screen.getByRole('button', { name: 'Set office days' }));
+    const panel = screen.getByRole('complementary', { name: 'bulk Set office days' });
+    const days = within(panel).getByRole('group', { name: 'bulk-office-weekdays' });
+    await user.click(within(days).getByRole('button', { name: 'Tue' }));
+    await user.click(within(days).getByRole('button', { name: 'Thu' }));
+    expect(within(panel).getByLabelText('bulk-preview')).toHaveTextContent(
+      'In the office: Tue, Thu, from today. This changes 2 people: Hema R and Roshni Sahani. 1 person already has these days.',
+    );
+    await user.click(within(panel).getByRole('button', { name: 'Apply' }));
+    expect(mocks.adminBulkOffice).toHaveBeenCalledWith(
+      expect.any(String),
+      ['e-hr', 'e-roshni'],
+      [2, 4],
+      null,
+      '',
+    );
+    expect(
+      await within(panel).findByText(/2 people changed; 1 already had those office days/),
+    ).toBeInTheDocument();
   });
 });

@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Desktop 0.1.34 and web: setting in-office days (ADR-0039)
+
+- **People → person panel → Office days:** tick their usual office
+  weekdays (from today), and add one-off dates "In office" or "Not in
+  office" (the coming ones are listed, each with a one-click switch).
+- **Bulk bar → Set office days:** the same weekdays for everyone ticked,
+  with a preview (who changes, who already has them, who is left out);
+  all or nothing.
+- **People table:** an **Office** column ("Tue, Thu"), sortable.
+- **Team** says **In office** for someone on an office day (older apps
+  show "Holiday: In office").
+
 ### Server: in-office days for hybrid workers (ADR-0039; migration 0015)
 
 - **Migration 0015** (append-only): `office_pattern` (usual office

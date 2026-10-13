@@ -1268,6 +1268,62 @@ pub async fn admin_bulk_shift(
     answer(fetched)
 }
 
+/// In-office days (ADR-0039): everyone's, from `from` to `to`.
+#[tauri::command]
+pub async fn admin_office_days(
+    auth: State<'_, Arc<Auth>>,
+    from: String,
+    to: String,
+) -> Result<serde_json::Value, String> {
+    let (_, fetched) = fetch_as_user(&auth, move |http, base, token| {
+        admin::office_days(http, base, token, &from, &to)
+    })
+    .await?;
+    answer(fetched)
+}
+
+/// Someone's usual office weekdays.
+#[tauri::command]
+pub async fn admin_set_office_pattern(
+    auth: State<'_, Arc<Auth>>,
+    employee_id: String,
+    body: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    let (_, fetched) = fetch_as_user(&auth, move |http, base, token| {
+        admin::set_office_pattern(http, base, token, &employee_id, &body)
+    })
+    .await?;
+    answer(fetched)
+}
+
+/// A one-off office day (or not).
+#[tauri::command]
+pub async fn admin_set_office_day(
+    auth: State<'_, Arc<Auth>>,
+    employee_id: String,
+    date: String,
+    body: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    let (_, fetched) = fetch_as_user(&auth, move |http, base, token| {
+        admin::set_office_day(http, base, token, &employee_id, &date, &body)
+    })
+    .await?;
+    answer(fetched)
+}
+
+/// Bulk office weekdays, all or nothing.
+#[tauri::command]
+pub async fn admin_bulk_office(
+    auth: State<'_, Arc<Auth>>,
+    body: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    let (_, fetched) = fetch_as_user(&auth, move |http, base, token| {
+        admin::bulk_office(http, base, token, &body)
+    })
+    .await?;
+    answer(fetched)
+}
+
 /// The company holidays (ADR-0037 §1).
 #[tauri::command]
 pub async fn holidays(auth: State<'_, Arc<Auth>>) -> Result<serde_json::Value, String> {

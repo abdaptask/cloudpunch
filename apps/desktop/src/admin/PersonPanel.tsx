@@ -7,6 +7,7 @@ import { useTheme, type Theme } from '../ui/theme.js';
 import { WelcomePanel } from '../WelcomePanel.js';
 import { MANAGING_ROLES, managerChoices, type PersonRow } from './peopleModel.js';
 import { ManagerPicker } from './ManagerPicker.js';
+import { OfficeDaysPart } from './OfficeDaysPart.js';
 import { ShiftChooser } from './ShiftChooser.js';
 
 const MORE_ERRORS: Record<string, string> = {
@@ -222,6 +223,22 @@ export function PersonPanel({
                   </button>
                 </div>
               )}
+            </Part>
+          )}
+
+          {row.office && (
+            <Part title="Office days" t={t}>
+              <OfficeDaysPart
+                key={row.office.weekdays.join()}
+                employeeId={row.employeeId}
+                weekdays={row.office.weekdays}
+                days={row.office.days}
+                reason={reason}
+                onSaved={(text, error) => {
+                  setStatus({ kind: error ? 'error' : 'saved', text });
+                  if (!error) onChanged();
+                }}
+              />
             </Part>
           )}
         </>

@@ -35,6 +35,8 @@ export function statusText(p: TeamPerson): string {
     case 'not_working':
       return 'Said not working today';
     case 'holiday':
+      // An office day comes as a holiday named "In office" (ADR-0039).
+      if (p.in_office) return 'In office';
       return p.holiday ? `Holiday: ${p.holiday}` : 'Holiday';
   }
 }
