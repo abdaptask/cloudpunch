@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Server and web: download with a Microsoft sign-in, not Cloudflare Access (owner decision)
+
+- Cloudflare Access's free plan (50 seats) ran out with the rollout, so
+  new people couldn't reach the download page, and managers opening the
+  web dashboard used seats too.
+- **`/app/download/`**: sign in with your ApTask Microsoft account, then
+  **Download for Windows** or **Download for Mac**. Anyone with a
+  CloudPunch role can download; others are told to ask HR.
+- **`POST /v1/desktop/download-link/:platform`** hands out a 10-minute
+  link (`/get/windows`, `/get/mac`) to the newest installer; an expired
+  or wrong link goes back to the sign-in page. The landing page's
+  buttons and the old `/download*` addresses go there too.
+- Ops: delete the Access applications on `/download` and `/app` in
+  Cloudflare Zero Trust; nothing else changes (auto-updates never used
+  Access).
+
 ### Docs: ADR-0040 day-end summary and overall report (accepted)
 
 - A day-end email for each manager (their team) and Administrators

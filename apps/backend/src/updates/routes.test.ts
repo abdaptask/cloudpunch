@@ -14,6 +14,7 @@ import {
 } from 'jose';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { authPlugin } from '../auth/plugin.js';
+import { linkValid } from '../landing/links.js';
 import type { Release } from '../landing/routes.js';
 import { isNewer, updateRoutes } from './routes.js';
 
@@ -37,14 +38,14 @@ beforeAll(async () => {
   jwks = createLocalJWKSet({ keys: [pubJwk] });
 });
 
-async function bearer(): Promise<string> {
+async function bearer(roles: string[] = [AppRole.Employee]): Promise<string> {
   const now = Math.floor(Date.now() / 1000);
   const token = await new SignJWT({
     aud: CLIENT_ID,
     tid: TENANT_ID,
     oid: randomUUID(),
     scp: REQUIRED_SCOPE,
-    roles: [AppRole.Employee],
+    roles,
   })
     .setProtectedHeader({ alg: 'RS256', kid: KID })
     .setIssuer(ISSUER)
@@ -266,5 +267,38 @@ describe('macOS updates (ADR-0026)', () => {
       headers: auth,
     });
     expect(other.statusCode).toBe(204);
+  });
+});
+
+describe('POST /v1/desktop/download-link/:platform (owner decision, 2026-10-13)', () => {
+  it('gives anyone with a CloudPunch role a link to the newest installer', async () => {
+    const a = await app(publish([release()]));
+    const res = await a.inject({
+      method: 'POST',
+      url: '/v1/desktop/download-link/windows',
+      headers: { authorization: await bearer() },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json<{ url: string; version: string; file: string }>();
+    expect(body).toMatchObject({ version: '0.1.2', file: 'CloudPunch_0.1.2_x64-setup.exe' });
+    expect(body.url).toMatch(/^\/get\/windows\?t=\d+\.[\w-]{43}$/);
+    const t = body.url.split('t=')[1] ?? '';
+    expect(linkValid('windows', 'CloudPunch_0.1.2_x64-setup.exe', t, Date.now())).toBe(true);
+  });
+
+  it('needs a sign-in with a role; unknown platforms and no release are 404', async () => {
+    const a = await app(publish([release()]));
+    const post = async (url: string, auth?: string) =>
+      (
+        await a.inject({
+          method: 'POST',
+          url,
+          ...(auth ? { headers: { authorization: auth } } : {}),
+        })
+      ).statusCode;
+    expect(await post('/v1/desktop/download-link/windows')).toBe(401);
+    expect(await post('/v1/desktop/download-link/windows', await bearer([]))).toBe(403);
+    expect(await post('/v1/desktop/download-link/linux', await bearer())).toBe(404);
+    expect(await post('/v1/desktop/download-link/mac', await bearer())).toBe(404);
   });
 });
