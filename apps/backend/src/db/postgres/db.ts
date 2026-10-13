@@ -20,6 +20,7 @@ import type {
   WeeklyReportRepo,
   NewOfficePattern,
   LocationAlertRepo,
+  ReportRepo,
   NewShiftAssignment,
   OfficeDay,
   OfficePattern,
@@ -81,8 +82,29 @@ export class PostgresDb implements DbRepositories {
   readonly bulkRequests: BulkRequestRepo;
   readonly office: OfficeRepo;
   readonly locationAlerts: LocationAlertRepo;
+  readonly reports: ReportRepo;
 
   constructor(private readonly sql: postgres.Sql) {
+    this.reports = {
+      claimAndSend: (c, send) =>
+        this.sql.begin(async (tx) => {
+          const rows = await tx`
+            INSERT INTO report_sent (report, report_date, recipient, people, sent_at)
+            VALUES (${c.report}, ${c.date}::date, ${c.recipient}, ${c.people}, ${c.at})
+            ON CONFLICT DO NOTHING
+            RETURNING report`;
+          if (rows.length === 0) return false;
+          await send();
+          return true;
+        }),
+      auditView: async (v) => {
+        await this.sql`
+          INSERT INTO audit_log (actor_type, actor_user_id, entity_type, entity_id, action,
+                                 previous_value, new_value, reason, correlation_id, occurred_at)
+          VALUES ('user', ${v.actorUserId}, 'report', NULL, ${`${v.report}_report_viewed`},
+                  NULL, ${this.sql.json(v.detail)}, NULL, ${v.correlationId}, ${v.at})`;
+      },
+    };
     this.locationAlerts = {
       claimAndSend: (c, send) =>
         this.sql.begin(async (tx) => {

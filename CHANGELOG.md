@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Server: the day-end summary (ADR-0040 §1–2; migration 0017)
+
+- **One row per person and day:** status (worked, late, not clocked in,
+  not working today, holiday, in office, off), first clock-in and
+  minutes late against the shift, last clock-out or still clocked in,
+  hours worked against the shift, idle, breaks (and how many went over
+  their limit), Away, and corrections waiting. Built from the same
+  days Team shows; "late" means after the missed clock-in grace.
+- `GET /v1/reports/day?date=`: a Manager gets their direct reports, HR
+  and Administrators everyone; one audit row per request.
+- **The email:** each morning at 08:00 India time (setting
+  `reports.day_email_at`), each manager gets their team's day before
+  and each Administrator everyone's (one email if both). Problems
+  first; totals only, no idle explanations or locations. Once per day
+  and recipient (`report_sent`, append-only). **Off by default**
+  (`reports.day_emails`); the switch in Rules comes with the console
+  page.
+
 ### Release script: Windows publishes only an up-to-date main
 
 - `scripts/build-windows.ps1 -Publish` now refuses a copy that is on

@@ -30,6 +30,8 @@ import { updateRoutes } from './updates/routes.js';
 import { teamRoutes } from './team/routes.js';
 import { RoleNotes } from './alerts/roles.js';
 import { ShiftAlertJob } from './alerts/job.js';
+import { DayReportJob } from './reports/job.js';
+import { reportRoutes } from './reports/routes.js';
 import { sendShiftMail, type ShiftMail } from './alerts/mail.js';
 
 export interface BuildAppOptions {
@@ -146,6 +148,8 @@ export async function buildApp(opts: BuildAppOptions) {
     await app.register(shiftRoutes, { db: opts.db });
     // In-office days for hybrid workers (ADR-0039).
     await app.register(officeRoutes, { db: opts.db });
+    // Reports (ADR-0040).
+    await app.register(reportRoutes, { db: opts.db });
     // ADR-0037 §3: the shift-start emails, checked every minute while
     // the server runs (only where CloudPunch's mailbox is configured).
     if (alertSend) {
@@ -157,6 +161,15 @@ export async function buildApp(opts: BuildAppOptions) {
       });
       app.addHook('onReady', async () => job.start());
       app.addHook('onClose', async () => job.stop());
+      // ADR-0040 §2: the day-end summary, once each morning when switched on.
+      const dayReports = new DayReportJob({
+        db: opts.db,
+        log: app.log,
+        send: alertSend,
+        siteUrl: opts.env.PUBLIC_SITE_URL,
+      });
+      app.addHook('onReady', async () => dayReports.start());
+      app.addHook('onClose', async () => dayReports.stop());
     }
     await app.register(peopleRoutes, {
       db: opts.db,

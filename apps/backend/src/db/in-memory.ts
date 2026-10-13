@@ -24,6 +24,9 @@ import type {
   NewOfficePattern,
   LocationAlertClaim,
   LocationAlertRepo,
+  ReportRepo,
+  ReportSentClaim,
+  ReportViewAudit,
   NewShiftAssignment,
   OfficeDay,
   OfficePattern,
@@ -86,6 +89,11 @@ export class InMemoryDb implements DbRepositories {
   readonly bulkRequests: BulkRequestRepo;
   readonly office: OfficeRepo;
   readonly locationAlerts: LocationAlertRepo;
+  readonly reports: ReportRepo;
+  /** report_sent (ADR-0040 §2). */
+  readonly reportSentRows: ReportSentClaim[] = [];
+  /** Report opens (ADR-0040 §4). */
+  readonly reportAudit: ReportViewAudit[] = [];
   /** location_alert (ADR-0041). */
   readonly locationAlertRows: LocationAlertClaim[] = [];
   /** office_pattern / office_day (ADR-0039). */
@@ -221,6 +229,26 @@ export class InMemoryDb implements DbRepositories {
       this.officePatternRows.push(row);
       this.officeAudit.push('office_pattern_set');
       return { ...row, weekdays: [...row.weekdays] };
+    };
+    this.reports = {
+      claimAndSend: async (c, send) => {
+        const same = (r: ReportSentClaim): boolean =>
+          r.report === c.report &&
+          r.date === c.date &&
+          r.recipient.toLowerCase() === c.recipient.toLowerCase();
+        if (this.reportSentRows.some(same)) return false;
+        this.reportSentRows.push({ ...c });
+        try {
+          await send();
+        } catch (err) {
+          this.reportSentRows.splice(this.reportSentRows.findIndex(same), 1);
+          throw err;
+        }
+        return true;
+      },
+      auditView: async (entry) => {
+        this.reportAudit.push(entry);
+      },
     };
     this.locationAlerts = {
       claimAndSend: async (c, send) => {

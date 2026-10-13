@@ -825,6 +825,34 @@ export interface LocationAlertRepo {
   claimAndSend(claim: LocationAlertClaim, send: () => Promise<void>): Promise<boolean>;
 }
 
+/** A report email (ADR-0040 §2): which report, the day it covers, to whom. */
+export interface ReportSentClaim {
+  report: 'day';
+  /** `YYYY-MM-DD`. */
+  date: string;
+  recipient: string;
+  people: number;
+  at: Date;
+}
+
+/** Opening a report (ADR-0040 §4): one audit row per request, not per person. */
+export interface ReportViewAudit {
+  actorUserId: string;
+  report: 'day';
+  detail: Record<string, string>;
+  correlationId: string;
+  at: Date;
+}
+
+export interface ReportRepo {
+  /**
+   * Claim the email and run `send` in one transaction: false (and no
+   * send) when it already went; a failed send rolls the claim back.
+   */
+  claimAndSend(claim: ReportSentClaim, send: () => Promise<void>): Promise<boolean>;
+  auditView(entry: ReportViewAudit): Promise<void>;
+}
+
 export interface BulkRequestRepo {
   /** The answer kept for this caller's key, if any. */
   find(
@@ -854,4 +882,5 @@ export interface DbRepositories {
   bulkRequests: BulkRequestRepo;
   office: OfficeRepo;
   locationAlerts: LocationAlertRepo;
+  reports: ReportRepo;
 }
