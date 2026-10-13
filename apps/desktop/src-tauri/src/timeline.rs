@@ -196,6 +196,23 @@ impl Timeline {
         }
     }
 
+    /// "On a break" after idle (ADR-0042): the idle stretch that began at
+    /// `since` becomes that break. False when there is none.
+    pub fn idle_to_break(&mut self, since: SystemTime, kind: BreakKind) -> bool {
+        match self
+            .segments
+            .iter_mut()
+            .rev()
+            .find(|s| s.kind == SegmentKind::Idle && s.started_at == since)
+        {
+            Some(seg) => {
+                seg.kind = SegmentKind::Break(kind);
+                true
+            }
+            None => false,
+        }
+    }
+
     pub fn session_started_at(&self) -> Option<SystemTime> {
         self.session_started_at
     }

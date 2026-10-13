@@ -402,3 +402,15 @@ describe('deriveState — folding an event stream', () => {
     expect(deriveState(stream)).toBe('AWAY');
   });
 });
+
+describe('USER_IDLE_EXPLAINED break type (ADR-0042)', () => {
+  const since = '2026-10-13T10:00:00.000Z';
+  it('a break answer may name its break; other answers may not', () => {
+    const ok = (payload: Record<string, unknown>) =>
+      nextState('ACTIVE', 'USER_IDLE_EXPLAINED', { idle_since: since, ...payload });
+    expect(ok({ explanation: 'break', break_kind: 'meal' })).toBe('ACTIVE');
+    expect(ok({ explanation: 'break' })).toBe('ACTIVE');
+    expect(ok({ explanation: 'break', break_kind: 'nap' })).toBeNull();
+    expect(ok({ explanation: 'meeting', break_kind: 'bio' })).toBeNull();
+  });
+});

@@ -799,8 +799,12 @@ export const api = {
   /** Voluntary tag (ADR-0011 §2). */
   markAway: (reason: 'meeting' | 'training'): Promise<StateView> =>
     invoke<StateView>('mark_away', { reason }),
-  explainIdle: (explanation: IdleExplanation, note: string | null): Promise<StateView> =>
-    invoke<StateView>('explain_idle', { explanation, note }),
+  /** `breakKind` only with `break`: the stretch becomes that break (ADR-0042). */
+  explainIdle: (
+    explanation: IdleExplanation,
+    note: string | null,
+    breakKind: BreakId | null = null,
+  ): Promise<StateView> => invoke<StateView>('explain_idle', { explanation, note, breakKind }),
   dismissIdleReturn: (): Promise<StateView> => invoke<StateView>('dismiss_idle_return'),
   respondToPrompt: (response: PromptResponse, note: string | null): Promise<StateView> =>
     invoke<StateView>('respond_to_prompt', { response, note }),

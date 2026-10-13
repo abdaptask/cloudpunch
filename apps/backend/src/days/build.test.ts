@@ -212,6 +212,38 @@ describe('buildSession', () => {
     expect(t.worked_ms).toBe((3 * 60 - 40) * MIN);
   });
 
+  it('ADR-0042: "On a break" makes the idle stretch that break; without a type, Other', () => {
+    const o = IST;
+    const at = (hhmm: string): Date => local(`2026-09-25T${hhmm}:00`, o);
+    const idle = (since: string, back: string, extra: Record<string, unknown>) => [
+      evt('INPUT_IDLE_5M', at(since), o, { trigger: 'input_idle' }),
+      evt('IDLE_STARTED', at(since), o, { idle_since: at(since).toISOString() }),
+      evt('IDLE_ENDED', at(back), o, { idle_since: at(since).toISOString() }),
+      evt('USER_IDLE_EXPLAINED', at(back), o, {
+        explanation: 'break',
+        idle_since: at(since).toISOString(),
+        ...extra,
+      }),
+    ];
+    const s = shift('s1', '2026-09-25T09:00:00', '2026-09-25T12:00:00', o, [
+      ...idle('10:00', '10:20', { break_kind: 'bio', note: null }),
+      ...idle('11:00', '11:30', {}),
+    ]);
+    expect(s.segments.map((g) => [g.kind, isoWithOffset(g.startedAt, o).slice(11, 16)])).toEqual([
+      ['working', '09:00'],
+      ['bio_break', '10:00'],
+      ['working', '10:20'],
+      ['other_break', '11:00'],
+      ['working', '11:30'],
+    ]);
+    // The answer stays attached.
+    expect(s.segments[1]?.explanation).toEqual({ explanation: 'break', note: null });
+    const t = totals({ date: '2026-09-25', sessions: [s] });
+    expect(t.idle_ms).toBe(0);
+    expect(t.breaks_ms).toBe(50 * MIN);
+    expect(t.worked_ms).toBe((3 * 60 - 50) * MIN);
+  });
+
   it('ADR-0018 §4: a session from the Windows sign-in time starts there', () => {
     const o = IST;
     const clicked = local('2026-09-25T09:20:00', o);

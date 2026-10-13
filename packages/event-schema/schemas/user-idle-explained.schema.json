@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://cloudpunch.aptask.com/schemas/user-idle-explained.schema.json",
   "title": "USER_IDLE_EXPLAINED event",
-  "description": "The person's account of an idle stretch, for the manager. An annotation: it never changes state and never turns idle into worked time. See ADR-0018 §2.",
+  "description": "The person's account of an idle stretch, for the manager. It never changes state and never turns idle into worked time (ADR-0018 §2); a break answer makes the stretch that break (ADR-0042).",
   "allOf": [
     {
       "$ref": "common/base-event.schema.json"
@@ -31,6 +31,11 @@
             "note": {
               "type": ["string", "null"],
               "maxLength": 500
+            },
+            "break_kind": {
+              "type": "string",
+              "enum": ["bio", "meal", "rest", "personal", "other"],
+              "description": "With explanation break: which break the stretch was (ADR-0042). Absent: Other break."
             }
           },
           "additionalProperties": false,

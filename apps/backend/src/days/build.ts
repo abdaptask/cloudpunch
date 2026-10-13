@@ -147,7 +147,10 @@ export function buildSession(
   if (!clockInEvt) return null;
   const signInStart = startFromSignIn(clockInEvt.clientTs, clockInEvt.payload);
   const clockIn = signInStart ?? clockInEvt.clientTs;
-  const explained = new Map<number, { explanation: string; note: string | null }>();
+  const explained = new Map<
+    number,
+    { explanation: string; note: string | null; breakKind: string | null }
+  >();
 
   const segments: DaySegment[] = [];
   let state: PayrollState = 'CLOSED';
@@ -186,6 +189,7 @@ export function buildSession(
       explained.set(since, {
         explanation: str(evt.payload['explanation']) ?? 'idle',
         note: str(evt.payload['note']),
+        breakKind: str(evt.payload['break_kind']),
       });
       continue;
     }
@@ -253,7 +257,11 @@ export function buildSession(
   closeAt(session.closedAt ?? now);
   for (const seg of segments) {
     const e = seg.kind === 'idle' ? explained.get(seg.startedAt.getTime()) : undefined;
-    if (e) seg.explanation = e;
+    if (!e) continue;
+    seg.explanation = { explanation: e.explanation, note: e.note };
+    // ADR-0042: "On a break" makes the stretch that break (Other when
+    // the answer didn't say which).
+    if (e.explanation === 'break') seg.kind = breakKind(e.breakKind);
   }
   const last = segments[segments.length - 1];
   return {
