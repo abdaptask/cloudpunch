@@ -7,12 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Docs: ADR-0039 in-office days (proposed)
+### Docs: ADR-0040 day-end summary and overall report (accepted)
+
+- A day-end email for each manager (their team) and Administrators
+  (everyone), at a set time (default 08:00 India time), also in the
+  admin console; and an overview for any range: hours and attendance,
+  lateness and missed starts, idle/breaks/away, adoption and health,
+  with charts and CSV, for Administrators and HR.
+
+### Docs: ADR-0039 in-office days (accepted)
 
 - Hybrid workers: admins set each person's usual office weekdays and
   one-off dates; on an office day CloudPunch steps back (no clock-in
   popup, no late or missed emails, Team shows "In office", no hours),
-  reusing the holiday "day off" path. Two questions for the owner.
+  reusing the holiday "day off" path. Clocking in anyway is tracked as
+  normal; Administrators and HR set it.
 
 ### Desktop 0.1.33 and web: giving out named shifts, and the window after an update (owner reports)
 
