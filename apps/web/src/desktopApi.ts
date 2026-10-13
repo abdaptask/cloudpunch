@@ -68,6 +68,8 @@ export type WebApi = Pick<
   | 'adminSetOfficeDay'
   | 'adminBulkOffice'
   | 'reportDay'
+  | 'reportOverview'
+  | 'saveCsv'
 >;
 
 export interface Transport {
@@ -333,6 +335,20 @@ export const api: WebApi = {
   reportDay: async (date) => {
     check(DATE.test(date));
     return get(`/v1/reports/day?date=${date}`);
+  },
+  reportOverview: async (from, to) => {
+    check(DATE.test(from) && DATE.test(to));
+    return get(`/v1/reports/overview?from=${from}&to=${to}`);
+  },
+  // The browser's own download; the name is what it's saved as.
+  saveCsv: async (name, text) => {
+    const url = URL.createObjectURL(new Blob([text], { type: 'text/csv;charset=utf-8' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = name;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 10_000);
+    return name;
   },
   adminBulkWelcome: async (key, oids, note) =>
     send(

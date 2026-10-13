@@ -5,7 +5,7 @@ import { ComputersPage } from './ComputersPage.js';
 import { ConnectionsPage } from './ConnectionsPage.js';
 import { HolidaysPage } from './HolidaysPage.js';
 import { PeopleTable } from './PeopleTable.js';
-import { ReportsPage } from './ReportsPage.js';
+import { Reports } from './ReportsPage.js';
 import { RulesPage } from './RulesPage.js';
 import { ShiftsPage } from './ShiftsPage.js';
 import { pickSection, sectionsFor, type SectionKey } from './sections.js';
@@ -91,7 +91,7 @@ export function AdminConsole({
       case 'connections':
         return <ConnectionsPage />;
       case 'reports':
-        return <ReportsPage canOpenDays={has('team.timeline.read')} />;
+        return <Reports canOpenDays={has('team.timeline.read')} />;
     }
   };
 

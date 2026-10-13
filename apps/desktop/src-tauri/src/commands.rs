@@ -1337,6 +1337,43 @@ pub async fn report_day(
     answer(fetched)
 }
 
+/// The overall report (ADR-0040 §3).
+#[tauri::command]
+pub async fn report_overview(
+    auth: State<'_, Arc<Auth>>,
+    from: String,
+    to: String,
+) -> Result<serde_json::Value, String> {
+    let (_, fetched) = fetch_as_user(&auth, move |http, base, token| {
+        admin::report_overview(http, base, token, &from, &to)
+    })
+    .await?;
+    answer(fetched)
+}
+
+/// Save a report's CSV in the user's Downloads folder (ADR-0040 §3);
+/// returns the full path. Only plain `.csv` names; never overwrites
+/// (adds " (2)" and so on).
+#[tauri::command]
+pub fn save_csv(app: AppHandle, name: String, text: String) -> Result<String, String> {
+    if !admin::csv_name_ok(&name) || text.len() > 5_000_000 {
+        return Err("invalid_argument".into());
+    }
+    let dir = app
+        .path()
+        .download_dir()
+        .map_err(|_| "no_downloads_folder".to_string())?;
+    let stem = name.trim_end_matches(".csv");
+    let mut path = dir.join(&name);
+    let mut n = 2;
+    while path.exists() && n < 100 {
+        path = dir.join(format!("{stem} ({n}).csv"));
+        n += 1;
+    }
+    std::fs::write(&path, text).map_err(|_| "save_failed".to_string())?;
+    Ok(path.display().to_string())
+}
+
 /// The company holidays (ADR-0037 §1).
 #[tauri::command]
 pub async fn holidays(auth: State<'_, Arc<Auth>>) -> Result<serde_json::Value, String> {
