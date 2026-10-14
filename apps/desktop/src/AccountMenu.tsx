@@ -47,6 +47,7 @@ export function AccountMenu({
   onSignOut,
   onClockOutAndSignOut,
   onConnections,
+  onMyWeek,
   version = null,
   onCheckForUpdate,
 }: {
@@ -57,6 +58,8 @@ export function AccountMenu({
   onClockOutAndSignOut: () => void;
   /** "Where you connect from" (ADR-0029 §5); absent hides it. */
   onConnections?: (() => void) | undefined;
+  /** "My week" (ADR-0047 §5); absent hides it. */
+  onMyWeek?: (() => void) | undefined;
   /** This app's version, shown under "Check for updates". */
   version?: string | null;
   /** "Check for updates" (owner request, 2026-10-07); absent hides it. */
@@ -153,6 +156,19 @@ export function AccountMenu({
             )}
           </div>
           <div style={{ height: 1, background: t.border, margin: '0 6px 4px' }} />
+          {onMyWeek && (
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setOpen(false);
+                onMyWeek();
+              }}
+              style={item(false)}
+            >
+              My week
+            </button>
+          )}
           {onConnections && (
             <button
               type="button"

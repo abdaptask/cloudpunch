@@ -316,6 +316,39 @@ export interface RetentionPeriods {
   operational_days: number;
 }
 
+/** One day on My week's strip (ADR-0047 §5). */
+export type DayMark =
+  'on_time' | 'late' | 'missed' | 'short' | 'worked' | 'off' | 'office' | 'holiday' | 'not_working';
+
+export interface MyWeek {
+  from: string;
+  to: string;
+  strip: {
+    date: string;
+    mark: DayMark;
+    minutes_late: number | null;
+    worked_ms: number;
+    shift_ms: number;
+    idle_ms: number;
+  }[];
+  totals: {
+    on_time: number;
+    shift_days: number;
+    worked_ms: number;
+    scheduled_ms: number;
+    idle_ms: number;
+  };
+  findings: {
+    id: string;
+    kind: string;
+    status: string;
+    headline: string;
+    dates: string[];
+    nudges: { at: string; by: string | null; message: string | null }[];
+    context: { at: string; text: string | null }[];
+  }[];
+}
+
 export interface OfficeDays {
   employee_id: string;
   /** ISO weekdays, 1 = Monday … 7 = Sunday. */
@@ -681,6 +714,11 @@ export const api = {
     invoke('admin_bulk_welcome', { key, oids, note: note || null }),
   /** Where people connect from (ADR-0029); the server checks who sees whom. */
   myConnections: (): Promise<ConnectionHistory> => invoke('my_connections'),
+  /** My week (ADR-0047 §5): my own last 14 days and findings. */
+  myInsights: (): Promise<MyWeek> => invoke('my_insights'),
+  /** My side of a finding about me (ADR-0047 §5). */
+  addInsightContext: (id: string, text: string): Promise<{ ok: boolean }> =>
+    invoke('add_insight_context', { id, text }),
   teamConnections: (): Promise<TeamConnections> => invoke('team_connections'),
   personConnections: (employeeId: string): Promise<ConnectionHistory> =>
     invoke('person_connections', { employeeId }),

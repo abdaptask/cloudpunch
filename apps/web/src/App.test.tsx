@@ -67,6 +67,38 @@ const me = (capabilities: string[]): Me => ({
   capabilities,
 });
 
+/** `GET /v1/me/insights` (ADR-0047 §5): two weeks, one finding. */
+const MY_WEEK = {
+  from: '2026-10-01',
+  to: '2026-10-14',
+  strip: Array.from({ length: 14 }, (_, i) => ({
+    date: `2026-10-${String(i + 1).padStart(2, '0')}`,
+    mark: i % 5 === 0 ? 'late' : 'on_time',
+    minutes_late: i % 5 === 0 ? 20 : null,
+    worked_ms: 8 * 3_600_000,
+    shift_ms: 9 * 3_600_000,
+    idle_ms: 0,
+  })),
+  totals: {
+    on_time: 11,
+    shift_days: 14,
+    worked_ms: 112 * 3_600_000,
+    scheduled_ms: 126 * 3_600_000,
+    idle_ms: 0,
+  },
+  findings: [
+    {
+      id: '0f8e1c2a-3b4d-4e5f-8a9b-0c1d2e3f4a5b',
+      kind: 'late_starts',
+      status: 'nudged',
+      headline: 'Late 3 times in 14 days',
+      dates: ['2026-10-01', '2026-10-06', '2026-10-11'],
+      nudges: [{ at: '2026-10-14T05:00:00Z', by: 'Mona Test', message: 'Hi, all well?' }],
+      context: [],
+    },
+  ],
+};
+
 function deps(
   auth: Auth,
   meRes: Response | null,
@@ -78,6 +110,7 @@ function deps(
     if (url === '/app/config.json') return json(configStatus, CONFIG);
     if (url === '/v1/me' && meRes) return meRes;
     if (url === '/v1/team') return json(200, { people: [ROSHNI] });
+    if (url === '/v1/me/insights') return json(200, MY_WEEK);
     if (url === '/v1/corrections/queue') return json(200, QUEUE);
     if (url === `/v1/corrections/${QUEUE.to_endorse[0]?.correction.id}/decision`)
       return json(200, { correction: { ...QUEUE.to_endorse[0]?.correction, status: 'endorsed' } });
@@ -172,13 +205,13 @@ describe('web dashboard shell (ADR-0033)', () => {
     ).toBeInTheDocument();
   });
 
-  it('an employee without team access is pointed to the app', async () => {
+  it('an employee without team access gets My week (ADR-0047 §5), and a link to the app', async () => {
     const auth = fakeAuth(true);
     render(<App deps={deps(auth, json(200, me(['self.timeline.read'])))} />);
-    expect(
-      await screen.findByText(/CloudPunch on the web is for managers, HR and administrators/),
-    ).toBeInTheDocument();
-    expect(screen.queryByText(/Hello/)).not.toBeInTheDocument();
+    expect(await screen.findByRole('region', { name: 'my-week' })).toBeInTheDocument();
+    expect(await screen.findByText('Late 3 times in 14 days')).toBeInTheDocument();
+    expect(screen.getByText('Hi, all well?')).toBeInTheDocument();
+    expect(screen.queryByRole('navigation', { name: 'pages' })).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Sign out' }));
     expect(auth.signOut).toHaveBeenCalledOnce();
     expect(
@@ -312,5 +345,28 @@ describe('the download page (owner decision, 2026-10-13)', () => {
       'href',
       DOWNLOAD_PATH,
     );
+  });
+});
+
+describe('My week on the web (ADR-0047 §5)', () => {
+  afterEach(() => window.history.replaceState(null, '', '/'));
+
+  it('the nudge email link opens My week; a manager can switch to Team', async () => {
+    window.history.replaceState(null, '', '/app/?view=my-week');
+    render(
+      <App
+        deps={deps(fakeAuth(true), json(200, me(['team.timeline.read', 'self.timeline.read'])))}
+      />,
+    );
+    expect(await screen.findByRole('region', { name: 'my-week' })).toBeInTheDocument();
+    const pages = screen.getByRole('navigation', { name: 'pages' });
+    expect(
+      within(pages)
+        .getAllByRole('link')
+        .map((a) => a.textContent),
+    ).toEqual(['Team', 'My week']);
+    await userEvent.click(within(pages).getByRole('link', { name: 'Team' }));
+    expect(window.location.pathname).toBe('/app/');
+    expect(await screen.findByRole('list', { name: 'team-today' })).toBeInTheDocument();
   });
 });
