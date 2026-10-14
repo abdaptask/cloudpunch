@@ -95,7 +95,8 @@ export type ReportFilter =
   | 'long_idle'
   | 'breaks_over'
   | 'short'
-  | 'long';
+  | 'long'
+  | 'in_office';
 
 export const FILTER_LABEL: Record<ReportFilter, string> = {
   all: 'Everyone',
@@ -107,6 +108,7 @@ export const FILTER_LABEL: Record<ReportFilter, string> = {
   breaks_over: 'Breaks over limit',
   short: 'Short days',
   long: 'Long days',
+  in_office: 'In office',
 };
 
 const HOUR = 3_600_000;
@@ -116,7 +118,10 @@ const worked = (r: DayReportRow): boolean => r.status === 'worked' || r.status =
 export function matches(r: DayReportRow, f: ReportFilter): boolean {
   switch (f) {
     case 'all':
-      return r.status !== 'off';
+      // In office (ADR-0039) isn't tracked: listed under its own chip.
+      return r.status !== 'off' && r.status !== 'in_office';
+    case 'in_office':
+      return r.status === 'in_office';
     case 'not_clocked_in':
     case 'late':
       return r.status === f;
