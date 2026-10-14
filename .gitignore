@@ -21,6 +21,7 @@ credentials
 # ─────────────────────────────────────────────────────────────
 node_modules/
 dist/
+dist-e2e/
 build/
 coverage/
 .nyc_output/

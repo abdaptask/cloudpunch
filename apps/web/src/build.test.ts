@@ -22,5 +22,7 @@ describe('the web build', () => {
     expect(js).toContain('/v1/team/connections');
     expect(js.match(/function connectApi\(/g)).toHaveLength(1);
     expect(js).not.toMatch(/__TAURI|@tauri-apps/);
+    // The browser tests' stand-in sign-in is only in the VITE_E2E build.
+    expect(js).not.toContain('e2e-token');
   }, 60_000);
 });

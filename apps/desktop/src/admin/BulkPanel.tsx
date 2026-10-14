@@ -550,8 +550,10 @@ function ResultView({
 
 function panel(t: Theme): CSSProperties {
   return {
-    width: 320,
-    flexShrink: 0,
+    // 320 beside the table; under it, and no wider than the screen, on a phone.
+    flex: '0 1 320px',
+    minWidth: 0,
+    maxWidth: '100%',
     alignSelf: 'flex-start',
     position: 'sticky',
     top: 0,

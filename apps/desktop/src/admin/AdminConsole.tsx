@@ -1,6 +1,7 @@
 import { useState, type CSSProperties, type ReactNode } from 'react';
 import { ReportingLines } from '../ReportingLines.js';
 import { useTheme, type Theme } from '../ui/theme.js';
+import { useNarrow } from '../ui/useNarrow.js';
 import { ComputersPage } from './ComputersPage.js';
 import { ConnectionsPage } from './ConnectionsPage.js';
 import { HolidaysPage } from './HolidaysPage.js';
@@ -57,6 +58,8 @@ export function AdminConsole({
   height?: string;
 }): JSX.Element {
   const t = useTheme();
+  // A phone: the sections become a row across the top (owner item 6).
+  const narrow = useNarrow();
   const offered = sectionsFor(capabilities);
   const [chosen, setChosen] = useState<string | null>(() => linkedSection() ?? remembered());
   const section = pickSection(offered, chosen);
@@ -105,25 +108,38 @@ export function AdminConsole({
   };
 
   return (
-    <div style={{ display: 'flex', height, background: t.bg, color: t.text }}>
-      <nav aria-label="admin-sections" style={sidebar(t)}>
-        <div style={{ padding: '4px 12px 14px' }}>
-          <div style={{ fontSize: 15, fontWeight: 700 }}>CloudPunch</div>
-          <div style={{ fontSize: 12, color: t.muted }}>Admin</div>
-        </div>
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: narrow ? 'column' : 'row',
+        height,
+        background: t.bg,
+        color: t.text,
+      }}
+    >
+      <nav aria-label="admin-sections" style={narrow ? topbar(t) : sidebar(t)}>
+        {!narrow && (
+          <div style={{ padding: '4px 12px 14px' }}>
+            <div style={{ fontSize: 15, fontWeight: 700 }}>CloudPunch</div>
+            <div style={{ fontSize: 12, color: t.muted }}>Admin</div>
+          </div>
+        )}
         {offered.map((s) => (
           <button
             key={s.key}
             type="button"
             aria-current={s.key === section ? 'page' : undefined}
             onClick={() => choose(s.key)}
-            style={item(t, s.key === section)}
+            style={narrow ? tab(t, s.key === section) : item(t, s.key === section)}
           >
             {s.label}
           </button>
         ))}
       </nav>
-      <main aria-label="admin-content" style={{ flex: 1, minWidth: 0, overflowY: 'auto' }}>
+      <main
+        aria-label="admin-content"
+        style={{ flex: 1, minWidth: 0, minHeight: 0, overflowY: 'auto' }}
+      >
         <div
           style={{
             // People is a table with a panel beside it: it takes the width.
@@ -133,7 +149,7 @@ export function AdminConsole({
                 : section === 'shifts'
                   ? 1100
                   : 960,
-            padding: '20px 28px 40px',
+            padding: narrow ? '16px 16px 32px' : '20px 28px 40px',
             display: 'flex',
             flexDirection: 'column',
             gap: 16,
@@ -187,6 +203,36 @@ function sidebar(t: Theme): CSSProperties {
     borderRight: `1px solid ${t.border}`,
     background: t.surface,
     overflowY: 'auto',
+  };
+}
+
+/** The sections as one scrolling row (a phone). */
+function topbar(t: Theme): CSSProperties {
+  return {
+    display: 'flex',
+    flexShrink: 0,
+    gap: 4,
+    padding: '6px 16px',
+    overflowX: 'auto',
+    borderBottom: `1px solid ${t.border}`,
+    background: t.surface,
+  };
+}
+
+function tab(t: Theme, on: boolean): CSSProperties {
+  return {
+    flexShrink: 0,
+    minHeight: 40,
+    padding: '8px 12px',
+    border: 'none',
+    borderBottom: `3px solid ${on ? t.accent : 'transparent'}`,
+    background: 'transparent',
+    color: on ? t.text : t.muted,
+    font: 'inherit',
+    fontSize: 14,
+    fontWeight: on ? 650 : 500,
+    cursor: 'pointer',
+    whiteSpace: 'nowrap',
   };
 }
 

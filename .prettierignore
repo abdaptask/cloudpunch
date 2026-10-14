@@ -6,3 +6,6 @@ target
 pnpm-lock.yaml
 CHANGELOG.md
 docs/**/*.md
+dist-e2e
+test-results
+playwright-report

@@ -56,6 +56,60 @@ jobs:
       - name: Web build
         run: pnpm -F @cloudpunch/web build
 
+  # The web app in a real browser (item 9, 2026-10-14): Playwright,
+  # Chromium only, at desktop width and on a phone, against a mocked API.
+  web-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+          run_install: false
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Playwright version
+        id: pw
+        run: echo "version=$(pnpm -F @cloudpunch/web exec playwright --version | awk '{print $2}')" >> "$GITHUB_OUTPUT"
+
+      - name: Cache the browser
+        id: pw-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-${{ runner.os }}-${{ steps.pw.outputs.version }}
+
+      - name: Install Chromium
+        if: steps.pw-cache.outputs.cache-hit != 'true'
+        run: pnpm -F @cloudpunch/web exec playwright install --with-deps chromium
+
+      - name: Chromium's system libraries
+        if: steps.pw-cache.outputs.cache-hit == 'true'
+        run: pnpm -F @cloudpunch/web exec playwright install-deps chromium
+
+      - name: Browser tests
+        run: pnpm -F @cloudpunch/web test:e2e
+
+      - name: Keep the report when it fails
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: apps/web/playwright-report
+          retention-days: 7
+
   # Real Postgres via Testcontainers (Docker is on ubuntu runners). These
   # exercise the SQL the unit tests' in-memory DB can't: triggers,
   # constraints, jsonb round trips.
