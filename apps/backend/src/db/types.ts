@@ -839,7 +839,7 @@ export interface ReportSentClaim {
 /** Opening a report (ADR-0040 §4): one audit row per request, not per person. */
 export interface ReportViewAudit {
   actorUserId: string;
-  report: 'day' | 'overview';
+  report: 'day' | 'overview' | 'insights';
   detail: Record<string, string>;
   correlationId: string;
   at: Date;
@@ -924,6 +924,76 @@ export interface RetentionRepo {
   purge(kind: RetentionKind, days: number, dryRun: boolean): Promise<number>;
 }
 
+// ---------------------------------------------------------------------
+// Actionable insights (ADR-0047)
+// ---------------------------------------------------------------------
+
+export type InsightStatus = 'open' | 'nudged' | 'resolved' | 'dismissed';
+export type InsightAction =
+  'opened' | 'updated' | 'nudged' | 'explained' | 'dismissed' | 'resolved' | 'reopened';
+
+/** A finding about one person, as a case (ADR-0047 §2). */
+export interface Insight {
+  id: string;
+  employeeId: string;
+  kind: string;
+  severity: string;
+  status: InsightStatus;
+  /** The days behind it and the 14-day strip, as stored. */
+  evidence: unknown;
+  /** `YYYY-MM-DD`: after a nudge, when to check again. */
+  followUpOn: string | null;
+  noChange: boolean;
+  openedAt: Date;
+  updatedAt: Date;
+}
+
+export interface InsightEvent {
+  id: string;
+  insightId: string;
+  action: InsightAction;
+  actorUserId: string | null;
+  /** Who, for showing; null for CloudPunch itself. */
+  actorName: string | null;
+  note: string | null;
+  detail: unknown;
+  at: Date;
+}
+
+export interface NewInsightEvent {
+  action: InsightAction;
+  actorUserId: string | null;
+  note: string | null;
+  detail: unknown;
+  at: Date;
+}
+
+export interface InsightChange {
+  status?: InsightStatus;
+  evidence?: unknown;
+  followUpOn?: string | null;
+  noChange?: boolean;
+  severity?: string;
+}
+
+export interface InsightRepo {
+  /** Findings in these states, newest change first; optionally for these people only. */
+  list(statuses: readonly InsightStatus[], employeeIds?: readonly string[]): Promise<Insight[]>;
+  find(id: string): Promise<Insight | null>;
+  /** A new open finding and its `opened` event, together. */
+  open(
+    input: { employeeId: string; kind: string; severity: string; evidence: unknown },
+    event: NewInsightEvent,
+  ): Promise<Insight>;
+  /** Change a finding and record why, together. */
+  change(id: string, patch: InsightChange, event: NewInsightEvent): Promise<Insight>;
+  /** A history line that changes nothing (the person's context). */
+  note(id: string, event: NewInsightEvent): Promise<void>;
+  history(id: string): Promise<InsightEvent[]>;
+  /** The history lines of these findings, oldest first. */
+  historyOf(ids: readonly string[]): Promise<InsightEvent[]>;
+}
+
 export interface BulkRequestRepo {
   /** The answer kept for this caller's key, if any. */
   find(
@@ -957,4 +1027,5 @@ export interface DbRepositories {
   history: AuditRepo;
   refusals: UploadRefusalRepo;
   retention: RetentionRepo;
+  insights: InsightRepo;
 }

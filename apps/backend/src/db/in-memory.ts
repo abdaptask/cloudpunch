@@ -28,6 +28,9 @@ import type {
   AuditEntry,
   AuditRepo,
   UploadRefusalRepo,
+  Insight,
+  InsightEvent,
+  InsightRepo,
   RetentionKind,
   RetentionRepo,
   UploadRefusalRow,
@@ -98,6 +101,10 @@ export class InMemoryDb implements DbRepositories {
   readonly reports: ReportRepo;
   readonly history: AuditRepo;
   readonly refusals: UploadRefusalRepo;
+  readonly insights: InsightRepo;
+  /** insight / insight_event (ADR-0047). */
+  readonly insightRows: Insight[] = [];
+  readonly insightEvents: InsightEvent[] = [];
   readonly retention: RetentionRepo;
   /**
    * The purge function (ADR-0044 §2) is the database's; here, what it
@@ -273,6 +280,77 @@ export class InMemoryDb implements DbRepositories {
         if (!dryRun) this.retentionRows[kind] = 0;
         return n;
       },
+    };
+    const addInsightEvent = (
+      insightId: string,
+      e: {
+        action: InsightEvent['action'];
+        actorUserId: string | null;
+        note: string | null;
+        detail: unknown;
+        at: Date;
+      },
+    ): void => {
+      const name = e.actorUserId ? (this.userById.get(e.actorUserId)?.displayName ?? null) : null;
+      this.insightEvents.push({ id: randomUUID(), insightId, ...e, actorName: name });
+    };
+    this.insights = {
+      list: async (statuses, employeeIds) =>
+        this.insightRows
+          .filter(
+            (r) =>
+              statuses.includes(r.status) && (!employeeIds || employeeIds.includes(r.employeeId)),
+          )
+          .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())
+          .map((r) => ({ ...r })),
+      find: async (id) => {
+        const r = this.insightRows.find((x) => x.id === id);
+        return r ? { ...r } : null;
+      },
+      open: async (i, e) => {
+        if (
+          this.insightRows.some(
+            (r) =>
+              r.employeeId === i.employeeId &&
+              r.kind === i.kind &&
+              (r.status === 'open' || r.status === 'nudged'),
+          )
+        ) {
+          throw new Error('insight_one_live');
+        }
+        const row: Insight = {
+          id: randomUUID(),
+          employeeId: i.employeeId,
+          kind: i.kind,
+          severity: i.severity,
+          status: 'open',
+          evidence: i.evidence,
+          followUpOn: null,
+          noChange: false,
+          openedAt: e.at,
+          updatedAt: e.at,
+        };
+        this.insightRows.push(row);
+        addInsightEvent(row.id, e);
+        return { ...row };
+      },
+      change: async (id, p, e) => {
+        const row = this.insightRows.find((x) => x.id === id);
+        if (!row) throw new Error('no such insight');
+        if (p.status !== undefined) row.status = p.status;
+        if (p.severity !== undefined) row.severity = p.severity;
+        if (p.evidence !== undefined) row.evidence = p.evidence;
+        if (p.followUpOn !== undefined) row.followUpOn = p.followUpOn;
+        if (p.noChange !== undefined) row.noChange = p.noChange;
+        row.updatedAt = e.at;
+        addInsightEvent(id, e);
+        return { ...row };
+      },
+      note: async (id, e) => addInsightEvent(id, e),
+      history: async (id) =>
+        this.insightEvents.filter((x) => x.insightId === id).map((x) => ({ ...x })),
+      historyOf: async (ids) =>
+        this.insightEvents.filter((x) => ids.includes(x.insightId)).map((x) => ({ ...x })),
     };
     this.refusals = {
       note: async (r) => {

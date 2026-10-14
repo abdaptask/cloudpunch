@@ -33,6 +33,8 @@ import { ShiftAlertJob } from './alerts/job.js';
 import { DayReportJob } from './reports/job.js';
 import { reportRoutes } from './reports/routes.js';
 import { historyRoutes } from './history/routes.js';
+import { InsightsJob } from './insights/job.js';
+import { insightRoutes } from './insights/routes.js';
 import { RetentionJob } from './retention/job.js';
 import { retentionRoutes } from './retention/routes.js';
 import { sendShiftMail, type ShiftMail } from './alerts/mail.js';
@@ -188,6 +190,15 @@ export async function buildApp(opts: BuildAppOptions) {
     await app.register(reportRoutes, { db: opts.db });
     // Change history (ADR-0038 §8).
     await app.register(historyRoutes, { db: opts.db });
+    // Actionable insights (ADR-0047): findings, nudges, My week.
+    await app.register(insightRoutes, {
+      db: opts.db,
+      send: alertSend,
+      siteUrl: opts.env.PUBLIC_SITE_URL,
+    });
+    const insightsJob = new InsightsJob({ db: opts.db, log: app.log });
+    app.addHook('onReady', async () => insightsJob.start());
+    app.addHook('onClose', async () => insightsJob.stop());
     // Data retention (ADR-0044): the preview, and the nightly clean-up
     // (off until retention.enabled is on).
     await app.register(retentionRoutes, { db: opts.db });

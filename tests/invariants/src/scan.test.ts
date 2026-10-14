@@ -127,6 +127,7 @@ describe('appendOnlyViolations', () => {
       isPurgeFunction('CREATE FUNCTION cloudpunch_retention_purge() LANGUAGE plpgsql AS $$ $$'),
     ).toBe(false);
     expect(appendOnlyViolations('UPDATE report_sent SET people = 0')).toHaveLength(1);
+    expect(appendOnlyViolations('DELETE FROM insight_event')).toHaveLength(1);
     // Trigger definitions and other tables are fine.
     expect(appendOnlyViolations('CREATE TRIGGER t BEFORE UPDATE ON time_event')).toEqual([]);
     expect(appendOnlyViolations('UPDATE time_session SET closed_at = now()')).toEqual([]);

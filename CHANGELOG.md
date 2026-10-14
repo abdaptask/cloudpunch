@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Server: actionable insights (ADR-0047, migration 0021)
+
+- **Findings:** each morning (08:15 India time) CloudPunch looks at
+  everyone's last 14 days and opens a finding when a pattern holds:
+  late 3+ times, 2+ missed starts, 3+ short days, idle an hour or more
+  on 3+ days, 5+ breaks over limit, 2+ days not clocked out, 3+ long
+  days. Holidays, office days and "not working" never count.
+- **Cases:** open → nudged → resolved, or dismissed with a reason. 14
+  days after a nudge it checks again: improved → resolved; not → back
+  to open, marked "no change after nudge". Every step is kept
+  (`insight_event`, append-only).
+- **Nudge:** an editable, drafted message to the person (manager and
+  sender copied) from cloudpunch@aptask.com.
+- Endpoints: `GET /v1/insights` (Administrators and HR everyone,
+  managers their team), history, nudge, dismiss; `GET /v1/me/insights`
+  and context for the person themselves. The console and app screens
+  follow.
+
 ### Web (and the next desktop): mark someone in office from the day summary (ADR-0039)
 
 - In Reports → Day summary, opening a person who didn't clock in offers

@@ -52,7 +52,7 @@ beforeEach(async () => {
   // dependencies: event → session → device/employee → user.
   // time_event and audit_log are append-only (row triggers reject
   // DELETE); TRUNCATE is DDL and resets them between tests.
-  await sql`TRUNCATE audit_log, policy_override, time_event, time_session, device, employee_override, time_correction_decision, time_correction, shift_assignment, not_working_day, holiday, shift_alert, role_seen, weekly_report_sent, admin_bulk_request, shift_template_version, shift_template, office_pattern, office_day, location_alert, report_sent, upload_refusal RESTART IDENTITY CASCADE`;
+  await sql`TRUNCATE audit_log, policy_override, time_event, time_session, device, employee_override, time_correction_decision, time_correction, shift_assignment, not_working_day, holiday, shift_alert, role_seen, weekly_report_sent, admin_bulk_request, shift_template_version, shift_template, office_pattern, office_day, location_alert, report_sent, upload_refusal, insight_event, insight RESTART IDENTITY CASCADE`;
   await sql`DELETE FROM admin_review_case`;
   await sql`UPDATE app_user SET employee_id = NULL`;
   await sql`DELETE FROM employee`;
@@ -413,6 +413,37 @@ describe('PostgresDb — employees + users', () => {
     expect(await count('retention_purge_lock')).toBe(0);
     await expect(sql`DELETE FROM time_event`).rejects.toThrow(/append-only/);
     await expect(sql`UPDATE audit_log SET reason = 'x'`).rejects.toThrow(/append-only/);
+  });
+
+  it('ADR-0047: a finding is a case: one live per person and kind, history append-only', async () => {
+    const a = await seedEmployee();
+    const { userId } = await seedUser({ employeeId: a });
+    const at = new Date('2026-10-14T03:00:00Z');
+    const evidence = { count: 3, dates: ['2026-10-05', '2026-10-07', '2026-10-12'] };
+    const ins = await db.insights.open(
+      { employeeId: a, kind: 'late_starts', severity: 'warning', evidence },
+      { action: 'opened', actorUserId: null, note: null, detail: { count: 3 }, at },
+    );
+    expect(ins).toMatchObject({ status: 'open', evidence, followUpOn: null, noChange: false });
+    await expect(
+      db.insights.open(
+        { employeeId: a, kind: 'late_starts', severity: 'warning', evidence },
+        { action: 'opened', actorUserId: null, note: null, detail: null, at },
+      ),
+    ).rejects.toThrow();
+    const nudged = await db.insights.change(
+      ins.id,
+      { status: 'nudged', followUpOn: '2026-10-28' },
+      { action: 'nudged', actorUserId: userId, note: 'Hi', detail: { to: 'x@aptask.com' }, at },
+    );
+    expect(nudged).toMatchObject({ status: 'nudged', followUpOn: '2026-10-28', evidence });
+    expect((await db.insights.list(['open', 'nudged'], [a])).map((i) => i.id)).toEqual([ins.id]);
+    const history = await db.insights.history(ins.id);
+    expect(history.map((h) => [h.action, h.actorUserId === userId, h.note])).toEqual([
+      ['opened', false, null],
+      ['nudged', true, 'Hi'],
+    ]);
+    await expect(sql`DELETE FROM insight_event`).rejects.toThrow(/append-only/);
   });
 
   it('ADR-0039: office patterns and one-offs, newest first; append-only', async () => {
