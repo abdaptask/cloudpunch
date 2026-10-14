@@ -8,6 +8,7 @@ import { wallToUtc } from '../shifts/model.js';
 import { dayRows, problemsFirst } from './day.js';
 import { DayReportJob } from './job.js';
 import { dayMailText, duration } from './mail.js';
+import { dayMailHtml } from './mailHtml.js';
 
 const MIN = 60_000;
 const IST = 330;
@@ -296,9 +297,68 @@ describe('DayReportJob (ADR-0040 §2)', () => {
     expect(await j.runOnce()).toHaveLength(1);
     expect(await j.runOnce()).toHaveLength(1);
     expect(outbox.map((m) => m.subject)).toEqual([
-      'Day summary, Monday 12 Oct: 1 late, 1 not clocked in',
-      'Day summary, Monday 12 Oct: 1 late, 1 not clocked in',
+      'Day summary, Monday 12 Oct: 1/2 clocked in · 1 late · 1 not clocked in',
+      'Day summary, Monday 12 Oct: 1/2 clocked in · 1 late · 1 not clocked in',
     ]);
     expect(outbox.every((m) => m.text.startsWith('Everyone'))).toBe(true);
+  });
+});
+
+describe('day-end email as HTML (owner, 2026-10-14)', () => {
+  it('headline tiles, what needs attention, everyone with a bar, and the interactive link', async () => {
+    const rows = await dayRows(db, await db.employees.listActive(), DATE, clock);
+    const odd = { ...rows[0]!, name: 'Ann <script>', status: 'not_clocked_in' as const };
+    const { subject, html } = dayMailHtml({
+      date: DATE,
+      rows: [...rows, odd],
+      who: 'Everyone',
+      reportUrl: 'https://cloudpunch.aptask.com/app/admin/?section=reports&date=2026-10-12',
+    });
+    expect(subject).toBe('Day summary, Monday 12 Oct: 1/3 clocked in · 1 late · 2 not clocked in');
+    expect(html).toContain('Open the interactive report');
+    expect(html).toContain(
+      'href="https://cloudpunch.aptask.com/app/admin/?section=reports&amp;date=2026-10-12"',
+    );
+    expect(html).toContain('Needs attention');
+    expect(html).toContain('Ann &lt;script&gt;');
+    expect(html).not.toContain('<script>');
+    expect(html).toContain('<strong style="color:#0b0b0b">Roshni Test</strong> +40m');
+    expect(html).toContain('Everyone who worked');
+    expect(html).toMatch(/Roshni Test.*09:40–18:00/s);
+  });
+
+  it('sends the HTML, linking managers to Team', async () => {
+    await settings({ day_emails: true });
+    clock = ist('2026-10-13', '08:00');
+    await job().runOnce();
+    const toNilesh = outbox.find((m) => m.to[0] === 'nilesh@aptask.com');
+    expect(toNilesh?.html).toContain('/app/?view=day-summary&amp;date=2026-10-12');
+    const toAdmin = outbox.find((m) => m.to[0] === 'abdulla@aptask.com');
+    expect(toAdmin?.html).toContain('/app/admin/?section=reports&amp;date=2026-10-12');
+  });
+});
+
+describe('day spans for the timeline (owner, 2026-10-14)', () => {
+  it('work, breaks and idle, adjacent runs merged', async () => {
+    const rows = await dayRows(db, await db.employees.listActive(), DATE, clock);
+    const r = rows.find((x) => x.employee_id === roshni);
+    expect(r?.segments).toEqual([
+      {
+        kind: 'work',
+        from: ist(DATE, '09:40').toISOString(),
+        to: ist(DATE, '13:00').toISOString(),
+      },
+      {
+        kind: 'break',
+        from: ist(DATE, '13:00').toISOString(),
+        to: ist(DATE, '13:20').toISOString(),
+      },
+      {
+        kind: 'work',
+        from: ist(DATE, '13:20').toISOString(),
+        to: ist(DATE, '18:00').toISOString(),
+      },
+    ]);
+    expect(rows.find((x) => x.employee_id === farheen)?.segments).toEqual([]);
   });
 });

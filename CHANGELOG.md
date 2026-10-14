@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Server, web and desktop: a visual, interactive day-end report (owner, 2026-10-14)
+
+- **The day-end email is now a designed HTML report** instead of a text
+  list: headline tiles (clocked in of those on shift, late with the
+  average, not clocked in, average hours against the shift), a status
+  bar, a **Needs attention** section (not clocked in, late worst first,
+  still clocked in, idle an hour or more, breaks over limit, short and
+  long days), then everyone who worked with a small worked / breaks /
+  idle bar, and a button to the interactive report (the console for
+  Administrators, Team for managers, on that day).
+- **Reports → Day summary is interactive:** tiles that filter, a
+  clickable status bar, filter chips with counts (needs attention,
+  late, still clocked in, idle 1h+, …), and a **timeline of everyone's
+  day on one clock** (India time, US Eastern or this computer): the
+  shift as a band, worked / break / idle spans, the shift start, hover
+  for times, click a person for their day. A table view stays.
+- The day rows carry their spans (work, break, idle; kinds only).
+- Links: `/app/admin/?section=reports&date=…` and
+  `/app/?view=day-summary&date=…` open on that day.
+
 ### Desktop 0.1.40 and web: Team → Day summary for managers (ADR-0040 §2)
 
 - Team gains a **Day summary** tab beside Today and Exceptions:

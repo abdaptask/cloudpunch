@@ -58,6 +58,41 @@ export interface DayRow {
   away_ms: number;
   /** Corrections dated this day still waiting for a decision (ADR-0030). */
   corrections_waiting: number;
+  /**
+   * The day as a timeline, for the visual report: work (incl. calls and
+   * Away), breaks and idle (incl. the prompt), adjacent runs merged.
+   * Kinds only, never what anyone was doing (invariant 1).
+   */
+  segments: DaySpan[];
+}
+
+export type SpanKind = 'work' | 'break' | 'idle';
+
+export interface DaySpan {
+  kind: SpanKind;
+  from: string;
+  to: string;
+}
+
+const spanKind = (kind: string): SpanKind =>
+  kind.endsWith('_break') ? 'break' : kind === 'idle' || kind === 'prompt' ? 'idle' : 'work';
+
+/** Pure: a working day's segments as merged spans of the three kinds. */
+export function spansOf(day: WorkingDay | undefined): DaySpan[] {
+  const out: { kind: SpanKind; from: Date; to: Date }[] = [];
+  for (const s of day?.sessions ?? []) {
+    for (const g of s.segments) {
+      if (g.endedAt <= g.startedAt) continue;
+      const kind = spanKind(g.kind);
+      const last = out.at(-1);
+      if (last && last.kind === kind && last.to.getTime() === g.startedAt.getTime()) {
+        last.to = g.endedAt;
+      } else {
+        out.push({ kind, from: g.startedAt, to: g.endedAt });
+      }
+    }
+  }
+  return out.map((x) => ({ kind: x.kind, from: x.from.toISOString(), to: x.to.toISOString() }));
 }
 
 export const INDIA_TZ = 'Asia/Kolkata';
@@ -130,6 +165,7 @@ export function dayRow(i: DayInput): DayRow {
     breaks_over_limit: over,
     away_ms: away,
     corrections_waiting: i.correctionsWaiting,
+    segments: spansOf(day),
   };
 }
 
