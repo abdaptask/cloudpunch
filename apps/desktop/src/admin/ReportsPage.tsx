@@ -42,6 +42,7 @@ const FILTERS: readonly ReportFilter[] = [
   'breaks_over',
   'short',
   'long',
+  'in_office',
 ];
 
 const selectedStyle = (t: Theme, on: boolean) =>
@@ -55,7 +56,14 @@ const selectedStyle = (t: Theme, on: boolean) =>
  * and Administrators everyone; the server decides. A click opens the
  * person's day (for those who can see Team).
  */
-export function ReportsPage({ canOpenDays }: { canOpenDays: boolean }): JSX.Element {
+export function ReportsPage({
+  canOpenDays,
+  canSetOffice = false,
+}: {
+  canOpenDays: boolean;
+  /** HR and Administrators: mark someone in the office that day (ADR-0039). */
+  canSetOffice?: boolean;
+}): JSX.Element {
   const t = useTheme();
   const c = chartColors(t);
   const today = localDateOf(Date.now());
@@ -67,6 +75,13 @@ export function ReportsPage({ canOpenDays }: { canOpenDays: boolean }): JSX.Elem
   const [view, setView] = useState<'timeline' | 'table'>('timeline');
   const [tz, setTz] = useState(ZONES[0]?.[0] ?? 'Asia/Kolkata');
   const [open, setOpen] = useState<string | null>(null);
+  // Bumped to reload the day after a change made from here.
+  const [reloads, setReloads] = useState(0);
+  const [officeStatus, setOfficeStatus] = useState<{
+    kind: 'saved' | 'error';
+    text: string;
+  } | null>(null);
+  const [officeBusy, setOfficeBusy] = useState(false);
   const now = Date.now();
 
   useEffect(() => {
@@ -85,7 +100,30 @@ export function ReportsPage({ canOpenDays }: { canOpenDays: boolean }): JSX.Elem
     return () => {
       current = false;
     };
-  }, [date]);
+  }, [date, reloads]);
+
+  // In the office that day, or not after all (ADR-0039): they leave the
+  // timeline for the "In office" chip, and come back if undone.
+  const setOffice = (r: DayReportRow, inOffice: boolean): void => {
+    setOfficeBusy(true);
+    setOfficeStatus(null);
+    api.adminSetOfficeDay(r.employee_id, date, inOffice, 'From the day summary').then(
+      () => {
+        setOfficeBusy(false);
+        setOfficeStatus({
+          kind: 'saved',
+          text: inOffice
+            ? `${r.name} was in the office on ${date}. They're listed under In office now.`
+            : `${r.name} is back on the day summary for ${date}.`,
+        });
+        setReloads((n) => n + 1);
+      },
+      (e: unknown) => {
+        setOfficeBusy(false);
+        setOfficeStatus({ kind: 'error', text: errorText(String(e)) });
+      },
+    );
+  };
 
   const people = report?.people ?? [];
   const rows = sortRows(
@@ -114,7 +152,8 @@ export function ReportsPage({ canOpenDays }: { canOpenDays: boolean }): JSX.Elem
     if (d <= today && d >= shiftDate(today, -LOOKBACK_DAYS)) setDate(d);
   };
   const pct = (n: number): number => (onShift > 0 ? (n / onShift) * 100 : 0);
-  const openRow = canOpenDays
+  const canOpen = canOpenDays || canSetOffice;
+  const openRow = canOpen
     ? { onOpen: (r: DayReportRow) => setOpen(open === r.employee_id ? null : r.employee_id) }
     : {};
 
@@ -167,6 +206,18 @@ export function ReportsPage({ canOpenDays }: { canOpenDays: boolean }): JSX.Elem
         notice={error ? { kind: 'error', text: error } : null}
         onDismiss={() => setError(null)}
       />
+      {officeStatus && (
+        <p
+          role={officeStatus.kind === 'error' ? 'alert' : 'status'}
+          style={{
+            margin: 0,
+            fontSize: 13,
+            color: officeStatus.kind === 'error' ? t.danger : t.text,
+          }}
+        >
+          {officeStatus.text}
+        </p>
+      )}
       {!report && !error && <p style={{ margin: 0, fontSize: 13, color: t.muted }}>Loading…</p>}
       {report && counts && (
         <>
@@ -361,7 +412,7 @@ export function ReportsPage({ canOpenDays }: { canOpenDays: boolean }): JSX.Elem
                 />
                 <span style={{ fontSize: 11.5, color: t.muted }}>
                   On {zoneName}. Hover for times
-                  {canOpenDays ? '; click a person for their day' : ''}.
+                  {canOpen ? '; click a person for their day' : ''}.
                 </span>
               </div>
             )
@@ -375,7 +426,7 @@ export function ReportsPage({ canOpenDays }: { canOpenDays: boolean }): JSX.Elem
               initialSort={{ key: 'status', dir: 'asc' }}
               empty={people.length === 0 ? 'Nobody to show.' : 'Nobody matches.'}
               selected={open}
-              {...(canOpenDays ? { onRowClick: openRow.onOpen } : {})}
+              {...(canOpen ? { onRowClick: openRow.onOpen } : {})}
               columns={[
                 { key: 'name', label: 'Person', render: (r) => r.name, sortText: (r) => r.name },
                 {
@@ -438,10 +489,38 @@ export function ReportsPage({ canOpenDays }: { canOpenDays: boolean }): JSX.Elem
               aria-label="report-person-day"
               style={{ display: 'flex', flexDirection: 'column' }}
             >
-              <h3 style={{ margin: '8px 0 4px', fontSize: 14 }}>
-                {opened.name} · {date}
-              </h3>
-              <EarlierDay id={opened.employee_id} date={date} canCorrect={false} />
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                <h3 style={{ margin: '8px 0 4px', fontSize: 14 }}>
+                  {opened.name} · {date}
+                </h3>
+                {canSetOffice && opened.status === 'in_office' && (
+                  <Button
+                    variant="chip"
+                    disabled={officeBusy}
+                    onClick={() => setOffice(opened, false)}
+                  >
+                    Not in office after all
+                  </Button>
+                )}
+                {canSetOffice &&
+                  (opened.status === 'not_clocked_in' ||
+                    opened.status === 'not_working' ||
+                    opened.status === 'off') && (
+                    <Button
+                      variant="chip"
+                      disabled={officeBusy}
+                      onClick={() => setOffice(opened, true)}
+                    >
+                      Mark in office on this day
+                    </Button>
+                  )}
+                {canSetOffice && (opened.status === 'worked' || opened.status === 'late') && (
+                  <span style={{ fontSize: 12, color: t.muted }}>
+                    Clocked in that day, so it counts as worked even if they were in the office.
+                  </span>
+                )}
+              </div>
+              {canOpenDays && <EarlierDay id={opened.employee_id} date={date} canCorrect={false} />}
             </div>
           )}
         </>
@@ -494,7 +573,13 @@ function Tile({
 }
 
 /** Reports in the console: the day summary and the overview (ADR-0040 §2, §3). */
-export function Reports({ canOpenDays }: { canOpenDays: boolean }): JSX.Element {
+export function Reports({
+  canOpenDays,
+  canSetOffice = false,
+}: {
+  canOpenDays: boolean;
+  canSetOffice?: boolean;
+}): JSX.Element {
   const t = useTheme();
   const [tab, setTab] = useState<'day' | 'overview'>('day');
   const tabs: [typeof tab, string][] = [
@@ -517,7 +602,11 @@ export function Reports({ canOpenDays }: { canOpenDays: boolean }): JSX.Element 
           </Button>
         ))}
       </div>
-      {tab === 'day' ? <ReportsPage canOpenDays={canOpenDays} /> : <OverviewPage />}
+      {tab === 'day' ? (
+        <ReportsPage canOpenDays={canOpenDays} canSetOffice={canSetOffice} />
+      ) : (
+        <OverviewPage />
+      )}
     </div>
   );
 }

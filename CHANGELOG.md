@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Web (and the next desktop): mark someone in office from the day summary (ADR-0039)
+
+- In Reports → Day summary, opening a person who didn't clock in offers
+  **Mark in office on this day** (HR and Administrators). They leave the
+  timeline and appear under a new **In office** chip, and stop counting
+  as "not clocked in"; **Not in office after all** puts them back. Someone
+  who clocked in keeps their time as worked.
+- Rows open for HR and Administrators even without the Team role (the
+  day's detail still needs it).
+
 ### Desktop 0.1.42, server and web: updates that reach everyone (ADR-0046)
 
 - **Why computers were behind** (measured 2026-10-14: 8 on 0.1.25, 10

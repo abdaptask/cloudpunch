@@ -15,7 +15,11 @@ import {
 } from './dayReportModel.js';
 import { ReportsPage } from './ReportsPage.js';
 
-const mocks = vi.hoisted(() => ({ reportDay: vi.fn(), teamDay: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+  reportDay: vi.fn(),
+  teamDay: vi.fn(),
+  adminSetOfficeDay: vi.fn(),
+}));
 vi.mock('../api.js', () => ({ api: mocks }));
 
 const row = (over: Partial<DayReportRow>): DayReportRow => ({
@@ -181,5 +185,49 @@ describe('timeline maths', () => {
     expect(matches({ ...r, status: 'worked' }, 'attention')).toBe(false);
     expect(matches({ ...r, status: 'worked', idle_ms: 3_600_000 }, 'long_idle')).toBe(true);
     expect(matches({ ...r, status: 'off' }, 'all')).toBe(false);
+  });
+});
+
+describe('marking someone in office from the day summary (owner, 2026-10-14)', () => {
+  it('a not-clocked-in person moves to the In office chip; undo brings them back', async () => {
+    mocks.adminSetOfficeDay.mockResolvedValue({ date: '2026-10-12', in_office: true });
+    const user = userEvent.setup();
+    render(<ReportsPage canOpenDays={false} canSetOffice />);
+    const rows = within(await screen.findByRole('list', { name: 'timeline-rows' }));
+    await user.click(rows.getByRole('button', { name: /^Farheen Test/ }));
+    const panel = screen.getByLabelText('report-person-day');
+    // No team view for this role: the day itself isn't shown, only the action.
+    expect(mocks.teamDay).not.toHaveBeenCalled();
+    // After marking, the server says she was in the office.
+    const people = (await mocks.reportDay.mock.results[0]?.value) as { people: DayReportRow[] };
+    mocks.reportDay.mockResolvedValue({
+      date: '2026-10-12',
+      counts: { ...counts, not_clocked_in: 0, in_office: 1 },
+      people: people.people.map((p) =>
+        p.employee_id === 'e2' ? { ...p, status: 'in_office' } : p,
+      ),
+    });
+    await user.click(within(panel).getByRole('button', { name: 'Mark in office on this day' }));
+    expect(mocks.adminSetOfficeDay).toHaveBeenCalledWith(
+      'e2',
+      expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+      true,
+      'From the day summary',
+    );
+    expect(await screen.findByRole('status')).toHaveTextContent('listed under In office now');
+    const after = within(await screen.findByRole('list', { name: 'timeline-rows' }));
+    expect(after.queryByRole('button', { name: /^Farheen Test/ })).toBeNull();
+    await user.click(screen.getByRole('tab', { name: 'In office 1' }));
+    expect(after.getByRole('button', { name: /^Farheen Test/ })).toBeInTheDocument();
+  });
+
+  it('someone who clocked in is not offered it; a role without the right sees no button', async () => {
+    const user = userEvent.setup();
+    render(<ReportsPage canOpenDays canSetOffice />);
+    const rows = within(await screen.findByRole('list', { name: 'timeline-rows' }));
+    await user.click(rows.getByRole('button', { name: /^Roshni Test/ }));
+    const panel = screen.getByLabelText('report-person-day');
+    expect(within(panel).queryByRole('button', { name: 'Mark in office on this day' })).toBeNull();
+    expect(panel).toHaveTextContent('counts as worked');
   });
 });

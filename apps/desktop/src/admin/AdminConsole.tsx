@@ -103,7 +103,12 @@ export function AdminConsole({
       case 'connections':
         return <ConnectionsPage />;
       case 'reports':
-        return <Reports canOpenDays={has('team.timeline.read')} />;
+        return (
+          <Reports
+            canOpenDays={has('team.timeline.read')}
+            canSetOffice={has('hr.employee.write')}
+          />
+        );
     }
   };
 
