@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Docs: privacy notice
+
+- Employee privacy notice: new "Patterns, nudges and My week" section
+  (ADR-0047), findings added to "Who can see your data", and "How long
+  we keep your data" now matches the retention periods (ADR-0044).
+
 ### Desktop 0.1.43
 
 - Version bump for the release carrying My week, Reports → Insights and

@@ -3,8 +3,8 @@
 - **Status:** Template draft. Requires review by ApTask HR and by
   legal counsel qualified under India's Digital Personal Data
   Protection Act, 2023 (DPDPA) before being shown to employees.
-- **Last updated:** 2026-10-07 (where you connect from is part of what
-  CloudPunch records, ADR-0032).
+- **Last updated:** 2026-10-14 (patterns, nudges and My week,
+  ADR-0047; how long we keep your data, ADR-0044).
 - **Intended audience:** every ApTask employee who uses CloudPunch.
 
 This notice explains, in plain language, what CloudPunch records about
@@ -225,6 +225,38 @@ can enable autostart if your team prefers, but even when autostart is
 on, the app never clocks you in automatically — you still click the
 button.
 
+## Patterns, nudges and My week
+
+CloudPunch looks at **your own time records from the last 14 days**
+for a few simple patterns, using fixed rules (no AI, and nothing
+beyond the records above):
+
+- starting after your shift time 3 or more times;
+- no clock-in on 2 or more shift days;
+- 3 or more days well short of your shift (under 80%);
+- an hour or more of idle time on 3 or more days;
+- 5 or more breaks over their limit;
+- staying clocked in after finishing on 2 or more days;
+- 3 or more days an hour or more past your shift.
+
+Holidays, office days and days off never count.
+
+When a pattern shows up, your manager and HR see it as a short
+"finding" with the days behind it. They may send you a **nudge**: an
+email that they write (CloudPunch only suggests the wording), with
+your manager copied. CloudPunch checks again 14 days later and closes
+the finding if things have changed. Nothing happens automatically:
+no pay, leave or disciplinary step is ever taken by CloudPunch.
+
+**You see everything they see.** **My week** (in the app's account
+menu, or on the web) shows your last 14 days, any open findings, the
+nudges you were sent, and lets you **add your side** (for example
+"school run on Tuesdays, agreed with my manager"). What you add is
+shown to your manager and HR next to the finding.
+
+Every step on a finding (opened, nudged, your note, closed) is kept as
+its history.
+
 ## Who can see your data
 
 Access is on a strict need-to-know basis:
@@ -253,6 +285,9 @@ Access is on a strict need-to-know basis:
   was last used. Your computer's name is never stored, only a
   one-way fingerprint of it. This lets ApTask spot a lost or unknown
   computer and switch it off.
+- **Your reporting manager, HR and CloudPunch administrators** can
+  see **findings about you** (see "Patterns, nudges and My week"),
+  the nudges sent, and anything you add. You see the same.
 - **Your reporting manager and CloudPunch administrators** can see
   **where you connect from** (approximate city and internet provider,
   last 30 days). See "Where you connect from" above.
@@ -275,20 +310,28 @@ If you see a mistake on your timesheet:
 
 ## How long we keep your data
 
-- **Raw time events** — 3 years by default.
-- **Timesheets and approvals** — 3 years by default.
-- **Audit records** — 7 years, as is standard for wage and hour
-  records.
-- **Notifications and non-payroll operational data** — 90 days.
-- **Connection history** (where you connect from) — 30 days, then
-  deleted.
+- **Time records** (clock-ins, breaks, states, corrections) — 5
+  years.
+- **Audit records** (who changed what) — 7 years, as is standard for
+  wage and hour records.
+- **Idle notes** (what you said you were doing while idle) — 365
+  days.
+- **Records of emails CloudPunch sent** (shift-start reminders, daily
+  and weekly reports, new-place alerts) — 365 days.
+- **Operational data** (upload error counts, bulk admin requests) —
+  90 days.
+- **Findings and nudges** — not yet cleaned up automatically; HR will
+  set a period and this notice will be updated.
+- **Connection history** (where you connect from) — 30 days.
 
-After the retention period, records are moved to encrypted archival
-storage and eventually deleted, except where legal hold applies.
+After its period, a record is **deleted** by an automatic nightly
+clean-up. Your HR team sets these periods; CloudPunch will not go
+below a minimum for each kind (3 years for time and audit records),
+and every clean-up is itself recorded.
 
-If you leave ApTask, your records are retained per the retention
-periods above. They are not immediately deleted because payroll
-records typically have a statutory minimum retention.
+If you leave ApTask, your records are kept for the periods above and
+then deleted the same way. They are not deleted straight away because
+payroll records have a statutory minimum retention.
 
 ## Your rights under DPDPA
 
