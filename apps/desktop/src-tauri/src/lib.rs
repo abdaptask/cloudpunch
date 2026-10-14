@@ -384,6 +384,8 @@ pub fn run() {
             commands::save_csv,
             commands::admin_devices,
             commands::my_connections,
+            commands::my_insights,
+            commands::add_insight_context,
             commands::team_connections,
             commands::person_connections,
             commands::admin_people_set_roles,

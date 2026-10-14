@@ -47,10 +47,12 @@ CREATE TABLE insight_event (
   actor_user_id  uuid REFERENCES app_user(id),
   note           text CHECK (note IS NULL OR length(note) <= 4000),
   detail         jsonb,
-  at             timestamptz NOT NULL DEFAULT now()
+  at             timestamptz NOT NULL DEFAULT now(),
+  -- Insertion order, for lines recorded at the same instant.
+  seq            bigint GENERATED ALWAYS AS IDENTITY
 );
 
-CREATE INDEX insight_event_insight_idx ON insight_event (insight_id, at);
+CREATE INDEX insight_event_insight_idx ON insight_event (insight_id, at, seq);
 
 COMMENT ON TABLE insight_event IS
   'The history of a finding (ADR-0047 §2). Append-only.';

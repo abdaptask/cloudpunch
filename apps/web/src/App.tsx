@@ -9,6 +9,7 @@ import {
   useCorrectionsQueue,
 } from '../../desktop/src/Corrections.js';
 import { TeamScreen } from '../../desktop/src/TeamScreen.js';
+import { MyWeek } from '../../desktop/src/MyWeek.js';
 import { ThemeProvider, useTheme } from '../../desktop/src/ui/theme.js';
 import { startAuth, type Auth, type WebConfig } from './auth.js';
 import { connectApi } from './desktopApi.js';
@@ -67,19 +68,38 @@ async function load(deps: AppDeps): Promise<View> {
 
 const seesTeam = (me: Me): boolean => me.capabilities.includes(Capability.TeamTimelineRead);
 const seesAdmin = (me: Me): boolean => sectionsFor(me.capabilities).length > 0;
+/** My week (ADR-0047 §5): anyone tracking their own time. */
+const seesMine = (me: Me): boolean => me.capabilities.includes(Capability.SelfTimelineRead);
 
 /** The admin console's address (ADR-0038 §2); the server serves the app there too. */
 export const ADMIN_PATH = '/app/admin/';
 const TEAM_PATH = '/app/';
 
-type Page = 'team' | 'admin';
+type Page = 'team' | 'admin' | 'my-week';
+
+/** My week's address: the nudge email links here (ADR-0047 §3). */
+export const MY_WEEK_PATH = '/app/?view=my-week';
+const wantsMyWeek = (): boolean => {
+  try {
+    return new URLSearchParams(window.location.search).get('view') === 'my-week';
+  } catch {
+    return false;
+  }
+};
 
 /** The page this address asks for, if this person can have it. */
 function pageFor(path: string, me: Me): Page {
   const wantsAdmin = path === ADMIN_PATH || path === '/app/admin';
   if (wantsAdmin && seesAdmin(me)) return 'admin';
-  return seesTeam(me) ? 'team' : 'admin';
+  if (wantsMyWeek() && seesMine(me)) return 'my-week';
+  if (seesTeam(me)) return 'team';
+  if (seesAdmin(me)) return 'admin';
+  return 'my-week';
 }
+
+const pathOf = (p: Page): string =>
+  p === 'admin' ? ADMIN_PATH : p === 'my-week' ? MY_WEEK_PATH : TEAM_PATH;
+const PAGE_LABEL: Record<Page, string> = { team: 'Team', admin: 'Admin', 'my-week': 'My week' };
 
 async function whoAmI(deps: AppDeps, auth: Auth): Promise<View> {
   if (!auth.account) return { kind: 'signed_out', auth };
@@ -91,7 +111,7 @@ async function whoAmI(deps: AppDeps, auth: Auth): Promise<View> {
   if (me.status === 403) return { kind: 'not_set_up', auth };
   if (!me.ok) return { kind: 'error', message: `/v1/me HTTP ${me.status}` };
   const body = (await me.json()) as Me;
-  return seesTeam(body) || seesAdmin(body)
+  return seesTeam(body) || seesAdmin(body) || seesMine(body)
     ? { kind: 'ready', auth, me: body }
     : { kind: 'not_allowed', auth, me: body };
 }
@@ -381,10 +401,12 @@ function Dashboard({
   }, [me]);
   const go = (to: Page): void => {
     if (to === page) return;
-    window.history.pushState(null, '', to === 'admin' ? ADMIN_PATH : TEAM_PATH);
+    window.history.pushState(null, '', pathOf(to));
     setPage(to);
   };
-  const both = seesTeam(me) && seesAdmin(me);
+  const pages = (['team', 'my-week', 'admin'] as const).filter((p) =>
+    p === 'team' ? seesTeam(me) : p === 'admin' ? seesAdmin(me) : seesMine(me),
+  );
 
   const header = (
     <header
@@ -398,12 +420,12 @@ function Dashboard({
       }}
     >
       <img src="/brand/logo.png" alt="CloudPunch" width={60} height={32} />
-      {both && (
+      {pages.length > 1 && (
         <nav aria-label="pages" style={{ display: 'flex', gap: 4 }}>
-          {(['team', 'admin'] as const).map((p) => (
+          {pages.map((p) => (
             <a
               key={p}
-              href={p === 'admin' ? ADMIN_PATH : TEAM_PATH}
+              href={pathOf(p)}
               aria-current={p === page ? 'page' : undefined}
               onClick={(e) => {
                 e.preventDefault();
@@ -419,7 +441,7 @@ function Dashboard({
                 textDecoration: 'none',
               }}
             >
-              {p === 'admin' ? 'Admin' : 'Team'}
+              {PAGE_LABEL[p]}
             </a>
           ))}
         </nav>
@@ -474,7 +496,19 @@ function Dashboard({
     >
       {header}
       <main style={{ maxWidth: 720, margin: '0 auto', padding: '20px 16px 40px' }}>
-        {queueOpen ? (
+        {page === 'my-week' ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            {connected && <MyWeek />}
+            {!seesTeam(me) && !seesAdmin(me) && (
+              <p style={{ margin: 0, fontSize: 13, color: t.muted }}>
+                To track your time, use the CloudPunch app.{' '}
+                <a href={DOWNLOAD_PATH} style={{ color: t.accent, fontWeight: 600 }}>
+                  Download CloudPunch
+                </a>
+              </p>
+            )}
+          </div>
+        ) : queueOpen ? (
           <CorrectionsQueue
             queue={corrections.queue}
             onChanged={corrections.reload}

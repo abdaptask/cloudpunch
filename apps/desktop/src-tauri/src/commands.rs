@@ -1637,6 +1637,27 @@ pub async fn my_connections(auth: State<'_, Arc<Auth>>) -> Result<serde_json::Va
     answer(fetched)
 }
 
+/// My week (ADR-0047 §5).
+#[tauri::command]
+pub async fn my_insights(auth: State<'_, Arc<Auth>>) -> Result<serde_json::Value, String> {
+    let (_, fetched) = fetch_as_user(&auth, admin::my_insights).await?;
+    answer(fetched)
+}
+
+/// Add context to a finding about yourself (ADR-0047 §5).
+#[tauri::command]
+pub async fn add_insight_context(
+    auth: State<'_, Arc<Auth>>,
+    id: String,
+    text: String,
+) -> Result<serde_json::Value, String> {
+    let (_, fetched) = fetch_as_user(&auth, move |http, base, token| {
+        admin::add_insight_context(http, base, token, &id, &text)
+    })
+    .await?;
+    answer(fetched)
+}
+
 /// Each person's latest connection (audited server-side).
 #[tauri::command]
 pub async fn team_connections(auth: State<'_, Arc<Auth>>) -> Result<serde_json::Value, String> {

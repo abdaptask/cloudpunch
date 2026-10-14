@@ -948,13 +948,13 @@ export class PostgresDb implements DbRepositories {
       history: (id) =>
         this.sql<InsightEvent[]>`
           SELECT ${evCols} FROM insight_event e LEFT JOIN app_user u ON u.id = e.actor_user_id
-          WHERE e.insight_id = ${id} ORDER BY e.at, e.id`,
+          WHERE e.insight_id = ${id} ORDER BY e.at, e.seq`,
       historyOf: async (ids) =>
         ids.length === 0
           ? []
           : this.sql<InsightEvent[]>`
               SELECT ${evCols} FROM insight_event e LEFT JOIN app_user u ON u.id = e.actor_user_id
-              WHERE e.insight_id = ANY(${[...ids]}) ORDER BY e.at, e.id`,
+              WHERE e.insight_id = ANY(${[...ids]}) ORDER BY e.at, e.seq`,
     };
   }
 

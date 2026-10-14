@@ -32,6 +32,8 @@ export type WebApi = Pick<
   | 'teamConnections'
   | 'personConnections'
   | 'myConnections'
+  | 'myInsights'
+  | 'addInsightContext'
   | 'requestCorrection'
   | 'correctionsQueue'
   | 'decideCorrection'
@@ -191,6 +193,11 @@ export const api: WebApi = {
     return get(`/v1/team/${employeeId}/connections`);
   },
   myConnections: () => get('/v1/me/connections'),
+  myInsights: () => get('/v1/me/insights'),
+  addInsightContext: async (id, text) => {
+    check(UUID.test(id));
+    return send('POST', `/v1/me/insights/${id}/context`, { text });
+  },
   correctionsQueue: () => get('/v1/corrections/queue'),
   requestCorrection: viewOnly,
   // As the Rust core: endorse/approve/reject/withdraw, an optional note.
