@@ -603,15 +603,17 @@ export function App(): JSX.Element {
               onSkip={() => run(api.dismissIdleReturn)}
             />
           )}
-          {/* "Welcome back?" while Away (ADR-0027). */}
-          {signedIn && view?.status === 'away' && view.awayCheck && (
-            <AwayCheckDialog
-              view={view}
-              now={now}
-              onBack={() => run(() => api.answerAwayCheck(true))}
-              onStill={() => run(() => api.answerAwayCheck(false))}
-            />
-          )}
+          {/* "Welcome back?" while Away (ADR-0027); "Back from your break?" (ADR-0048). */}
+          {signedIn &&
+            (view?.status === 'away' || view?.status === 'on_break') &&
+            view.awayCheck && (
+              <AwayCheckDialog
+                view={view}
+                now={now}
+                onBack={() => run(() => api.answerAwayCheck(true))}
+                onStill={() => run(() => api.answerAwayCheck(false))}
+              />
+            )}
           {breakPicker && view && (view.status === 'active' || view.status === 'on_call') && (
             <BreakPicker
               options={view.breakOptions}
@@ -1104,6 +1106,10 @@ function AwayCheckDialog({
     'Still away',
   ];
   const left = Math.max(0, Math.ceil(((view.awayCheck?.deadline ?? now) - now) / 1000));
+  const since = formatClock(view.awayCheck?.inputSince ?? now);
+  // ADR-0048: the same check on a break, in the break's words.
+  const onBreak = view.status === 'on_break';
+  const breakStart = view.timeline.find((s) => s.endedAt === null)?.startedAt;
   return (
     <section
       role="dialog"
@@ -1119,17 +1125,27 @@ function AwayCheckDialog({
         boxShadow: '0 8px 24px rgba(0,0,0,0.12)',
       }}
     >
-      <h2 style={{ margin: 0, fontSize: 16, fontWeight: 650 }}>Welcome back. {question}</h2>
-      <p style={{ margin: 0, fontSize: 13, lineHeight: 1.5, color: t.muted }}>
-        You&apos;ve been using the computer since {formatClock(view.awayCheck?.inputSince ?? now)}.
-        If you keep working, CloudPunch marks you back from then in {left}s.
-      </p>
+      <h2 style={{ margin: 0, fontSize: 16, fontWeight: 650 }}>
+        {onBreak ? 'Back from your break?' : `Welcome back. ${question}`}
+      </h2>
+      {onBreak ? (
+        <p style={{ margin: 0, fontSize: 13, lineHeight: 1.5, color: t.muted }}>
+          {breakName(view)} since {formatClock(breakStart ?? now)}. You&apos;ve been using the
+          computer since {since}. If you keep working, CloudPunch ends your break from then in{' '}
+          {left}s.
+        </p>
+      ) : (
+        <p style={{ margin: 0, fontSize: 13, lineHeight: 1.5, color: t.muted }}>
+          You&apos;ve been using the computer since {since}. If you keep working, CloudPunch marks
+          you back from then in {left}s.
+        </p>
+      )}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
         <Button variant="primary" onClick={onBack}>
           I&apos;m back
         </Button>
         <Button variant="chip" onClick={onStill}>
-          {still}
+          {onBreak ? 'Still on break' : still}
         </Button>
       </div>
     </section>

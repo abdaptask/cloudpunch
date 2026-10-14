@@ -1905,6 +1905,31 @@ describe('Away check-in (ADR-0027)', () => {
   });
 });
 
+describe('Back from your break? (ADR-0048)', () => {
+  it('asks on a break in the break words; I am back and Still on break answer', async () => {
+    const start = Date.now() - 20 * 60_000;
+    mocks.getState.mockResolvedValue(
+      view({
+        status: 'on_break',
+        breakKind: 'bio',
+        sessionStartedAt: start,
+        timeline: [{ kind: 'bio_break', startedAt: start, endedAt: null, session: 1 }],
+        awayCheck: { inputSince: Date.now() - 60_000, deadline: Date.now() + 120_000 },
+      }),
+    );
+    mocks.answerAwayCheck.mockResolvedValue(view({ status: 'active' }));
+    const user = userEvent.setup();
+    render(<App />);
+    const dialog = await screen.findByRole('dialog', { name: 'away-check' });
+    expect(dialog).toHaveTextContent('Back from your break?');
+    expect(dialog).toHaveTextContent(/Bio break since/);
+    expect(dialog).toHaveTextContent('ends your break from then');
+    expect(within(dialog).getByRole('button', { name: 'Still on break' })).toBeInTheDocument();
+    await user.click(within(dialog).getByRole('button', { name: "I'm back" }));
+    expect(mocks.answerAwayCheck).toHaveBeenCalledWith(true);
+  });
+});
+
 describe('one machine at a time (ADR-0028)', () => {
   const since = new Date(2026, 8, 30, 9, 2).getTime();
 

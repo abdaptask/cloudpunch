@@ -1493,3 +1493,81 @@ fn a_call_starting_while_away_ends_away_and_tracks_the_call() {
     assert_eq!(core.state(), CoreState::OnCall);
     assert_eq!(core.call_type(), Some(CallType::Teams));
 }
+
+// ADR-0048: the same check on a break ("Back from your break?").
+
+fn on_bio_break() -> Core {
+    let mut core = clocked_in();
+    core.handle(
+        Input::StartBreak {
+            kind: BreakKind::Bio,
+            planned_minutes: None,
+        },
+        t(10),
+    )
+    .unwrap();
+    assert!(matches!(core.state(), CoreState::OnBreak { .. }));
+    core
+}
+
+fn end_break_payload(fx: &[Effect]) -> Option<(SystemTime, serde_json::Value)> {
+    fx.iter().find_map(|e| match e {
+        Effect::Emit { event, at } if event.event_type() == "USER_END_BREAK" => {
+            Some((*at, event.transition_payload()))
+        }
+        _ => None,
+    })
+}
+
+#[test]
+fn a_minute_of_use_on_a_break_asks_back_from_your_break() {
+    let mut core = on_bio_break();
+    for s in 11..600 {
+        tick(&mut core, 0, s);
+    }
+    assert_eq!(core.away_check(), None, "no check without input");
+    let fx = using(&mut core, 600, 660);
+    let check = core.away_check().expect("asked");
+    assert_eq!(check.input_since, t(600));
+    assert!(fx.iter().any(|e| matches!(e, Effect::AwayCheckOpened(_))));
+    assert!(matches!(core.state(), CoreState::OnBreak { .. }));
+}
+
+#[test]
+fn im_back_ends_the_break_from_when_the_use_began() {
+    let mut core = on_bio_break();
+    using(&mut core, 600, 660);
+    let fx = core
+        .handle(Input::AnswerAwayCheck { back: true }, t(665))
+        .unwrap();
+    let (at, payload) = end_break_payload(&fx).expect("break ended");
+    assert_eq!(at, t(600));
+    assert_eq!(payload, serde_json::json!({}), "the person's own answer");
+    assert_eq!(core.state(), CoreState::Active);
+    assert_eq!(core.away_check(), None);
+}
+
+#[test]
+fn unanswered_while_use_continues_ends_the_break_by_itself() {
+    let mut core = on_bio_break();
+    using(&mut core, 600, 660);
+    let fx = using(&mut core, 661, 660 + 120);
+    let (at, payload) = end_break_payload(&fx).expect("ended on its own");
+    assert_eq!(at, t(600));
+    assert_eq!(payload, serde_json::json!({ "ended_by": "input" }));
+    assert_eq!(core.state(), CoreState::Active);
+}
+
+#[test]
+fn still_on_break_keeps_it_and_asks_again_after_10_minutes_of_use() {
+    let mut core = on_bio_break();
+    using(&mut core, 600, 660);
+    core.handle(Input::AnswerAwayCheck { back: false }, t(662))
+        .unwrap();
+    assert!(matches!(core.state(), CoreState::OnBreak { .. }));
+    assert_eq!(core.away_check(), None);
+    using(&mut core, 663, 663 + 9 * 60);
+    assert_eq!(core.away_check(), None, "not inside 10 minutes");
+    using(&mut core, 664 + 9 * 60, 670 + 10 * 60);
+    assert!(core.away_check().is_some());
+}

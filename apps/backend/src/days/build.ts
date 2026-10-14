@@ -238,7 +238,11 @@ export function buildSession(
     }
     if (kind === (cur.seg?.kind ?? null)) continue;
     const at = evt === clockInEvt ? clockIn : evt.clientTs;
-    const endedBy = evt.eventType === 'USER_MARK_BACK' ? evt.payload['ended_by'] : null;
+    // How an Away (ADR-0027) or, ADR-0048, a break ended on its own.
+    const endedBy =
+      evt.eventType === 'USER_MARK_BACK' || evt.eventType === 'USER_END_BREAK'
+        ? evt.payload['ended_by']
+        : null;
     if (cur.seg && (endedBy === 'input' || endedBy === 'call')) cur.seg.endedBy = endedBy;
     closeAt(at);
     const planned = evt.eventType === 'USER_START_BREAK' ? evt.payload['planned_minutes'] : null;

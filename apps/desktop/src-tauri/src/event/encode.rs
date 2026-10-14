@@ -488,7 +488,7 @@ pub(crate) mod tests {
                 kind: BreakKind::Meal,
                 planned_minutes: None,
             },
-            CoreEvent::UserEndBreak,
+            CoreEvent::UserEndBreak { ended_by: None },
             CoreEvent::UserMarkAway {
                 reason: AwayReason::Meeting,
                 note: None,
