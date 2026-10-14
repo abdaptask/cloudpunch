@@ -24,6 +24,9 @@ import type {
   AuditEntry,
   AuditRepo,
   UploadRefusalRepo,
+  Insight,
+  InsightEvent,
+  InsightRepo,
   RetentionRepo,
   UploadRefusalRow,
   NewShiftAssignment,
@@ -90,10 +93,12 @@ export class PostgresDb implements DbRepositories {
   readonly reports: ReportRepo;
   readonly history: AuditRepo;
   readonly refusals: UploadRefusalRepo;
+  readonly insights: InsightRepo;
   readonly retention: RetentionRepo;
 
   constructor(private readonly sql: postgres.Sql) {
     this.history = this.buildAuditRepo();
+    this.insights = this.buildInsightRepo();
     this.retention = {
       purge: async (kind, days, dryRun) => {
         const [row] = await this.sql<{ n: string }[]>`
@@ -869,6 +874,89 @@ export class PostgresDb implements DbRepositories {
   // -------------------------------------------------------------------
   // change history (ADR-0038 §8): reads over audit_log
   // -------------------------------------------------------------------
+
+  // -------------------------------------------------------------------
+  // actionable insights (ADR-0047)
+  // -------------------------------------------------------------------
+
+  private buildInsightRepo(): InsightRepo {
+    const cols = this.sql`id, employee_id, kind, severity, status, evidence,
+      to_char(follow_up_on, 'YYYY-MM-DD') AS follow_up_on, no_change, opened_at, updated_at`;
+    const evCols = this.sql`e.id, e.insight_id, e.action, e.actor_user_id,
+      u.display_name AS actor_name, e.note, e.detail, e.at`;
+    const addEvent = async (
+      q: postgres.Sql | postgres.TransactionSql,
+      id: string,
+      e: {
+        action: string;
+        actorUserId: string | null;
+        note: string | null;
+        detail: unknown;
+        at: Date;
+      },
+    ) => {
+      await q`
+        INSERT INTO insight_event (insight_id, action, actor_user_id, note, detail, at)
+        VALUES (${id}, ${e.action}, ${e.actorUserId}, ${e.note},
+                ${e.detail === null || e.detail === undefined ? null : q.json(e.detail as postgres.JSONValue)},
+                ${e.at})`;
+    };
+    return {
+      list: async (statuses, employeeIds) =>
+        employeeIds
+          ? employeeIds.length === 0
+            ? []
+            : this.sql<Insight[]>`
+                SELECT ${cols} FROM insight
+                WHERE status = ANY(${[...statuses]}) AND employee_id = ANY(${[...employeeIds]})
+                ORDER BY updated_at DESC`
+          : this.sql<Insight[]>`
+              SELECT ${cols} FROM insight WHERE status = ANY(${[...statuses]})
+              ORDER BY updated_at DESC`,
+      find: async (id) => {
+        const [row] = await this.sql<Insight[]>`SELECT ${cols} FROM insight WHERE id = ${id}`;
+        return row ?? null;
+      },
+      open: (i, e) =>
+        this.sql.begin(async (tx) => {
+          const [row] = await tx<Insight[]>`
+            INSERT INTO insight (employee_id, kind, severity, status, evidence, opened_at, updated_at)
+            VALUES (${i.employeeId}, ${i.kind}, ${i.severity}, 'open',
+                    ${tx.json(i.evidence as postgres.JSONValue)}, ${e.at}, ${e.at})
+            RETURNING ${cols}`;
+          if (!row) throw new Error('insight insert returned no row');
+          await addEvent(tx, row.id, e);
+          return row;
+        }),
+      change: (id, p, e) =>
+        this.sql.begin(async (tx) => {
+          const [row] = await tx<Insight[]>`
+            UPDATE insight SET
+              status = coalesce(${p.status ?? null}, status),
+              severity = coalesce(${p.severity ?? null}, severity),
+              evidence = ${p.evidence === undefined ? tx`evidence` : tx.json(p.evidence as postgres.JSONValue)},
+              follow_up_on = ${p.followUpOn === undefined ? tx`follow_up_on` : tx`${p.followUpOn}::date`},
+              no_change = coalesce(${p.noChange ?? null}, no_change),
+              updated_at = ${e.at}
+            WHERE id = ${id}
+            RETURNING ${cols}`;
+          if (!row) throw new Error('no such insight');
+          await addEvent(tx, id, e);
+          return row;
+        }),
+      note: async (id, e) => addEvent(this.sql, id, e),
+      history: (id) =>
+        this.sql<InsightEvent[]>`
+          SELECT ${evCols} FROM insight_event e LEFT JOIN app_user u ON u.id = e.actor_user_id
+          WHERE e.insight_id = ${id} ORDER BY e.at, e.seq`,
+      historyOf: async (ids) =>
+        ids.length === 0
+          ? []
+          : this.sql<InsightEvent[]>`
+              SELECT ${evCols} FROM insight_event e LEFT JOIN app_user u ON u.id = e.actor_user_id
+              WHERE e.insight_id = ANY(${[...ids]}) ORDER BY e.at, e.seq`,
+    };
+  }
 
   private buildAuditRepo(): AuditRepo {
     const cols = this.sql`a.occurred_at AS at, u.display_name AS actor_name, a.action,
