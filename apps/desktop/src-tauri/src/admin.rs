@@ -699,6 +699,39 @@ pub fn decide_correction(
 // Connection location (ADR-0029 §5). The server decides who sees whom:
 // an Administrator everyone, a Manager direct reports, never HR.
 
+/// My week (ADR-0047 §5): your own last 14 days and findings.
+pub fn my_insights(http: &Client, base: &str, token: &str) -> Result<Value, DayError> {
+    send(
+        http,
+        base,
+        token,
+        reqwest::Method::GET,
+        "/v1/me/insights",
+        None,
+    )
+}
+
+/// Your side of a finding about you (ADR-0047 §5).
+pub fn add_insight_context(
+    http: &Client,
+    base: &str,
+    token: &str,
+    id: &str,
+    text: &str,
+) -> Result<Value, DayError> {
+    if !is_uuid(id) {
+        return Err(DayError::Refused("invalid_argument".into()));
+    }
+    send(
+        http,
+        base,
+        token,
+        reqwest::Method::POST,
+        &format!("/v1/me/insights/{id}/context"),
+        Some(&serde_json::json!({ "text": text })),
+    )
+}
+
 /// Your own connection history, last 30 days.
 pub fn my_connections(http: &Client, base: &str, token: &str) -> Result<Value, DayError> {
     send(
@@ -1166,6 +1199,12 @@ mod tests {
             "t",
             &[("drop_table".to_string(), 1)],
         );
+        assert!(matches!(r, Err(DayError::Refused(c)) if c == "invalid_argument"));
+    }
+
+    #[test]
+    fn insight_context_refuses_a_bad_id_before_sending() {
+        let r = add_insight_context(&client(), "http://127.0.0.1:9", "t", "../x", "hi");
         assert!(matches!(r, Err(DayError::Refused(c)) if c == "invalid_argument"));
     }
 

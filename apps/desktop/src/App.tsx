@@ -33,6 +33,7 @@ import {
 import { CloseDialog, LongShiftBanner, rememberedKeepRunning } from './CloseDialog.js';
 import { TimelineView } from './TimelineView.js';
 import { MyConnections } from './ConnectionsView.js';
+import { MyWeek } from './MyWeek.js';
 import { TeamScreen } from './TeamScreen.js';
 import { TripCard } from './TripCard.js';
 import { tripSummary, type TripSummary } from './tripModel.js';
@@ -273,6 +274,8 @@ export function App(): JSX.Element {
   const [teamOpen, setTeamOpen] = useState(false);
   // "Where you connect from" (ADR-0029 §5), from the account menu.
   const [connectionsOpen, setConnectionsOpen] = useState(false);
+  // My week (ADR-0047 §5), from the account menu.
+  const [myWeekOpen, setMyWeekOpen] = useState(false);
   // Time corrections (ADR-0030): the review queue, and the form on a past day.
   const [correctionsOpen, setCorrectionsOpen] = useState(false);
   const [askingCorrection, setAskingCorrection] = useState(false);
@@ -299,6 +302,8 @@ export function App(): JSX.Element {
   const canSeeConnections =
     capabilities.includes('admin.connection.read') || capabilities.includes('team.connection.read');
   const canSeeOwnConnections = capabilities.includes('self.connection.read');
+  // My week: anyone tracking their own time (ADR-0047 §5).
+  const canSeeOwnWeek = capabilities.includes('self.timeline.read');
   // Settings opens the admin console (ADR-0038 §1); the old screens left
   // this window in phase 8.
   const canOpenConsole = sectionsFor(capabilities).length > 0;
@@ -309,8 +314,9 @@ export function App(): JSX.Element {
   const corrections = useCorrectionsQueue(signedIn && reviewsCorrections);
   const waiting = queueCount(corrections.queue);
   const queueShown = correctionsOpen && reviewsCorrections;
-  const mineShown = connectionsOpen && canSeeOwnConnections && !queueShown;
-  const teamShown = teamOpen && canSeeTeam && !mineShown && !queueShown;
+  const weekShown = myWeekOpen && canSeeOwnWeek && !queueShown;
+  const mineShown = connectionsOpen && canSeeOwnConnections && !queueShown && !weekShown;
+  const teamShown = teamOpen && canSeeTeam && !mineShown && !queueShown && !weekShown;
   const showDate = (d: string): void => setViewDate(d >= todayDate ? null : d);
   const todayDate = localDateOf(now);
   const pastDate = viewDate !== null && viewDate < todayDate ? viewDate : null;
@@ -465,6 +471,7 @@ export function App(): JSX.Element {
                 onClick={() => {
                   setConnectionsOpen(false);
                   setCorrectionsOpen(false);
+                  setMyWeekOpen(false);
                   setTeamOpen((o) => !o);
                 }}
               />
@@ -490,7 +497,18 @@ export function App(): JSX.Element {
                   ? () => {
                       setTeamOpen(false);
                       setCorrectionsOpen(false);
+                      setMyWeekOpen(false);
                       setConnectionsOpen(true);
+                    }
+                  : undefined
+              }
+              onMyWeek={
+                canSeeOwnWeek
+                  ? () => {
+                      setTeamOpen(false);
+                      setCorrectionsOpen(false);
+                      setConnectionsOpen(false);
+                      setMyWeekOpen(true);
                     }
                   : undefined
               }
@@ -656,6 +674,7 @@ export function App(): JSX.Element {
               onReview={() => {
                 setTeamOpen(false);
                 setConnectionsOpen(false);
+                setMyWeekOpen(false);
                 setCorrectionsOpen(true);
               }}
             />
@@ -745,6 +764,7 @@ export function App(): JSX.Element {
               onClose={() => setCorrectionsOpen(false)}
             />
           )}
+          {signedIn && weekShown && <MyWeek onClose={() => setMyWeekOpen(false)} />}
           {signedIn && mineShown && <MyConnections onClose={() => setConnectionsOpen(false)} />}
           {signedIn && teamShown && (
             <TeamScreen
@@ -753,7 +773,7 @@ export function App(): JSX.Element {
               onClose={() => setTeamOpen(false)}
             />
           )}
-          {signedIn && !queueShown && !mineShown && !teamShown && (
+          {signedIn && !queueShown && !mineShown && !teamShown && !weekShown && (
             <>
               {/* Status and actions stay put; the details below scroll. */}
               <div

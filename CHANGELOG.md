@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Desktop (next release) and web: My week (ADR-0047 §5)
+
+- **My week** for every employee: the last 14 days as a strip of marks
+  (on time, late, no clock-in, short day, off, holiday, in office, worked
+  with no shift), each with an icon and words, plus a legend and totals
+  (on time X of Y, hours against scheduled, idle).
+- **Open findings** show their days, any nudges from the manager or HR,
+  and the person's own context; "Add context" sends a note
+  (`POST /v1/me/insights/:id/context`). With nothing open: "Nothing needs
+  your attention. Keep it up." Closed findings from the last 30 days are
+  one muted line.
+- **Desktop:** "My week" in the account menu (new commands `my_insights`,
+  `add_insight_context`). **Web:** `/app/?view=my-week` (the nudge email
+  link) and a My week page for everyone with `self.timeline.read`;
+  employees without team or admin access now land on it.
+- Only the person's own data; nothing about anyone else.
+
 ### Server: actionable insights (ADR-0047, migration 0021)
 
 - **Findings:** each morning (08:15 India time) CloudPunch looks at
