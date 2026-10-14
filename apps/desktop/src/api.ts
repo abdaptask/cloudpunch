@@ -527,6 +527,10 @@ export interface StateView {
   plannedBreakMinutes: number | null;
   /** This build's version. */
   appVersion: string;
+  /** A pushed update's deadline, epoch ms (ADR-0046 §3). */
+  updateRequiredBy?: number | null;
+  /** When an overdue pushed update clocks out, updates and clocks back in, epoch ms. */
+  updateNoticeUntil?: number | null;
   /** A downloaded update's version, waiting to install (ADR-0022). */
   updateReady: string | null;
   /** The prompt or idle in progress is a presence check (ADR-0024). */
@@ -697,6 +701,12 @@ export const api = {
   /** "I'm back" after an unanswered presence check (ADR-0024). */
   confirmPresence: (): Promise<StateView> => invoke<StateView>('confirm_presence'),
   /** "Restart to update" while clocked out; the app exits and reopens. */
+  /**
+   * Windows-style update (ADR-0046 §2): clocks out if clocked in,
+   * installs, and on the new version `clock_in`, `shutdown` or nothing.
+   */
+  updateNow: (then: 'none' | 'clock_in' | 'shutdown'): Promise<void> =>
+    invoke<void>('update_now', { then }),
   installUpdateNow: (): Promise<void> => invoke<void>('install_update_now'),
   /**
    * "Check for updates" in the account menu: the 4-hourly check, now. A
@@ -830,6 +840,9 @@ export const api = {
     invoke('report_overview', { from, to }),
   /** Save a CSV in Downloads; resolves to where it went. */
   saveCsv: (name: string, text: string): Promise<string> => invoke('save_csv', { name, text }),
+  /** The newest published version per system (ADR-0046 §3). */
+  adminUpdatesLatest: (): Promise<{ windows: string | null; macos: string | null }> =>
+    invoke('admin_updates_latest'),
   /** The company holidays, last month to a year ahead (ADR-0037). */
   holidays: (): Promise<{ holidays: Holiday[] }> => invoke<{ holidays: Holiday[] }>('holidays'),
   /** Add or rename a holiday (HR and Administrators). */

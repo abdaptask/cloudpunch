@@ -71,6 +71,7 @@ export type WebApi = Pick<
   | 'adminSetOfficeDay'
   | 'adminBulkOffice'
   | 'reportDay'
+  | 'adminUpdatesLatest'
   | 'reportOverview'
   | 'saveCsv'
 >;
@@ -349,6 +350,7 @@ export const api: WebApi = {
       employee_ids: employeeIds,
       ...officePatternBody(weekdays, effectiveFrom, reason),
     }),
+  adminUpdatesLatest: () => get('/v1/admin/updates/latest'),
   reportDay: async (date) => {
     check(DATE.test(date));
     return get(`/v1/reports/day?date=${date}`);

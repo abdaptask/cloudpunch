@@ -3,7 +3,8 @@ import { stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { FastifyPluginAsync } from 'fastify';
 import fp from 'fastify-plugin';
-import { requireAuth } from '../auth/require.js';
+import { Capability } from '@cloudpunch/shared';
+import { requireAuth, requireCapability } from '../auth/require.js';
 import { signLink } from '../landing/links.js';
 import { readReleases, type Platform, type Release } from '../landing/routes.js';
 
@@ -94,6 +95,21 @@ const updateRoutesImpl: FastifyPluginAsync<UpdateRoutesOptions> = async (app, op
           size: latest.size,
           sha256: latest.sha256,
         });
+    },
+  );
+
+  // The console's "Push the update" (ADR-0046 §3): the newest signed
+  // release per system, so it can say what everyone will be moved to.
+  app.get(
+    '/v1/admin/updates/latest',
+    { preHandler: [requireCapability([Capability.AdminDeviceRead])] },
+    async (_req, reply) => {
+      const of = async (p: Platform) =>
+        latestSigned(await readReleases(opts.downloadsDir, p))?.version ?? null;
+      return reply
+        .code(200)
+        .header('cache-control', 'no-store')
+        .send({ windows: await of('windows'), macos: await of('macos') });
     },
   );
 

@@ -3,6 +3,7 @@ import { api, type DeviceRow } from '../api.js';
 import { useTheme } from '../ui/theme.js';
 import { compareVersions, versionSummary } from './versions.js';
 import { DataTable, input, Notice } from './DataTable.js';
+import { PushUpdate } from './PushUpdate.js';
 
 const ERROR_TEXT: Record<string, string> = {
   offline: "Can't reach CloudPunch right now.",
@@ -31,7 +32,7 @@ function seen(iso: string | null): string {
  * time with, as a table. "Behind only" shows the ones auto-update
  * hasn't reached (ADR-0022).
  */
-export function ComputersPage(): JSX.Element {
+export function ComputersPage({ canPush = false }: { canPush?: boolean }): JSX.Element {
   const t = useTheme();
   const [devices, setDevices] = useState<DeviceRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -73,6 +74,7 @@ export function ComputersPage(): JSX.Element {
         onDismiss={() => setError(null)}
       />
       {!devices && !error && <p style={{ margin: 0, fontSize: 13, color: t.muted }}>Loading…</p>}
+      {devices && <PushUpdate behind={devices.filter(behind).length} canPush={canPush} />}
       {devices && (
         <>
           <p aria-label="version-summary" style={{ margin: 0, fontSize: 13 }}>

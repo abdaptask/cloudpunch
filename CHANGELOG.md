@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Desktop 0.1.42, server and web: updates that reach everyone (ADR-0046)
+
+- **Why computers were behind** (measured 2026-10-14: 8 on 0.1.25, 10
+  on 0.1.32): an update installed only clocked out, before any work that
+  day, within 30 minutes of signing in; the app checked every 4 hours.
+  In practice only "Restart to update" ever installed. Macs also never
+  restarted after installing.
+- **Clocked out for two minutes, it updates by itself.** Checks every 30
+  minutes, and within a minute of a push.
+- **Windows-style choices:** clocking in with an update ready offers
+  **Update and clock in** (about 20 seconds) or **Clock in now, update
+  later**; clocking out offers **Clock out and update**, **Clock out,
+  update and shut down** or **Clock out only**; clocked in, the banner
+  offers **Update and clock back in**.
+- **Computers → Push the update** (Administrators): everyone on the
+  latest version by a time (in 5 minutes, 6 pm today, tomorrow 10 am, or
+  a time). After it, clocking in updates first, and a clocked-in app
+  gives a 5-minute notice, then clocks out, updates and clocks back in.
+  Saved in the company settings (`updates.required_by`), so it shows in
+  Rules → What changed. `GET /v1/admin/updates/latest` gives the newest
+  versions.
+- macOS restarts after installing an update.
+
 ### Server, web and desktop: data retention, off until HR sets the periods (ADR-0044; migration 0019)
 
 - **One way to delete old data:** a database function,

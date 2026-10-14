@@ -302,3 +302,24 @@ describe('POST /v1/desktop/download-link/:platform (owner decision, 2026-10-13)'
     expect(await post('/v1/desktop/download-link/mac', await bearer())).toBe(404);
   });
 });
+
+describe('GET /v1/admin/updates/latest (ADR-0046 §3)', () => {
+  it('the newest signed version per system, for Administrators and Auditors', async () => {
+    const a = await app(
+      publish([unsigned({ version: '0.1.3', file: 'CloudPunch_0.1.3_x64-setup.exe' }), release()]),
+    );
+    const res = await a.inject({
+      method: 'GET',
+      url: '/v1/admin/updates/latest',
+      headers: { authorization: await bearer([AppRole.Administrator]) },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ windows: '0.1.2', macos: null });
+    const employee = await a.inject({
+      method: 'GET',
+      url: '/v1/admin/updates/latest',
+      headers: { authorization: await bearer() },
+    });
+    expect(employee.statusCode).toBe(403);
+  });
+});

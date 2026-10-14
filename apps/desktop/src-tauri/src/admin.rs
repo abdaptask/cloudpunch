@@ -556,6 +556,18 @@ pub fn csv_name_ok(name: &str) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_'))
 }
 
+/// The newest published version per system (ADR-0046 §3).
+pub fn updates_latest(http: &Client, base: &str, token: &str) -> Result<Value, DayError> {
+    send(
+        http,
+        base,
+        token,
+        reqwest::Method::GET,
+        "/v1/admin/updates/latest",
+        None,
+    )
+}
+
 /// The company holidays (ADR-0037 §1), last month to a year ahead.
 pub fn holidays(http: &Client, base: &str, token: &str) -> Result<Value, DayError> {
     send(

@@ -5,6 +5,7 @@ import { BlockedElsewherePanel } from './BlockedElsewhere.js';
 import { BreakPicker, callName } from './BreakPicker.js';
 import { ClockInPrompt } from './ClockInPrompt.js';
 import { ClockOutDialog } from './ClockOutDialog.js';
+import { UpdateChoice } from './UpdateChoice.js';
 import { BreakOverBanner } from './BreakOverBanner.js';
 import { ClockSkewBanner } from './ClockSkewBanner.js';
 import {
@@ -254,6 +255,13 @@ export function App(): JSX.Element {
   }, [breakOver]);
   // Why "Restart to update" didn't restart, if it didn't.
   const [updateError, setUpdateError] = useState<string | null>(null);
+  // Clocking in with an update ready (ADR-0046 §2): the clock-in to do
+  // if they choose "Clock in now".
+  const [updateAsk, setUpdateAsk] = useState<null | (() => Promise<StateView>)>(null);
+  const clockInWith = (command: () => Promise<StateView>): void => {
+    if (view?.updateReady) setUpdateAsk(() => command);
+    else run(command);
+  };
 
   // Past days (ADR-0016): null shows today, live.
   const [viewDate, setViewDate] = useState<string | null>(null);
@@ -519,8 +527,32 @@ export function App(): JSX.Element {
               onCancel={() => setSignOutAsked(false)}
             />
           )}
+          {updateAsk && view?.updateReady && view.status === 'clocked_out' && (
+            <UpdateChoice
+              version={view.updateReady}
+              requiredBy={view.updateRequiredBy ?? null}
+              now={now}
+              onUpdateAndClockIn={() => {
+                setUpdateAsk(null);
+                setUpdateError(null);
+                api.updateNow('clock_in').catch((e: unknown) => setUpdateError(String(e)));
+              }}
+              onClockInNow={() => {
+                const clockIn = updateAsk;
+                setUpdateAsk(null);
+                run(clockIn);
+              }}
+              onCancel={() => setUpdateAsk(null)}
+            />
+          )}
           {clockOutAsked && view && (
             <ClockOutDialog
+              update={view.updateReady}
+              onClockOutAndUpdate={(then) => {
+                setClockOutAsked(false);
+                setUpdateError(null);
+                api.updateNow(then).catch((e: unknown) => setUpdateError(String(e)));
+              }}
               offerBreaks={view.status === 'active' || view.status === 'on_call'}
               onClockOut={() => {
                 setClockOutAsked(false);
@@ -537,8 +569,8 @@ export function App(): JSX.Element {
           {signedIn && view?.clockInPrompt && view.status === 'clocked_out' && !blocked && (
             <ClockInPrompt
               signedInAt={view.signedInAt}
-              onClockInFrom={() => run(api.clockInFromSignIn)}
-              onClockInNow={() => run(api.clockIn)}
+              onClockInFrom={() => clockInWith(api.clockInFromSignIn)}
+              onClockInNow={() => clockInWith(api.clockIn)}
               onNotNow={() => run(api.dismissClockInPrompt)}
               onNotWorking={view.notWorkingOffered ? () => run(api.notWorkingToday) : undefined}
             />
@@ -628,8 +660,10 @@ export function App(): JSX.Element {
               }}
             />
           )}
-          {/* "Restart to update" (owner request): only while clocked out. */}
-          {signedIn && view?.updateReady && view.status === 'clocked_out' && (
+          {/* Update ready (ADR-0046 §2): now if clocked out; clocked in,
+              "Update and clock back in", with a countdown once a pushed
+              update is overdue. */}
+          {signedIn && view?.updateReady && (
             <section
               role="status"
               aria-label="update-ready"
@@ -645,20 +679,24 @@ export function App(): JSX.Element {
               }}
             >
               <span>
-                {updateError === null
-                  ? `CloudPunch ${view.updateReady} is ready.`
-                  : updateError === 'not_clocked_out'
-                    ? 'Clock out first, then restart to update.'
-                    : "The update didn't start. It will install the next time you sign in."}
+                {updateError !== null
+                  ? "The update didn't start. It will try again when you next clock out."
+                  : view.updateNoticeUntil
+                    ? `CloudPunch ${view.updateReady} is required. Updating in ${countdown(view.updateNoticeUntil - now)}: you'll be clocked out and back in.`
+                    : view.status === 'clocked_out'
+                      ? `CloudPunch ${view.updateReady} is ready. It installs by itself in a moment.`
+                      : `CloudPunch ${view.updateReady} is ready. It installs when you clock out.`}
               </span>
               <Button
                 variant="chip"
                 onClick={() => {
                   setUpdateError(null);
-                  api.installUpdateNow().catch((e: unknown) => setUpdateError(String(e)));
+                  api
+                    .updateNow(view.status === 'clocked_out' ? 'none' : 'clock_in')
+                    .catch((e: unknown) => setUpdateError(String(e)));
                 }}
               >
-                Restart to update
+                {view.status === 'clocked_out' ? 'Update now' : 'Update and clock back in'}
               </Button>
             </section>
           )}
@@ -885,6 +923,7 @@ export function App(): JSX.Element {
                       <Actions
                         view={view}
                         run={run}
+                        clockIn={clockInWith}
                         onClockOut={askClockOut}
                         onBreak={() => setBreakPicker(true)}
                       />
@@ -1132,14 +1171,23 @@ function PinButton({ onClick }: { onClick: () => void }): JSX.Element {
   );
 }
 
+/** "4:05" for a countdown. */
+function countdown(ms: number): string {
+  const total = Math.max(0, Math.round(ms / 1000));
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
+}
+
 function Actions({
   view,
   run,
+  clockIn,
   onClockOut,
   onBreak,
 }: {
   view: StateView;
   run: (command: () => Promise<StateView>) => void;
+  /** A clock-in, through "Update and clock in?" when an update is ready (ADR-0046). */
+  clockIn: (command: () => Promise<StateView>) => void;
   /** Opens the "Clock out now?" dialog. */
   onClockOut: () => void;
   /** Opens "Take a break". */
@@ -1155,14 +1203,14 @@ function Actions({
     case 'clocked_out':
       return (
         <>
-          <Button variant="go" onClick={() => run(api.clockIn)}>
+          <Button variant="go" onClick={() => clockIn(api.clockIn)}>
             Clock in
           </Button>
           {/* ADR-0018 §4: start from when they signed in to the computer. */}
           {view.signedInAt !== null && (
             <button
               type="button"
-              onClick={() => run(api.clockInFromSignIn)}
+              onClick={() => clockIn(api.clockInFromSignIn)}
               style={{
                 alignSelf: 'center',
                 padding: 0,

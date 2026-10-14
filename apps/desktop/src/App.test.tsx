@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   getState: vi.fn<() => Promise<StateView>>(),
   clockIn: vi.fn<() => Promise<StateView>>(),
   clockOut: vi.fn<() => Promise<StateView>>(),
+  updateNow: vi.fn<(then: string) => Promise<void>>(),
   installUpdateNow: vi.fn<() => Promise<void>>(),
   checkForUpdate: vi.fn(),
   confirmPresence: vi.fn<() => Promise<StateView>>(),
@@ -148,6 +149,7 @@ beforeEach(() => {
   mocks.pinStatus.mockResolvedValue(false);
   mocks.myCapabilities.mockResolvedValue([]);
   mocks.openAdminWindow.mockResolvedValue(undefined);
+  mocks.updateNow.mockResolvedValue(undefined);
   mocks.adminDepartments.mockResolvedValue({ departments: [] });
   mocks.adminEmployees.mockResolvedValue({ employees: [] });
   mocks.adminShifts.mockResolvedValue({ people: [] });
@@ -1503,23 +1505,74 @@ describe('break during a call asks first (owner request)', () => {
   });
 });
 
-describe('version and Restart to update (owner request)', () => {
-  it('shows the version, and Restart to update only while clocked out', async () => {
+describe('updates, Windows-style (ADR-0046)', () => {
+  it('clocked out: shows the version and "Update now"; clocked in: "Update and clock back in"', async () => {
     mocks.getState.mockResolvedValue(view({ updateReady: '0.1.5' }));
-    mocks.installUpdateNow.mockRejectedValueOnce('not_clocked_out');
     const user = userEvent.setup();
     render(<App />);
     expect(await screen.findByLabelText('app-version')).toHaveTextContent('CloudPunch 0.1.4');
-    const banner = screen.getByRole('status', { name: 'update-ready' });
-    expect(banner).toHaveTextContent('CloudPunch 0.1.5 is ready.');
-    await user.click(within(banner).getByRole('button', { name: 'Restart to update' }));
-    expect(mocks.installUpdateNow).toHaveBeenCalledOnce();
-    expect(
-      await within(banner).findByText('Clock out first, then restart to update.'),
-    ).toBeInTheDocument();
+    let banner = screen.getByRole('status', { name: 'update-ready' });
+    expect(banner).toHaveTextContent(
+      'CloudPunch 0.1.5 is ready. It installs by itself in a moment.',
+    );
+    await user.click(within(banner).getByRole('button', { name: 'Update now' }));
+    expect(mocks.updateNow).toHaveBeenCalledWith('none');
 
     act(() => pushState(view({ status: 'active', updateReady: '0.1.5' })));
-    expect(screen.queryByRole('status', { name: 'update-ready' })).not.toBeInTheDocument();
+    banner = screen.getByRole('status', { name: 'update-ready' });
+    expect(banner).toHaveTextContent('It installs when you clock out.');
+    await user.click(within(banner).getByRole('button', { name: 'Update and clock back in' }));
+    expect(mocks.updateNow).toHaveBeenLastCalledWith('clock_in');
+
+    // A pushed update past its deadline: the countdown.
+    act(() =>
+      pushState(
+        view({
+          status: 'active',
+          updateReady: '0.1.5',
+          updateNoticeUntil: Date.now() + 4 * 60_000,
+        }),
+      ),
+    );
+    expect(screen.getByRole('status', { name: 'update-ready' })).toHaveTextContent(
+      /is required\. Updating in [34]:\d\d: you'll be clocked out and back in\./,
+    );
+  });
+
+  it('clocking in asks: update and clock in, or clock in now (not once overdue)', async () => {
+    mocks.getState.mockResolvedValue(view({ updateReady: '0.1.5' }));
+    mocks.clockIn.mockResolvedValue(view({ updateReady: '0.1.5' }));
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole('button', { name: 'Clock in' }));
+    let choice = screen.getByRole('dialog', { name: 'update-choice' });
+    await user.click(within(choice).getByRole('button', { name: 'Clock in now, update later' }));
+    expect(mocks.clockIn).toHaveBeenCalledOnce();
+    expect(screen.queryByRole('dialog', { name: 'update-choice' })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Clock in' }));
+    choice = screen.getByRole('dialog', { name: 'update-choice' });
+    await user.click(within(choice).getByRole('button', { name: 'Update and clock in' }));
+    expect(mocks.updateNow).toHaveBeenCalledWith('clock_in');
+
+    act(() => pushState(view({ updateReady: '0.1.5', updateRequiredBy: Date.now() - 60_000 })));
+    await user.click(screen.getByRole('button', { name: 'Clock in' }));
+    choice = screen.getByRole('dialog', { name: 'update-choice' });
+    expect(within(choice).queryByRole('button', { name: 'Clock in now, update later' })).toBeNull();
+    expect(choice).toHaveTextContent('Your company needs everyone on this version now.');
+  });
+
+  it('clocking out offers to update, or update and shut down', async () => {
+    mocks.getState.mockResolvedValue(view({ status: 'active', updateReady: '0.1.5' }));
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole('button', { name: 'Clock out' }));
+    const dialog = screen.getByRole('dialog', { name: 'clock-out-dialog' });
+    expect(within(dialog).getByRole('button', { name: 'Clock out only' })).toBeInTheDocument();
+    await user.click(
+      within(dialog).getByRole('button', { name: 'Clock out, update and shut down' }),
+    );
+    expect(mocks.updateNow).toHaveBeenCalledWith('shutdown');
   });
 });
 

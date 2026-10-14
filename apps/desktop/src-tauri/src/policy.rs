@@ -35,6 +35,25 @@ pub struct PolicyDoc {
     pub away: Away,
     pub notifications: Notifications,
     pub reminders: Reminders,
+    /// A pushed update (ADR-0046 §3).
+    pub updates: Updates,
+}
+
+/// `updates`: everyone on the latest version by `required_by`.
+#[derive(Debug, Clone, PartialEq, Default, Deserialize)]
+#[serde(default)]
+pub struct Updates {
+    pub required_by: Option<String>,
+    pub pushed_at: Option<String>,
+}
+
+impl Updates {
+    /// The deadline, if set and readable.
+    pub fn required_by(&self) -> Option<std::time::SystemTime> {
+        let t = chrono::DateTime::parse_from_rfc3339(self.required_by.as_deref()?).ok()?;
+        let ms = u64::try_from(t.timestamp_millis()).ok()?;
+        Some(std::time::UNIX_EPOCH + std::time::Duration::from_millis(ms))
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -516,6 +535,23 @@ mod tests {
     use super::*;
     use httpmock::prelude::*;
     use serde_json::json;
+
+    #[test]
+    fn a_pushed_update_reads_its_deadline() {
+        let d = PolicyDoc::from_value(&json!({
+            "updates": { "required_by": "2026-10-14T18:00:00+05:30", "pushed_at": "2026-10-14T10:00:00Z" }
+        }));
+        let at = d.updates.required_by().unwrap();
+        let ms = at
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis();
+        assert_eq!(ms, 1_791_981_000_000);
+        assert_eq!(d.updates.pushed_at.as_deref(), Some("2026-10-14T10:00:00Z"));
+        assert_eq!(PolicyDoc::default().updates.required_by(), None);
+        let bad = PolicyDoc::from_value(&json!({ "updates": { "required_by": "soon" } }));
+        assert_eq!(bad.updates.required_by(), None);
+    }
 
     #[test]
     fn the_default_policy_is_exactly_the_compiled_in_behaviour() {

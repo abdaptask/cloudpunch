@@ -105,6 +105,12 @@ pub struct StateView {
     pub app_version: &'static str,
     /// A downloaded update's version, waiting to install (ADR-0022).
     pub update_ready: Option<String>,
+    /// A pushed update's deadline, epoch ms (ADR-0046 §3): after it,
+    /// clocking in updates first.
+    pub update_required_by: Option<u64>,
+    /// When a pushed, overdue update clocks this person out, updates and
+    /// clocks them back in, epoch ms (ADR-0046 §3).
+    pub update_notice_until: Option<u64>,
     /// The prompt or idle in progress is a presence check (ADR-0024):
     /// `continuous` or `periodic`.
     pub presence_check: Option<&'static str>,
@@ -187,6 +193,17 @@ impl StateView {
 
     pub fn with_update_ready(mut self, version: Option<&str>) -> Self {
         self.update_ready = version.map(str::to_string);
+        self
+    }
+
+    /// A pushed update's deadline and notice (ADR-0046).
+    pub fn with_update_push(
+        mut self,
+        required_by: Option<SystemTime>,
+        notice_until: Option<SystemTime>,
+    ) -> Self {
+        self.update_required_by = required_by.map(epoch_ms);
+        self.update_notice_until = notice_until.map(epoch_ms);
         self
     }
 
@@ -275,6 +292,8 @@ pub fn view_of(
         planned_break_minutes: None,
         app_version: APP_VERSION,
         update_ready: None,
+        update_required_by: None,
+        update_notice_until: None,
         presence_check: None,
         away_check: None,
         blocked_elsewhere: None,
@@ -352,6 +371,9 @@ struct UiPlan {
     notes: Vec<(String, String)>,
     /// Install this downloaded update now (ADR-0022 §2).
     install_update: Option<String>,
+    /// A pushed update is overdue: clock out, install and clock back in
+    /// (ADR-0046 §3).
+    update_and_clock_back_in: Option<String>,
     /// A line for the update log (why an update waits).
     update_note: Option<String>,
     /// Lines for the popup log (ADR-0036 §2).
@@ -378,6 +400,8 @@ pub trait Ui: Send + Sync + 'static {
     fn tray_status(&self, tray: TrayStateSnapshot, tooltip: &str);
     /// Install the downloaded update `version` and restart (ADR-0022).
     fn install_update(&self, _version: &str) {}
+    /// Clock out, install `version` and clock back in (ADR-0046 §3).
+    fn update_and_clock_back_in(&self, _version: &str) {}
     /// Append a line to the local update log.
     fn log_update(&self, _line: &str) {}
     /// Append a line to the local popup log (ADR-0036 §2).
@@ -397,6 +421,9 @@ impl TauriUi {
 impl Ui for TauriUi {
     fn install_update(&self, version: &str) {
         crate::updater::install(&self.app, version);
+    }
+    fn update_and_clock_back_in(&self, version: &str) {
+        crate::updater::update_and_clock_back_in(&self.app, version);
     }
 
     fn log_update(&self, line: &str) {
@@ -508,8 +535,13 @@ struct Inner {
     planned_break: Option<u8>,
     /// A downloaded update waiting for its moment (ADR-0022 §2).
     update: crate::app_update::UpdateState,
-    /// When this run started: an update may also install just after.
-    started_at: SystemTime,
+    /// Since when clocked out (this run's start, if it started so): a
+    /// downloaded update installs after two minutes (ADR-0046 §1).
+    clocked_out_since: Option<SystemTime>,
+    /// A pushed update's deadline, from the company settings (ADR-0046 §3).
+    update_required_by: Option<SystemTime>,
+    /// The push last seen, so a new one checks for the update at once.
+    update_pushed_at: Option<String>,
     /// Clocked in on another computer (ADR-0028): no clock-in here.
     blocked: Option<BlockedView>,
     /// The clock is off from the server's, last we looked.
@@ -536,6 +568,7 @@ impl Inner {
         .with_long_day(self.reminder_cfg.long_day)
         .with_breaks(&self.breaks, self.offer_training, self.planned_break)
         .with_update_ready(self.update.ready())
+        .with_update_push(self.update_required_by, self.update.notice_until())
         .with_presence(self.driver.core().presence())
         .with_away_check(self.driver.core().away_check())
         .with_idle_return(self.driver.core().idle_return())
@@ -586,7 +619,7 @@ Version {}",
             // Never a surprise (ADR-0022 §2).
             Some(v) => format!(
                 "{tip}
-Update {v} ready: installs next time you sign in"
+Update {v} ready: installs when you clock out"
             ),
             None => tip,
         }
@@ -686,7 +719,9 @@ impl<U: Ui> Agent<U> {
                 pending_policy: None,
                 minute_of_day: reminders::local_minute_of_day,
                 update: Default::default(),
-                started_at: SystemTime::now(),
+                clocked_out_since: Some(SystemTime::now()),
+                update_required_by: None,
+                update_pushed_at: None,
                 breaks: Default::default(),
                 offer_training: true,
                 planned_break: None,
@@ -709,6 +744,15 @@ impl<U: Ui> Agent<U> {
         // What to offer changes at once; a break in progress keeps going.
         inner.breaks = doc.breaks.clone();
         inner.offer_training = doc.away.offer_training;
+        // A pushed update (ADR-0046 §3): its deadline, and a new push
+        // makes the updater look at once.
+        inner.update_required_by = doc.updates.required_by();
+        if doc.updates.pushed_at.is_some() && doc.updates.pushed_at != inner.update_pushed_at {
+            if inner.update_pushed_at.is_some() || inner.update_required_by.is_some() {
+                crate::updater::check_soon();
+            }
+            inner.update_pushed_at = doc.updates.pushed_at.clone();
+        }
         inner.pending_policy = Some(PendingPolicy {
             core: doc.core_config(),
             rules: doc.call_rules(),
@@ -772,12 +816,23 @@ impl<U: Ui> Agent<U> {
     /// Clocked out with nothing tracked today, so a restart now loses
     /// nothing: checked again just before installing (ADR-0022 §2).
     pub fn safe_to_restart(&self) -> bool {
+        // Today's timeline comes back from its journal (ADR-0046 §1).
+        self.lock().driver.state() == CoreState::ClockedOut
+    }
+
+    /// The person chose to update (or a pushed one is starting): no
+    /// automatic attempt for this version again this run.
+    pub fn update_started(&self) {
+        self.lock().update.mark_tried();
+    }
+
+    /// A pushed update's deadline has passed (ADR-0046 §3).
+    pub fn update_overdue(&self) -> bool {
         let inner = self.lock();
-        inner.driver.state() == CoreState::ClockedOut
+        inner.update.ready().is_some()
             && inner
-                .timeline
-                .current_day_start(SystemTime::now())
-                .is_none()
+                .update_required_by
+                .is_some_and(|by| SystemTime::now() >= by)
     }
 
     /// Whether the policy offers this break type now (ADR-0023 §1).
@@ -1023,6 +1078,11 @@ impl<U: Ui> Agent<U> {
                 _ => None,
             };
             let outcome = inner.driver.handle(input, now)?;
+            match (before, inner.driver.state()) {
+                (CoreState::ClockedOut, CoreState::ClockedOut) => {}
+                (_, CoreState::ClockedOut) => inner.clocked_out_since = Some(now),
+                (_, _) => inner.clocked_out_since = None,
+            }
             if let Some((since, kind)) = idle_break {
                 if inner.timeline.idle_to_break(since, kind) {
                     self.recorder.save_day(&inner.timeline.to_json());
@@ -1224,12 +1284,31 @@ impl<U: Ui> Agent<U> {
                 let update = crate::app_update::UpdateInputs {
                     now,
                     clocked_out: after == CoreState::ClockedOut,
-                    worked_today: inner.timeline.current_day_start(now).is_some(),
-                    signed_in_at: inner.signed_in_at,
-                    started_at: inner.started_at,
+                    clocked_out_since: inner.clocked_out_since,
+                    required_by: inner.update_required_by,
                 };
                 plan.update_note = crate::app_update::wait_note(&mut inner.update, update);
-                plan.install_update = crate::app_update::install_now(&mut inner.update, update);
+                match crate::app_update::decide(&mut inner.update, update) {
+                    Some(crate::app_update::UpdateAction::Install(v)) => {
+                        plan.install_update = Some(v);
+                    }
+                    Some(crate::app_update::UpdateAction::Notice(v)) => {
+                        plan.show_main = true;
+                        plan.attention = true;
+                        plan.broadcast = true;
+                        plan.notes.push((
+                            "CloudPunch is updating in 5 minutes".to_string(),
+                            format!(
+                                "Version {v} is required. You'll be clocked out and back in automatically, in about 20 seconds."
+                            ),
+                        ));
+                        plan.update_note = Some(format!("update {v}: 5-minute notice (pushed)"));
+                    }
+                    Some(crate::app_update::UpdateAction::UpdateAndClockBackIn(v)) => {
+                        plan.update_and_clock_back_in = Some(v);
+                    }
+                    None => {}
+                }
                 for r in reminders::due(&cfg, inputs, &mut inner.reminders) {
                     // The overrun alert below says it, louder.
                     if matches!(r, Reminder::BackYet { .. }) {
@@ -1328,6 +1407,9 @@ impl<U: Ui> Agent<U> {
         }
         if let Some(version) = &plan.install_update {
             ui.install_update(version);
+        }
+        if let Some(version) = &plan.update_and_clock_back_in {
+            ui.update_and_clock_back_in(version);
         }
     }
 
@@ -1929,7 +2011,7 @@ mod tests {
     }
 
     #[test]
-    fn a_ready_update_installs_at_sign_in_only_while_clocked_out_with_nothing_today() {
+    fn a_ready_update_installs_two_minutes_after_clocking_out_never_while_clocked_in() {
         let installs = |ui: &FakeUi| {
             ui.calls
                 .lock()
@@ -1939,8 +2021,9 @@ mod tests {
                 .cloned()
                 .collect::<Vec<_>>()
         };
-        let now = SystemTime::now();
-        let tick = |agent: &Agent<Arc<FakeUi>>| {
+        let base = SystemTime::now();
+        let tick = |agent: &Agent<Arc<FakeUi>>, secs: u64| {
+            let now = base + Duration::from_secs(secs);
             agent
                 .handle_at(Input::Tick { last_input_at: now }, now)
                 .unwrap();
@@ -1948,20 +2031,19 @@ mod tests {
 
         // Clocked in: the update waits, and a restart isn't safe.
         let (agent, ui) = agent_with_ui();
-        agent.handle(Input::ClockIn).unwrap();
+        agent.handle_at(Input::ClockIn, base).unwrap();
         agent.update_ready("9.9.9".into());
-        agent.note_signed_in(now);
-        tick(&agent);
+        tick(&agent, 600);
         assert!(installs(&ui).is_empty());
         assert!(!agent.safe_to_restart());
-
-        // Morning: clocked out, nothing today, just signed in.
-        let (agent, ui) = agent_with_ui();
-        agent.update_ready("9.9.9".into());
-        agent.note_signed_in(now);
+        // Clocked out (a day worked): not at once, but two minutes later, once.
+        let out = base + Duration::from_secs(700);
+        agent.handle_at(Input::ClockOut, out).unwrap();
         assert!(agent.safe_to_restart());
-        tick(&agent);
-        tick(&agent);
+        tick(&agent, 760);
+        assert!(installs(&ui).is_empty());
+        tick(&agent, 830);
+        tick(&agent, 900);
         assert_eq!(installs(&ui), ["install_update:9.9.9"], "once");
     }
 
