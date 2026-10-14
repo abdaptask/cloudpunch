@@ -651,7 +651,7 @@ mod tests {
                 kind: BreakKind::Meal,
                 planned_minutes: None,
             },
-            CoreEvent::UserEndBreak,
+            CoreEvent::UserEndBreak { ended_by: None },
             CoreEvent::UserClockOut,
         ];
         for (i, e) in events.iter().enumerate() {
@@ -749,7 +749,8 @@ mod tests {
         .unwrap();
         sink.record(&CoreEvent::PromptTimeout30s, t(330)).unwrap();
         // Anything after the session closed is outside a session.
-        sink.record(&CoreEvent::UserEndBreak, t(400)).unwrap();
+        sink.record(&CoreEvent::UserEndBreak { ended_by: None }, t(400))
+            .unwrap();
         let rows = rows(&r);
         let types: Vec<_> = rows.iter().map(|e| e.event_type.as_str()).collect();
         assert_eq!(
@@ -884,7 +885,8 @@ mod tests {
         r.heartbeat(t(120));
         assert_eq!(open_row(&r).unwrap().last_alive_at, t(120));
 
-        sink.record(&CoreEvent::UserEndBreak, t(180)).unwrap();
+        sink.record(&CoreEvent::UserEndBreak { ended_by: None }, t(180))
+            .unwrap();
         sink.record(&CoreEvent::UserClockOut, t(240)).unwrap();
         assert_eq!(open_row(&r), None);
     }
