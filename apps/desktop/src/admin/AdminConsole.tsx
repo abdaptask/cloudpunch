@@ -21,6 +21,15 @@ function remembered(): string | null {
   }
 }
 
+/** `?section=` from the address (the day-end email links to Reports). */
+function linkedSection(): string | null {
+  try {
+    return new URLSearchParams(window.location.search).get('section');
+  } catch {
+    return null;
+  }
+}
+
 function remember(key: SectionKey): void {
   try {
     window.localStorage.setItem(REMEMBER_KEY, key);
@@ -49,7 +58,7 @@ export function AdminConsole({
 }): JSX.Element {
   const t = useTheme();
   const offered = sectionsFor(capabilities);
-  const [chosen, setChosen] = useState<string | null>(remembered);
+  const [chosen, setChosen] = useState<string | null>(() => linkedSection() ?? remembered());
   const section = pickSection(offered, chosen);
   // Rules with unsaved changes: leaving asks first (ADR-0038 §8).
   const [dirty, setDirty] = useState(false);

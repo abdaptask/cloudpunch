@@ -7,7 +7,14 @@ import {
   type TeamException,
   type TeamPerson,
 } from './api.js';
-import { endText, headline, startText, STATUS_LABEL, workedText } from './admin/dayReportModel.js';
+import {
+  endText,
+  headline,
+  linkedDate,
+  startText,
+  STATUS_LABEL,
+  workedText,
+} from './admin/dayReportModel.js';
 import { PersonConnections } from './ConnectionsView.js';
 import { CorrectionForm, DayCorrections } from './Corrections.js';
 import { placeOf } from './connectionsModel.js';
@@ -58,7 +65,16 @@ export function TeamScreen({
   canCorrect?: boolean;
 }): JSX.Element {
   const t = useTheme();
-  const [tab, setTab] = useState<'today' | 'day' | 'exceptions'>('today');
+  // `?view=day-summary` (the manager's day-end email) opens the Day summary.
+  const [tab, setTab] = useState<'today' | 'day' | 'exceptions'>(() => {
+    try {
+      return new URLSearchParams(window.location.search).get('view') === 'day-summary'
+        ? 'day'
+        : 'today';
+    } catch {
+      return 'today';
+    }
+  });
   const [person, setPerson] = useState<{
     id: string;
     name: string;
@@ -740,7 +756,7 @@ function DayDetail({
 function DaySummary({ onOpen }: { onOpen: (r: DayReportRow) => void }): JSX.Element {
   const t = useTheme();
   const today = localDateOf(Date.now());
-  const [date, setDate] = useState(() => shiftDate(today, -1));
+  const [date, setDate] = useState(() => linkedDate(today) ?? shiftDate(today, -1));
   const [report, setReport] = useState<DayReport | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [offShown, setOffShown] = useState(false);

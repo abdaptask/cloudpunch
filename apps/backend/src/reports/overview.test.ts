@@ -29,6 +29,7 @@ function row(name: string, date: string, status: DayStatus, over: Partial<DayRow
     breaks_over_limit: 0,
     away_ms: 0,
     corrections_waiting: 0,
+    segments: [],
     ...over,
   };
 }

@@ -11,6 +11,8 @@ export interface ShiftMail {
   cc: readonly string[];
   subject: string;
   text: string;
+  /** Sent instead of `text` when present (the day-end report, ADR-0040 §2). */
+  html?: string;
 }
 
 export interface ShiftMailInput {
@@ -177,7 +179,9 @@ export async function sendShiftMail(
     body: JSON.stringify({
       message: {
         subject: `[CloudPunch] ${m.subject}`,
-        body: { contentType: 'Text', content: m.text },
+        body: m.html
+          ? { contentType: 'HTML', content: m.html }
+          : { contentType: 'Text', content: m.text },
         toRecipients: m.to.map((address) => ({ emailAddress: { address } })),
         ccRecipients: m.cc.map((address) => ({ emailAddress: { address } })),
       },

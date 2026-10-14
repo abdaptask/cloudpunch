@@ -5,6 +5,7 @@ import { effectivePolicyForScope } from '../policy/service.js';
 import { dateIn, shiftDate } from '../shifts/model.js';
 import { dayRows, INDIA_TZ, type DayRow } from './day.js';
 import { dayMailText } from './mail.js';
+import { dayMailHtml } from './mailHtml.js';
 
 /**
  * ADR-0040 §2: the day-end summary. Once the clock in India passes
@@ -98,16 +99,23 @@ export class DayReportJob {
     for (const [address, list] of lists) {
       // Nobody on shift and nothing worked (a weekend): no email.
       if (list.rows.every((r) => r.status === 'off')) continue;
-      const { subject, text } = dayMailText({
+      const { text } = dayMailText({
         date,
         rows: list.rows,
         who: list.who,
         siteUrl: this.opts.siteUrl,
       });
+      // The interactive report: the console for Administrators, Team for managers.
+      const site = this.opts.siteUrl.replace(/\/$/, '');
+      const reportUrl =
+        list.who === 'Everyone'
+          ? `${site}/app/admin/?section=reports&date=${date}`
+          : `${site}/app/?view=day-summary&date=${date}`;
+      const { subject, html } = dayMailHtml({ date, rows: list.rows, who: list.who, reportUrl });
       try {
         const claimed = await db.reports.claimAndSend(
           { report: 'day', date, recipient: address, people: list.rows.length, at: now },
-          () => this.opts.send({ to: [address], cc: [], subject, text }),
+          () => this.opts.send({ to: [address], cc: [], subject, text, html }),
         );
         if (claimed) sent.push(address);
       } catch (err) {

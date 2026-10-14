@@ -223,6 +223,8 @@ export interface DayReportRow {
   breaks_over_limit: number;
   away_ms: number;
   corrections_waiting: number;
+  /** The day as work / break / idle spans (older servers send none). */
+  segments?: { kind: 'work' | 'break' | 'idle'; from: string; to: string }[];
 }
 
 export interface DayReport {
