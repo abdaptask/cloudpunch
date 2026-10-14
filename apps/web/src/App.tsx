@@ -424,7 +424,17 @@ function Dashboard({
           ))}
         </nav>
       )}
-      <span style={{ flex: 1, color: t.muted, fontSize: 14 }}>
+      <span
+        style={{
+          flex: 1,
+          minWidth: 0,
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          whiteSpace: 'nowrap',
+          color: t.muted,
+          fontSize: 14,
+        }}
+      >
         {me.user.display_name ?? me.user.work_email}
       </span>
       <SignOut auth={auth} onDone={onSignedOut} />

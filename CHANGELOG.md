@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Web: works on a phone; browser tests (items 6 and 9, 2026-10-14)
+
+- **On a phone** (up to 720 wide): the admin console's sections become
+  a row across the top instead of a column down the side, with 16 px
+  margins; the person, bulk and connections panels and the Rules
+  section list move under their table instead of beside it; named
+  shifts stack their cells; buttons, menus and inputs are at least
+  40 px tall; the signed-in name shortens instead of pushing the
+  header wide. The page never scrolls sideways; wide tables scroll in
+  their own box. The desktop app's windows keep their layout.
+- **Browser tests** (Playwright, Chromium): Team today and a person's
+  day, Team → Day summary, Exceptions, moving through the admin
+  console, the Shifts page fitting the window, and Reports → Overview,
+  each at 1280 wide and on a 375-wide phone, against a stand-in API.
+  The test build signs in with a stand-in (`VITE_E2E=1`), which the
+  real build leaves out (checked). `pnpm -F @cloudpunch/web test:e2e`;
+  a `web-e2e` CI job runs them.
 ### Server, web and desktop: a visual, interactive day-end report (owner, 2026-10-14)
 
 - **The day-end email is now a designed HTML report** instead of a text

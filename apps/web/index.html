@@ -6,6 +6,28 @@
     <meta name="robots" content="noindex" />
     <title>CloudPunch · Team</title>
     <link rel="icon" href="/favicon.ico" />
+    <style>
+      /* The page never scrolls sideways; wide tables scroll in their own box. */
+      body {
+        margin: 0;
+        overflow-wrap: anywhere;
+      }
+      /* A phone (owner item 6): controls big enough to tap. Inline sizes
+         from the shared screens stay; this only raises the minimum. */
+      @media (max-width: 720px) {
+        button,
+        select,
+        input:not([type='checkbox']):not([type='radio']),
+        nav a {
+          min-height: 40px;
+        }
+        input[type='checkbox'],
+        input[type='radio'] {
+          min-width: 20px;
+          min-height: 20px;
+        }
+      }
+    </style>
   </head>
   <body>
     <div id="root"></div>

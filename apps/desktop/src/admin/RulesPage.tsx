@@ -244,8 +244,8 @@ export function RulesPage({
       )}
 
       {form && (
-        <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
-          <nav aria-label="rule-sections" style={{ width: 170, flexShrink: 0 }}>
+        <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+          <nav aria-label="rule-sections" style={{ flex: '0 1 170px', minWidth: 0 }}>
             {offered.map((s) => {
               const unsaved = changes.filter((c) => sectionOf(c) === s.key).length;
               return (
@@ -268,7 +268,13 @@ export function RulesPage({
           <div
             role="group"
             aria-label={`section ${offered.find((s) => s.key === section)?.label ?? ''}`}
-            style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 4 }}
+            style={{
+              flex: '1 1 320px',
+              minWidth: 0,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 4,
+            }}
           >
             {section === 'idle' && (
               <>

@@ -4,6 +4,7 @@ import { zoneChoices } from '../correctionModel.js';
 import { ShiftEditor, shiftText } from '../ShiftEditor.js';
 import { Button } from '../ui/Button.js';
 import { useTheme, type Theme } from '../ui/theme.js';
+import { useNarrow } from '../ui/useNarrow.js';
 import { ShiftChooser } from './ShiftChooser.js';
 
 const DAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -50,6 +51,8 @@ const NAMED_COLUMNS = 'minmax(140px, 1fr) minmax(240px, 2fr) 90px minmax(260px, 
  */
 export function ShiftsPage(): JSX.Element {
   const t = useTheme();
+  // A phone: each named shift stacks its cells instead of four columns.
+  const narrow = useNarrow();
   const [list, setList] = useState<{
     templates: ShiftTemplate[];
     custom: number;
@@ -126,8 +129,8 @@ export function ShiftsPage(): JSX.Element {
         />
       )}
 
-      {list && [...active, ...retired].length > 0 && (
-        <div aria-hidden style={{ ...namedRow(t), borderTop: 'none', paddingBottom: 4 }}>
+      {list && [...active, ...retired].length > 0 && !narrow && (
+        <div aria-hidden style={{ ...namedRow(t, false), borderTop: 'none', paddingBottom: 4 }}>
           <span style={headCell(t)}>Name</span>
           <span style={headCell(t)}>Days and hours</span>
           <span style={headCell(t)}>People</span>
@@ -140,7 +143,7 @@ export function ShiftsPage(): JSX.Element {
             <li style={{ fontSize: 13, color: t.muted, padding: '6px 0' }}>No named shifts yet.</li>
           )}
           {[...active, ...retired].map((x) => (
-            <li key={x.id} aria-label={`named shift ${x.name}`} style={namedRow(t)}>
+            <li key={x.id} aria-label={`named shift ${x.name}`} style={namedRow(t, narrow)}>
               <span style={{ minWidth: 0, opacity: x.retired ? 0.6 : 1 }}>
                 <strong style={{ fontWeight: 650 }}>{x.name}</strong>
                 {x.retired && <span style={{ color: t.muted }}> · retired</span>}
@@ -642,10 +645,10 @@ function TemplateForm({
   );
 }
 
-function namedRow(t: Theme): CSSProperties {
+function namedRow(t: Theme, narrow: boolean): CSSProperties {
   return {
     display: 'grid',
-    gridTemplateColumns: NAMED_COLUMNS,
+    gridTemplateColumns: narrow ? 'minmax(0, 1fr)' : NAMED_COLUMNS,
     columnGap: 16,
     rowGap: 4,
     alignItems: 'center',

@@ -6,6 +6,12 @@
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "types": ["node", "vite/client"]
   },
-  "include": ["src/**/*.ts", "src/**/*.tsx", "desktopScreens.ts"],
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.tsx",
+    "desktopScreens.ts",
+    "e2e/**/*.ts",
+    "playwright.config.ts"
+  ],
   "exclude": ["node_modules", "dist"]
 }
