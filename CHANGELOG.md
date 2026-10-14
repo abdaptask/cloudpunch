@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Desktop 0.1.43
+
+- Version bump for the release carrying My week, Reports → Insights and
+  Trends, Team → Insights (ADR-0047) and marking someone in office from
+  the Day summary (ADR-0039).
+
 ### Desktop (next release) and web: My week (ADR-0047 §5)
 
 - **My week** for every employee: the last 14 days as a strip of marks
