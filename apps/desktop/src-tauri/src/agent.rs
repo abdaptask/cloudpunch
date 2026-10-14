@@ -628,6 +628,29 @@ Update {v} ready: installs when you clock out"
 
 /// Notification text for a reminder (ADR-0013 §2, §4, §5, §7; the
 /// break's own name from the policy, ADR-0023).
+/// When a break's loud "Your break is over" alert is due (ADR-0031 §3,
+/// ADR-0048): its plan if it has one, else its type's limit.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Overrun {
+    pub minutes: u64,
+    /// From the person's own plan (else the type's limit).
+    pub planned: bool,
+}
+
+pub fn overrun_plan(planned: Option<u8>, limit_minutes: Option<u64>) -> Option<Overrun> {
+    match (planned, limit_minutes) {
+        (Some(m), _) => Some(Overrun {
+            minutes: u64::from(m),
+            planned: true,
+        }),
+        (None, Some(m)) if m > 0 => Some(Overrun {
+            minutes: m,
+            planned: false,
+        }),
+        _ => None,
+    }
+}
+
 fn reminder_text(r: &Reminder, breaks: &crate::policy::Breaks) -> (String, String) {
     match r {
         Reminder::NotClockedIn => (
@@ -1008,13 +1031,24 @@ impl<U: Ui> Agent<U> {
         if !matches!(minutes, 5 | 10) {
             return Err(Rejected::InvalidTransition);
         }
-        if self.lock().planned_break.is_none() {
+        // ADR-0048: an unplanned break extends from its type's limit.
+        let base = {
+            let inner = self.lock();
+            match inner.driver.state() {
+                CoreState::OnBreak { kind } => {
+                    overrun_plan(inner.planned_break, inner.breaks.get(kind).max_minutes)
+                        .map(|o| u8::try_from(o.minutes).unwrap_or(u8::MAX))
+                }
+                _ => None,
+            }
+        };
+        let Some(base) = base else {
             return Err(Rejected::InvalidTransition);
-        }
+        };
         self.handle(Input::ExtendBreak { minutes })?;
         {
             let mut inner = self.lock();
-            inner.planned_break = inner.planned_break.map(|m| m.saturating_add(minutes));
+            inner.planned_break = Some(base.saturating_add(minutes));
             inner.break_over_since = None;
             inner.break_over_alerted_at = None;
         }
@@ -1309,9 +1343,22 @@ impl<U: Ui> Agent<U> {
                     }
                     None => {}
                 }
+                let overrun = match after {
+                    CoreState::OnBreak { kind } => {
+                        overrun_plan(inner.planned_break, inner.breaks.get(kind).max_minutes)
+                    }
+                    _ => None,
+                };
                 for r in reminders::due(&cfg, inputs, &mut inner.reminders) {
-                    // The overrun alert below says it, louder.
+                    // The overrun alert below says it, louder: a planned
+                    // break's "back yet?", and (ADR-0048) an unplanned
+                    // break's limit.
                     if matches!(r, Reminder::BackYet { .. }) {
+                        continue;
+                    }
+                    if matches!(r, Reminder::BreakOverCap { .. })
+                        && matches!(overrun, Some(Overrun { planned: false, .. }))
+                    {
                         continue;
                     }
                     if matches!(r, Reminder::LongShift { .. }) {
@@ -1325,13 +1372,14 @@ impl<U: Ui> Agent<U> {
                 // comes forward, the taskbar flashes and a notification
                 // goes off, again every BREAK_OVER_REPEAT; not muted in
                 // quiet hours (someone on a break is clocked in).
-                let ends = match (after, inner.planned_break, inputs.segment_started_at) {
-                    (CoreState::OnBreak { .. }, Some(m), Some(start)) => {
-                        Some((start + Duration::from_secs(u64::from(m) * 60), m))
+                // ADR-0048: an unplanned break past its type's limit too.
+                let ends = match (overrun, inputs.segment_started_at) {
+                    (Some(o), Some(start)) => {
+                        Some((start + Duration::from_secs(o.minutes * 60), o))
                     }
                     _ => None,
                 };
-                if let Some((end, planned)) = ends.filter(|(end, _)| now >= *end) {
+                if let Some((end, o)) = ends.filter(|(end, _)| now >= *end) {
                     if inner.break_over_since.is_none() {
                         inner.break_over_since = Some(end);
                         plan.broadcast = true;
@@ -1343,14 +1391,16 @@ impl<U: Ui> Agent<U> {
                         inner.break_over_alerted_at = Some(now);
                         plan.show_main = true;
                         plan.attention = true;
+                        let length = reminders::short_duration(Duration::from_secs(o.minutes * 60));
                         plan.notes.push((
                             "Your break is over".to_string(),
-                            format!(
-                                "You planned {}. Back now, or a few more minutes?",
-                                reminders::short_duration(Duration::from_secs(
-                                    u64::from(planned) * 60
-                                ))
-                            ),
+                            if o.planned {
+                                format!("You planned {length}. Back now, or a few more minutes?")
+                            } else {
+                                format!(
+                                    "Breaks like this one are up to {length}. Back now, or a few more minutes?"
+                                )
+                            },
                         ));
                     }
                 }
@@ -1646,6 +1696,28 @@ fn open_prompt_window(app: &AppHandle) {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn an_unplanned_break_alerts_at_its_limit_a_planned_one_at_its_plan() {
+        // ADR-0048: Eela's bio break from the idle question had no plan.
+        assert_eq!(
+            overrun_plan(None, Some(10)),
+            Some(Overrun {
+                minutes: 10,
+                planned: false
+            })
+        );
+        assert_eq!(
+            overrun_plan(Some(20), Some(10)),
+            Some(Overrun {
+                minutes: 20,
+                planned: true
+            })
+        );
+        assert_eq!(overrun_plan(None, None), None, "no limit, no alert");
+        assert_eq!(overrun_plan(None, Some(0)), None);
+    }
+
     use super::*;
     use crate::machine::IdleExplanation;
     use crate::machine::PromptResponse;
@@ -2089,9 +2161,15 @@ mod tests {
                 at(1),
             )
             .unwrap();
+        // Away from the computer (no new input): ADR-0048's check stays shut.
         let tick = |t: SystemTime| {
             agent
-                .handle_at(Input::Tick { last_input_at: t }, t)
+                .handle_at(
+                    Input::Tick {
+                        last_input_at: at(1),
+                    },
+                    t,
+                )
                 .unwrap()
         };
         let alerts = |ui: &FakeUi| {
@@ -2437,10 +2515,16 @@ mod tests {
             .unwrap();
         assert_eq!(view.planned_break_minutes, Some(20));
         assert_eq!(view.break_kind, Some("personal"));
+        // Away from the computer (no new input): ADR-0048's check stays shut.
         let tick = |min: u64| {
             let now = base + Duration::from_secs(min * 60);
             agent
-                .handle_at(Input::Tick { last_input_at: now }, now)
+                .handle_at(
+                    Input::Tick {
+                        last_input_at: base,
+                    },
+                    now,
+                )
                 .unwrap()
         };
         tick(19);

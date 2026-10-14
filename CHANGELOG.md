@@ -14,6 +14,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   tomorrow. Today's pending and approved corrections show there too.
   The server already allowed it (up to now, never the future); approval
   is unchanged (manager endorses, an Administrator approves).
+### Desktop (next release): "Back from your break?" (ADR-0048)
+
+- About a minute of keyboard or mouse use on a break asks **"Back from
+  your break?"** (I'm back / Still on break), like Away's "Welcome
+  back?" (ADR-0027). Unanswered while use continues, the break ends from
+  when the use began, recorded as `USER_END_BREAK` `ended_by: input`;
+  Team shows "Ended on its own: back at the computer".
+- The loud, repeating **"Your break is over"** alert now fires for every
+  break past its limit, not only planned ones (a break from the idle
+  question had only one quiet notification). "5 / 10 more min" works on
+  those too.
 
 ### Desktop 0.1.44: every break counts in the app's totals
 

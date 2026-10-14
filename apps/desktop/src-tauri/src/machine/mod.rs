@@ -187,6 +187,8 @@ pub const AWAY_CHECK_AGAIN: Duration = Duration::from_secs(30 * 60);
 pub const AWAY_CHECK_GAP: Duration = Duration::from_secs(30);
 /// Unanswered this long while use continues: back at the computer.
 pub const AWAY_CHECK_WAIT: Duration = Duration::from_secs(120);
+/// ADR-0048: after "Still on break", ask again after this much more use.
+pub const BREAK_CHECK_AGAIN: Duration = Duration::from_secs(10 * 60);
 /// How much later than a mark the last input must be to count as new
 /// use. The OS last-input time is re-derived from the wall clock each
 /// tick (Windows' tick count moves in ~16 ms steps, macOS reports
@@ -199,7 +201,8 @@ fn input_after(last_input_at: SystemTime, mark: SystemTime) -> bool {
     last_input_at > mark + INPUT_JITTER
 }
 
-/// How an Away ended on its own (ADR-0027), `USER_MARK_BACK.ended_by`.
+/// How an Away (ADR-0027) or a break (ADR-0048) ended on its own:
+/// `USER_MARK_BACK.ended_by` / `USER_END_BREAK.ended_by`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BackReason {
     /// Used the computer and didn't answer "Welcome back?".
@@ -405,8 +408,9 @@ pub enum Input {
     /// person acting on the app, which ends the idle. A propped key
     /// cannot.
     ConfirmPresence,
-    /// The answer to "Welcome back?" while Away (ADR-0027): `back`
-    /// ends Away from when the use began; otherwise it stays.
+    /// The answer to "Welcome back?" while Away (ADR-0027), or "Back
+    /// from your break?" (ADR-0048): `back` ends the Away or break from
+    /// when the use began; otherwise it stays.
     AnswerAwayCheck {
         back: bool,
     },
@@ -435,7 +439,10 @@ pub enum CoreEvent {
         kind: BreakKind,
         planned_minutes: Option<u8>,
     },
-    UserEndBreak,
+    /// `ended_by`: set when the break ended on its own (ADR-0048).
+    UserEndBreak {
+        ended_by: Option<BackReason>,
+    },
     /// The break's plan grew by `extend_minutes` (ADR-0031 §3).
     UserBreakExtended {
         extend_minutes: u8,
@@ -486,7 +493,7 @@ impl CoreEvent {
             CoreEvent::UserClockIn | CoreEvent::UserClockInFrom { .. } => "USER_CLOCK_IN",
             CoreEvent::UserClockOut => "USER_CLOCK_OUT",
             CoreEvent::UserStartBreak { .. } => "USER_START_BREAK",
-            CoreEvent::UserEndBreak => "USER_END_BREAK",
+            CoreEvent::UserEndBreak { .. } => "USER_END_BREAK",
             CoreEvent::UserBreakExtended { .. } => "USER_BREAK_EXTENDED",
             CoreEvent::UserMarkBack { .. } => "USER_MARK_BACK",
             CoreEvent::UserMarkAway { .. } => "USER_MARK_AWAY",
@@ -528,7 +535,8 @@ impl CoreEvent {
             CoreEvent::InputIdle5m {
                 trigger: IdleTrigger::InputPattern(p),
             } => json!({ "trigger": "input_pattern", "pattern": p.as_str() }),
-            CoreEvent::UserMarkBack { ended_by: Some(r) } => json!({ "ended_by": r.as_str() }),
+            CoreEvent::UserMarkBack { ended_by: Some(r) }
+            | CoreEvent::UserEndBreak { ended_by: Some(r) } => json!({ "ended_by": r.as_str() }),
             CoreEvent::InputIdle5m { trigger } => json!({ "trigger": trigger.as_str() }),
             CoreEvent::UserClockInFrom { started_at } => json!({
                 "start_source": "os_sign_in",
@@ -766,7 +774,7 @@ impl Core {
                 )?;
             }
             Input::EndBreak => {
-                self.apply(CoreEvent::UserEndBreak, now, &mut fx)?;
+                self.apply(CoreEvent::UserEndBreak { ended_by: None }, now, &mut fx)?;
             }
             Input::ExtendBreak { minutes } => {
                 self.apply(
@@ -784,14 +792,24 @@ impl Core {
                 let Some(check) = self.away_check else {
                     return Err(Rejected::InvalidTransition);
                 };
+                let on_break = matches!(self.state, CoreState::OnBreak { .. });
                 if back {
                     // From when they started using the computer again.
                     let at = check.input_since.min(now);
-                    self.apply(CoreEvent::UserMarkBack { ended_by: None }, at, &mut fx)?;
+                    let event = if on_break {
+                        CoreEvent::UserEndBreak { ended_by: None }
+                    } else {
+                        CoreEvent::UserMarkBack { ended_by: None }
+                    };
+                    self.apply(event, at, &mut fx)?;
                 } else {
                     self.away_check = None;
                     self.back_run = None;
-                    self.away_check_after = AWAY_CHECK_AGAIN;
+                    self.away_check_after = if on_break {
+                        BREAK_CHECK_AGAIN
+                    } else {
+                        AWAY_CHECK_AGAIN
+                    };
                     fx.push(Effect::AwayCheckClosed);
                 }
             }
@@ -931,9 +949,13 @@ impl Core {
             // An explanation can't be recorded once the session closed.
             self.idle_return = None;
         }
-        let was_away = matches!(self.state, CoreState::Away { .. });
-        let is_away = matches!(next, CoreState::Away { .. });
-        if is_away && !was_away {
+        // ADR-0048: a break is checked like an Away (ADR-0027 §1).
+        let checked =
+            |s: &CoreState| matches!(s, CoreState::Away { .. } | CoreState::OnBreak { .. });
+        let was_away = checked(&self.state);
+        let is_away = checked(&next);
+        let entered = std::mem::discriminant(&self.state) != std::mem::discriminant(&next);
+        if is_away && (!was_away || entered) {
             self.away_since = now;
             self.back_run = None;
             self.away_check_after = AWAY_CHECK_AFTER;
@@ -1116,7 +1138,9 @@ impl Core {
                 }
             }
             CoreState::Idle { since } => self.idle_tick(since, last_input_at, now, fx),
-            CoreState::Away { .. } => self.away_tick(last_input_at, now, fx),
+            CoreState::Away { .. } | CoreState::OnBreak { .. } => {
+                self.away_tick(last_input_at, now, fx)
+            }
             _ => {}
         }
     }
@@ -1125,7 +1149,8 @@ impl Core {
 impl Core {
     /// ADR-0027 §1: about a minute of use while Away asks "Welcome
     /// back?"; unanswered while use continues, Away ends from when the
-    /// use began.
+    /// use began. ADR-0048: the same for a break ("Back from your
+    /// break?").
     fn away_tick(&mut self, last_input_at: SystemTime, now: SystemTime, fx: &mut Vec<Effect>) {
         let in_use = input_after(last_input_at, self.away_since)
             && elapsed(last_input_at, now) < AWAY_CHECK_GAP;
@@ -1139,8 +1164,11 @@ impl Core {
         let run = *self.back_run.get_or_insert(last_input_at);
         match self.away_check {
             Some(check) if now >= check.deadline => {
-                let event = CoreEvent::UserMarkBack {
-                    ended_by: Some(BackReason::Input),
+                let ended_by = Some(BackReason::Input);
+                let event = if matches!(self.state, CoreState::OnBreak { .. }) {
+                    CoreEvent::UserEndBreak { ended_by }
+                } else {
+                    CoreEvent::UserMarkBack { ended_by }
                 };
                 let _ = self.apply(event, check.input_since.min(now), fx);
             }

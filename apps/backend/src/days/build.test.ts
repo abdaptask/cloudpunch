@@ -138,6 +138,17 @@ describe('buildSession', () => {
     expect(breaks[0]?.endedAt.getTime()).toBe(local('2026-09-25T10:28:00', o).getTime());
   });
 
+  it('ADR-0048: a break ended on its own (back at the computer) says so', () => {
+    const o = IST;
+    const s = shift('s1', '2026-10-14T09:00:00', '2026-10-14T13:00:00', o, [
+      evt('USER_START_BREAK', local('2026-10-14T10:13:00', o), o, { break_kind: 'bio' }),
+      evt('USER_END_BREAK', local('2026-10-14T10:30:00', o), o, { ended_by: 'input' }),
+    ]);
+    const bio = s.segments.find((g) => g.kind === 'bio_break');
+    expect(bio?.endedBy).toBe('input');
+    expect(bio?.endedAt.getTime()).toBe(local('2026-10-14T10:30:00', o).getTime());
+  });
+
   it('ADR-0023: tea, personal and training, planned minutes, and paid vs unpaid breaks', () => {
     const o = IST;
     const s = shift('s1', '2026-09-25T09:00:00', '2026-09-25T13:00:00', o, [
