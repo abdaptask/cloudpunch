@@ -1,5 +1,5 @@
-import { useEffect, useState, type ReactNode } from 'react';
-import { api, type Overview, type OverviewPerson } from '../api.js';
+import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
+import { api, type InsightKind, type Overview, type OverviewPerson } from '../api.js';
 import { localDateOf } from '../dayHistory.js';
 import { Button } from '../ui/Button.js';
 import { useTheme, type Theme } from '../ui/theme.js';
@@ -18,6 +18,7 @@ import {
   type CsvSection,
   type Preset,
 } from './overviewModel.js';
+import { byTeam, delta, previousRange, type Delta, type InsightFilter } from './insightsModel.js';
 
 const ERROR_TEXT: Record<string, string> = {
   offline: "Can't reach CloudPunch right now.",
@@ -36,16 +37,27 @@ const SECTIONS: readonly [CsvSection, string][] = [
 const num = (x: number | null): string => String(x ?? -1).padStart(14, '0');
 
 /**
- * Reports → Overview (ADR-0040 §3), for HR and Administrators: a range,
- * the headline numbers, week-by-week charts, a table per area (each a
- * CSV download), and adoption and health.
+ * Reports → Trends (ADR-0040 §3, redesigned by ADR-0047 §4), for HR and
+ * Administrators: each headline against the previous period of the same
+ * length, by team, late and missed starts week by week, a table per area
+ * (each a CSV download), and adoption and health. The numbers that
+ * point at people open the matching findings in Insights.
  */
-export function OverviewPage(): JSX.Element {
+export function OverviewPage({
+  onShowInsights,
+}: {
+  /** Open Insights filtered to these findings. */
+  onShowInsights?: (filter: Partial<InsightFilter>) => void;
+} = {}): JSX.Element {
   const t = useTheme();
   const today = localDateOf(Date.now());
   const [preset, setPreset] = useState<Preset | 'custom'>('last_week');
   const [range, setRange] = useState(() => rangeOf('last_week', today));
   const [data, setData] = useState<Overview | null>(null);
+  // The period of the same length just before, for "up 6 on …".
+  const [prev, setPrev] = useState<Overview | null>(null);
+  // Who reports to whom, for the team breakdown.
+  const [managerOf, setManagerOf] = useState<Map<string, string | null> | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
   const [section, setSection] = useState<CsvSection>('hours');
@@ -56,6 +68,7 @@ export function OverviewPage(): JSX.Element {
     let current = true;
     setData(null);
     setError(null);
+    setPrev(null);
     api.reportOverview(range.from, range.to).then(
       (o) => {
         if (current) setData(o);
@@ -64,10 +77,34 @@ export function OverviewPage(): JSX.Element {
         if (current) setError(errorText(String(e)));
       },
     );
+    const before = previousRange(range.from, range.to);
+    api.reportOverview(before.from, before.to).then(
+      (o) => {
+        if (current) setPrev(o);
+      },
+      () => undefined,
+    );
     return () => {
       current = false;
     };
   }, [range.from, range.to, issue]);
+
+  useEffect(() => {
+    api.adminEmployees().then(
+      (r) => {
+        const names = new Map(r.employees.map((e) => [e.id, e.name]));
+        setManagerOf(
+          new Map(
+            r.employees.map((e) => [
+              e.id,
+              e.reporting_manager_id ? (names.get(e.reporting_manager_id) ?? null) : null,
+            ]),
+          ),
+        );
+      },
+      () => setManagerOf(new Map()),
+    );
+  }, []);
 
   const choose = (p: Preset | 'custom'): void => {
     setPreset(p);
@@ -84,7 +121,7 @@ export function OverviewPage(): JSX.Element {
 
   return (
     <section aria-label="overview" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-      <h2 style={{ margin: 0, fontSize: 16, fontWeight: 650 }}>Overview</h2>
+      <h2 style={{ margin: 0, fontSize: 16, fontWeight: 650 }}>Trends</h2>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
         <select
           aria-label="overview-range"
@@ -138,40 +175,36 @@ export function OverviewPage(): JSX.Element {
       )}
       {data && (
         <>
-          <Tiles t={t} o={data} />
-          <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
-            <Chart
-              t={t}
-              title="Attendance by week"
-              label="attendance-chart"
-              max={1}
-              bars={data.weeks.map((w) => ({
-                key: w.week,
-                label: weekLabel(w.week),
-                parts: [
-                  {
-                    value: w.shift_days > 0 ? w.shift_days_worked / w.shift_days : 0,
-                    color: t.accent,
-                  },
-                ],
-                text: pct(w.shift_days > 0 ? w.shift_days_worked / w.shift_days : null),
-              }))}
-            />
+          <Tiles
+            t={t}
+            o={data}
+            prev={prev}
+            days={periodDays(range.from, range.to)}
+            {...(onShowInsights ? { onShow: onShowInsights } : {})}
+          />
+          <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'stretch' }}>
+            {managerOf && (
+              <Teams
+                t={t}
+                rows={byTeam(data, managerOf)}
+                {...(onShowInsights ? { onShow: onShowInsights } : {})}
+              />
+            )}
             <Chart
               t={t}
               title="Late and missed starts by week"
               label="starts-chart"
               legend={[
-                ['Late', t.tint.break],
-                ['Missed', t.danger],
+                ['Late', STATUS_WARNING],
+                ['Missed', STATUS_CRITICAL],
               ]}
               max={Math.max(1, ...data.weeks.map((w) => w.late_starts + w.missed_starts))}
               bars={data.weeks.map((w) => ({
                 key: w.week,
                 label: weekLabel(w.week),
                 parts: [
-                  { value: w.late_starts, color: t.tint.break },
-                  { value: w.missed_starts, color: t.danger },
+                  { value: w.late_starts, color: STATUS_WARNING },
+                  { value: w.missed_starts, color: STATUS_CRITICAL },
                 ],
                 text: `${w.late_starts} / ${w.missed_starts}`,
               }))}
@@ -332,40 +365,238 @@ function columnsFor(section: CsvSection, t: Theme): Column<OverviewPerson>[] {
   }
 }
 
-function Tiles({ t, o }: { t: Theme; o: Overview }): JSX.Element {
+/** Reserved status colours (dataviz): late = warning, missed = critical. */
+const STATUS_WARNING = '#fab219';
+const STATUS_CRITICAL = '#d03b3b';
+const STATUS_GOOD = '#0ca30c';
+
+const periodDays = (from: string, to: string): number =>
+  Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000) + 1;
+
+/** "on the previous 7 days". */
+const versus = (days: number): string =>
+  days === 7 ? 'on the week before' : `on the previous ${days} days`;
+
+function Tiles({
+  t,
+  o,
+  prev,
+  days,
+  onShow,
+}: {
+  t: Theme;
+  o: Overview;
+  prev: Overview | null;
+  days: number;
+  onShow?: (filter: Partial<InsightFilter>) => void;
+}): JSX.Element {
   const s = o.totals;
-  const tiles: [string, string, string][] = [
-    ['Attendance', pct(s.attendance), `${s.shift_days_worked} of ${s.shift_days} shift days`],
-    ['Hours worked', hrs(s.worked_ms), `of ${hrs(s.scheduled_ms)} scheduled`],
-    [
-      'Late starts',
-      String(s.late_starts),
-      s.avg_minutes_late === null ? 'none' : `${s.avg_minutes_late} min on average`,
-    ],
-    ['Missed starts', String(s.missed_starts), 'no clock-in on a shift day'],
-    ['Idle', pct(s.idle_share), `${hrs(s.idle_ms)} of tracked time`],
+  const p = prev?.totals ?? null;
+  const tiles: {
+    label: string;
+    value: string;
+    note: string;
+    change: Delta;
+    kind?: InsightKind;
+  }[] = [
+    {
+      label: 'Attendance',
+      value: pct(s.attendance),
+      note: `${s.shift_days_worked} of ${s.shift_days} shift days`,
+      change: delta(s.attendance, p?.attendance ?? null, true, true),
+      kind: 'missed_starts',
+    },
+    {
+      label: 'Late starts',
+      value: String(s.late_starts),
+      note: s.avg_minutes_late === null ? 'none' : `${s.avg_minutes_late} min late on average`,
+      change: delta(s.late_starts, p?.late_starts ?? null, false),
+      kind: 'late_starts',
+    },
+    {
+      label: 'Missed starts',
+      value: String(s.missed_starts),
+      note: 'shift days with no clock-in',
+      change: delta(s.missed_starts, p?.missed_starts ?? null, false),
+      kind: 'missed_starts',
+    },
+    {
+      label: 'Hours worked',
+      value: hrs(s.worked_ms),
+      note: `of ${hrs(s.scheduled_ms)} scheduled`,
+      change: delta(s.worked_ms / 3_600_000, p ? p.worked_ms / 3_600_000 : null, true),
+      kind: 'short_days',
+    },
+    {
+      label: 'Idle',
+      value: pct(s.idle_share),
+      note: `${hrs(s.idle_ms)} of tracked time`,
+      change: delta(s.idle_share, p?.idle_share ?? null, false, true),
+      kind: 'long_idle',
+    },
   ];
+  const toneColor = (d: Delta): string =>
+    d.tone === 'good' ? STATUS_GOOD : d.tone === 'bad' ? t.danger : t.muted;
   return (
     <div aria-label="overview-totals" style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-      {tiles.map(([label, value, note]) => (
+      {tiles.map((x) => {
+        const body = (
+          <>
+            <div style={{ fontSize: 12, color: t.muted }}>{x.label}</div>
+            <div style={{ fontSize: 22, fontWeight: 650, fontVariantNumeric: 'tabular-nums' }}>
+              {x.value}
+            </div>
+            <div style={{ fontSize: 11.5, color: t.muted }}>{x.note}</div>
+            {x.change.text && (
+              <div aria-label={`${x.label} change`} style={{ fontSize: 11.5, marginTop: 2 }}>
+                <span style={{ color: toneColor(x.change), fontWeight: 600 }}>
+                  {x.change.tone === 'good' ? '▲ ' : x.change.tone === 'bad' ? '▼ ' : ''}
+                  {x.change.text}
+                </span>{' '}
+                <span style={{ color: t.muted }}>{versus(days)}</span>
+              </div>
+            )}
+          </>
+        );
+        const box: CSSProperties = {
+          flex: '1 1 150px',
+          padding: '10px 12px',
+          borderRadius: 10,
+          border: `1px solid ${t.border}`,
+          background: t.surface,
+          color: t.text,
+          font: 'inherit',
+          textAlign: 'left',
+        };
+        return onShow && x.kind ? (
+          <button
+            key={x.label}
+            type="button"
+            title={`See the people behind ${x.label.toLowerCase()} in Insights`}
+            onClick={() => onShow({ kind: x.kind ?? '' })}
+            style={{ ...box, cursor: 'pointer' }}
+          >
+            {body}
+          </button>
+        ) : (
+          <div key={x.label} style={box}>
+            {body}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/** Per team: attendance as a bar, late and missed as numbers that open Insights. */
+function Teams({
+  t,
+  rows,
+  onShow,
+}: {
+  t: Theme;
+  rows: readonly ReturnType<typeof byTeam>[number][];
+  onShow?: (filter: Partial<InsightFilter>) => void;
+}): JSX.Element {
+  const bar = t.mode === 'dark' ? '#3987e5' : '#2a78d6';
+  const count = (n: number, team: string, kind: InsightKind, label: string): JSX.Element =>
+    onShow && n > 0 ? (
+      <button
+        type="button"
+        aria-label={`${n} ${label} in ${team}`}
+        onClick={() => onShow({ kind, manager: team })}
+        style={{
+          padding: 0,
+          border: 'none',
+          background: 'none',
+          color: t.accent,
+          font: 'inherit',
+          cursor: 'pointer',
+          fontVariantNumeric: 'tabular-nums',
+        }}
+      >
+        {n}
+      </button>
+    ) : (
+      <span style={{ color: n > 0 ? t.text : t.muted, fontVariantNumeric: 'tabular-nums' }}>
+        {n}
+      </span>
+    );
+  return (
+    <figure
+      aria-label="teams"
+      style={{
+        flex: '1 1 320px',
+        margin: 0,
+        padding: 12,
+        borderRadius: 10,
+        border: `1px solid ${t.border}`,
+        background: t.surface,
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 6,
+      }}
+    >
+      <figcaption style={{ fontSize: 13, fontWeight: 600 }}>By team</figcaption>
+      <div
+        aria-hidden
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'minmax(110px, 1.2fr) 2fr 44px 52px',
+          gap: 8,
+          fontSize: 11.5,
+          color: t.muted,
+        }}
+      >
+        <span>Team</span>
+        <span>Attendance</span>
+        <span>Late</span>
+        <span>Missed</span>
+      </div>
+      {rows.map((r) => (
         <div
-          key={label}
+          key={r.team}
           style={{
-            flex: '1 1 140px',
-            padding: '10px 12px',
-            borderRadius: 10,
-            border: `1px solid ${t.border}`,
-            background: t.surface,
+            display: 'grid',
+            gridTemplateColumns: 'minmax(110px, 1.2fr) 2fr 44px 52px',
+            gap: 8,
+            alignItems: 'center',
+            fontSize: 12.5,
           }}
         >
-          <div style={{ fontSize: 12, color: t.muted }}>{label}</div>
-          <div style={{ fontSize: 22, fontWeight: 650, fontVariantNumeric: 'tabular-nums' }}>
-            {value}
-          </div>
-          <div style={{ fontSize: 11.5, color: t.muted }}>{note}</div>
+          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {r.team === 'No manager' ? r.team : `${r.team}'s team`}
+            <span style={{ color: t.muted }}> · {r.people}</span>
+          </span>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span
+              style={{
+                flex: 1,
+                height: 8,
+                borderRadius: 4,
+                background: t.surfaceAlt,
+                overflow: 'hidden',
+              }}
+            >
+              <span
+                style={{
+                  display: 'block',
+                  height: '100%',
+                  width: `${Math.round((r.attendance ?? 0) * 100)}%`,
+                  background: bar,
+                  borderRadius: 4,
+                }}
+              />
+            </span>
+            <span style={{ width: 34, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+              {pct(r.attendance)}
+            </span>
+          </span>
+          {count(r.late, r.team, 'late_starts', 'late starts')}
+          {count(r.missed, r.team, 'missed_starts', 'missed starts')}
         </div>
       ))}
-    </div>
+    </figure>
   );
 }
 

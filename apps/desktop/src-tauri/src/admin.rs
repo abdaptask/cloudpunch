@@ -506,6 +506,63 @@ pub fn bulk_office(
     )
 }
 
+// Actionable insights (ADR-0047): the server scopes everything.
+
+/// Findings: `live` (open and nudged) or `closed`.
+pub fn insights(http: &Client, base: &str, token: &str, closed: bool) -> Result<Value, DayError> {
+    let status = if closed { "closed" } else { "live" };
+    send(
+        http,
+        base,
+        token,
+        reqwest::Method::GET,
+        &format!("/v1/insights?status={status}"),
+        None,
+    )
+}
+
+/// What happened to one finding.
+pub fn insight_history(
+    http: &Client,
+    base: &str,
+    token: &str,
+    id: &str,
+) -> Result<Value, DayError> {
+    if !is_uuid(id) {
+        return Err(DayError::Refused("invalid_argument".into()));
+    }
+    send(
+        http,
+        base,
+        token,
+        reqwest::Method::GET,
+        &format!("/v1/insights/{id}/history"),
+        None,
+    )
+}
+
+/// Nudge (`{message}`) or dismiss (`{reason}`) a finding.
+pub fn insight_act(
+    http: &Client,
+    base: &str,
+    token: &str,
+    id: &str,
+    action: &str,
+    body: &Value,
+) -> Result<Value, DayError> {
+    if !is_uuid(id) || !matches!(action, "nudge" | "dismiss") {
+        return Err(DayError::Refused("invalid_argument".into()));
+    }
+    send(
+        http,
+        base,
+        token,
+        reqwest::Method::POST,
+        &format!("/v1/insights/{id}/{action}"),
+        Some(body),
+    )
+}
+
 /// Each person's day on `date` (ADR-0040 §2): a Manager's team, or
 /// everyone for HR and Administrators; the server decides.
 pub fn report_day(http: &Client, base: &str, token: &str, date: &str) -> Result<Value, DayError> {
@@ -1167,6 +1224,30 @@ mod tests {
             &[("drop_table".to_string(), 1)],
         );
         assert!(matches!(r, Err(DayError::Refused(c)) if c == "invalid_argument"));
+    }
+
+    #[test]
+    fn insight_calls_refuse_bad_ids_and_actions_before_sending() {
+        let bad = |r: Result<Value, DayError>| matches!(r, Err(DayError::Refused(c)) if c == "invalid_argument");
+        let base = "http://127.0.0.1:9";
+        let id = "0f8e1c2a-3b4d-4e5f-8a9b-0c1d2e3f4a5b";
+        assert!(bad(insight_history(&client(), base, "t", "../x")));
+        assert!(bad(insight_act(
+            &client(),
+            base,
+            "t",
+            "x",
+            "nudge",
+            &serde_json::json!({})
+        )));
+        assert!(bad(insight_act(
+            &client(),
+            base,
+            "t",
+            id,
+            "delete",
+            &serde_json::json!({})
+        )));
     }
 
     #[test]

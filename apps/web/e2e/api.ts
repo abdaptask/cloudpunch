@@ -218,6 +218,44 @@ function answer(path: string, capabilities: readonly string[]): unknown {
       },
     };
   }
+  if (p === '/v1/insights') {
+    if (url.searchParams.get('status') === 'closed') return { status: 'closed', insights: [] };
+    const [roshni] = PEOPLE;
+    if (!roshni) return null;
+    const strip = Array.from({ length: 14 }, (_, n) => ({
+      date: iso(new Date(Date.now() - (14 - n) * 86_400_000)).slice(0, 10),
+      mark: n % 7 >= 5 ? 'off' : n % 3 === 0 ? 'late' : 'on_time',
+      minutes_late: n % 3 === 0 ? 25 : 0,
+      worked_ms: 8 * 3_600_000,
+      shift_ms: 9 * 3_600_000,
+      idle_ms: 0,
+    }));
+    return {
+      status: 'live',
+      insights: [
+        {
+          id: '11111111-1111-4111-8111-111111111111',
+          employee_id: roshni.id,
+          name: roshni.name,
+          manager_name: 'Nilesh Darekar',
+          kind: 'late_starts',
+          severity: 'warning',
+          status: 'open',
+          headline: 'Late 4 times in the last 2 weeks, 25 min on average',
+          evidence: { strip },
+          follow_up_on: null,
+          no_change: false,
+          opened_at: ago(3 * 24 * 60),
+          updated_at: ago(60),
+          draft: 'Hi Roshni, we noticed a few late starts lately. Is anything getting in the way?',
+          last: null,
+        },
+      ],
+    };
+  }
+  if (p.startsWith('/v1/insights/') && p.endsWith('/history')) {
+    return { events: [{ action: 'opened', at: ago(3 * 24 * 60), by: null, note: null }] };
+  }
   if (p === '/v1/corrections/queue') return { to_endorse: [], to_approve: [] };
   if (p === '/v1/admin/people') {
     return {

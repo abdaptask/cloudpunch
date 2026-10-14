@@ -316,6 +316,55 @@ export interface RetentionPeriods {
   operational_days: number;
 }
 
+/** One day on a finding's 14-day strip (ADR-0047 §2). */
+export type DayMark =
+  'on_time' | 'late' | 'missed' | 'short' | 'worked' | 'off' | 'office' | 'holiday' | 'not_working';
+
+export interface StripDay {
+  date: string;
+  mark: DayMark;
+  minutes_late: number | null;
+  worked_ms: number;
+  shift_ms: number;
+  idle_ms: number;
+}
+
+export type InsightKind =
+  | 'late_starts'
+  | 'missed_starts'
+  | 'short_days'
+  | 'long_idle'
+  | 'breaks_over'
+  | 'forgets_clock_out'
+  | 'long_days';
+
+/** A finding about one person, as a case (ADR-0047). */
+export interface InsightItem {
+  id: string;
+  employee_id: string;
+  name: string;
+  manager_name: string | null;
+  kind: InsightKind;
+  severity: 'info' | 'warning' | 'serious';
+  status: 'open' | 'nudged' | 'resolved' | 'dismissed';
+  headline: string;
+  evidence: { from?: string; to?: string; count?: number; dates?: string[]; strip?: StripDay[] };
+  follow_up_on: string | null;
+  no_change: boolean;
+  opened_at: string;
+  updated_at: string;
+  /** The nudge as drafted, to edit. */
+  draft: string;
+  last: { action: string; at: string; by: string | null; note: string | null } | null;
+}
+
+export interface InsightEventView {
+  action: string;
+  at: string;
+  by: string | null;
+  note: string | null;
+}
+
 export interface OfficeDays {
   employee_id: string;
   /** ISO weekdays, 1 = Monday … 7 = Sunday. */
@@ -835,6 +884,16 @@ export const api = {
     }),
   /** Each person's day on `date` (ADR-0040 §2), problems first. */
   reportDay: (date: string): Promise<DayReport> => invoke('report_day', { date }),
+  /** Findings in the caller's scope (ADR-0047 §4): open and nudged, or closed. */
+  insights: (status: 'live' | 'closed'): Promise<{ status: string; insights: InsightItem[] }> =>
+    invoke('insights', { closed: status === 'closed' }),
+  insightHistory: (id: string): Promise<{ events: InsightEventView[] }> =>
+    invoke('insight_history', { id }),
+  /** Email the person (manager and sender copied); the finding moves to nudged. */
+  insightNudge: (id: string, message: string): Promise<{ status: string; follow_up_on: string }> =>
+    invoke('insight_act', { id, action: 'nudge', body: { message } }),
+  insightDismiss: (id: string, reason: string): Promise<{ status: string }> =>
+    invoke('insight_act', { id, action: 'dismiss', body: { reason } }),
   /** The overall report for a range (ADR-0040 §3), HR and Administrators. */
   reportOverview: (from: string, to: string): Promise<Overview> =>
     invoke('report_overview', { from, to }),

@@ -71,6 +71,10 @@ export type WebApi = Pick<
   | 'adminSetOfficeDay'
   | 'adminBulkOffice'
   | 'reportDay'
+  | 'insights'
+  | 'insightHistory'
+  | 'insightNudge'
+  | 'insightDismiss'
   | 'adminUpdatesLatest'
   | 'reportOverview'
   | 'saveCsv'
@@ -351,6 +355,19 @@ export const api: WebApi = {
       ...officePatternBody(weekdays, effectiveFrom, reason),
     }),
   adminUpdatesLatest: () => get('/v1/admin/updates/latest'),
+  insights: (status) => get(`/v1/insights?status=${status === 'closed' ? 'closed' : 'live'}`),
+  insightHistory: async (id) => {
+    check(UUID.test(id));
+    return get(`/v1/insights/${id}/history`);
+  },
+  insightNudge: async (id, message) => {
+    check(UUID.test(id));
+    return send('POST', `/v1/insights/${id}/nudge`, { message });
+  },
+  insightDismiss: async (id, reason) => {
+    check(UUID.test(id));
+    return send('POST', `/v1/insights/${id}/dismiss`, { reason });
+  },
   reportDay: async (date) => {
     check(DATE.test(date));
     return get(`/v1/reports/day?date=${date}`);
