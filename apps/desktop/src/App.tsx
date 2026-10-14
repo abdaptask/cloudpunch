@@ -323,6 +323,16 @@ export function App(): JSX.Element {
   const past = useDay(signedIn ? pastDate : null, dayReload);
   useEffect(() => setAskingCorrection(false), [pastDate]);
   const pastDay = past.status === 'ready' ? past.result : null;
+  // Today can be corrected too (owner, 2026-10-15: "forgot to end the
+  // bio break" shouldn't wait a day). The server's view of today carries
+  // its corrections; the live sessions above stay the app's own.
+  const todayServer = useDay(
+    signedIn && detailsOpen && !pastDate && canAskCorrection ? todayDate : null,
+    dayReload,
+  );
+  const todayServerDay = todayServer.status === 'ready' ? todayServer.result : null;
+  const correctDate = pastDate ?? todayDate;
+  const correctDay = pastDate ? pastDay : todayServerDay;
   const pastSegs: Segment[] = pastDay ? daySegments(pastDay.day) : [];
   const pastEnd = dayEnd(pastSegs);
   useEffect(() => {
@@ -996,13 +1006,12 @@ export function App(): JSX.Element {
                       since={shownSince}
                       emptyText={pastDate ? 'Nothing was tracked on this day.' : undefined}
                     />
-                    {pastDate && <DayCorrections corrections={pastDay?.day.corrections} />}
-                    {pastDate &&
-                      canAskCorrection &&
+                    <DayCorrections corrections={correctDay?.day.corrections} />
+                    {canAskCorrection &&
                       (askingCorrection ? (
                         <CorrectionForm
-                          date={pastDate}
-                          defaultTz={pastDay?.day.sessions[0]?.tz_iana ?? null}
+                          date={correctDate}
+                          defaultTz={correctDay?.day.sessions[0]?.tz_iana ?? null}
                           submitLabel="Ask to correct"
                           onSubmit={(c) => api.requestCorrection(c)}
                           onDone={() => {
@@ -1017,7 +1026,7 @@ export function App(): JSX.Element {
                           style={{ marginTop: 10 }}
                           onClick={() => setAskingCorrection(true)}
                         >
-                          Ask to correct this day
+                          {pastDate ? 'Ask to correct this day' : 'Ask to correct today'}
                         </Button>
                       ))}
                   </section>
