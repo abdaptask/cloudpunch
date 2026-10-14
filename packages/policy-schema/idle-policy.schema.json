@@ -372,6 +372,11 @@
           "default": false,
           "description": "Email the person and their manager about a missed clock-in, the late clock-in that follows, and \"Not working today\". Off until the holiday list is in (ADR-0037 §3)."
         },
+        "teams_posts": {
+          "type": "boolean",
+          "default": false,
+          "description": "Also post the shift-start notices and a daily list of corrections waiting to the Teams channel (TEAMS_NOTICE_WEBHOOK_URL on the server). ADR-0043 §3."
+        },
         "location_emails": {
           "type": "boolean",
           "default": false,

@@ -827,7 +827,8 @@ export interface LocationAlertRepo {
 
 /** A report email (ADR-0040 §2): which report, the day it covers, to whom. */
 export interface ReportSentClaim {
-  report: 'day';
+  /** `teams_corrections`: the daily Teams post (ADR-0043 §3; recipient `teams`). */
+  report: 'day' | 'teams_corrections';
   /** `YYYY-MM-DD`. */
   date: string;
   recipient: string;

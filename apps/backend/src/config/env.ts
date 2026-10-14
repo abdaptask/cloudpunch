@@ -58,6 +58,12 @@ const envSchema = z.object({
   // (ADR-0019 §9); unset means no button.
   DOWNLOADS_DIR: z.string().min(1).optional(),
 
+  // Teams channel webhooks (ADR-0043): the API's error alerts, and
+  // notices (missed starts, corrections waiting). Unset = off. Kept in
+  // /etc/cloudpunch/api.env: anyone with the URL can post there.
+  TEAMS_ALERT_WEBHOOK_URL: z.string().url().startsWith('https://').optional(),
+  TEAMS_NOTICE_WEBHOOK_URL: z.string().url().startsWith('https://').optional(),
+
   // DB-IP "IP to ASN Lite" (ADR-0029 §3), kept fresh by the monthly job
   // from scripts/install-connection-jobs.sh. Missing file: no provider.
   DBIP_ASN_MMDB: z.string().min(1).default('/opt/cloudpunch/geo/dbip-asn-lite.mmdb'),

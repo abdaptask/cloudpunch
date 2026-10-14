@@ -504,9 +504,20 @@ export function RulesPage({
                   />,
                   issues.missedClockInMinutes,
                 )}
+                {row(
+                  'teamsPosts',
+                  'Also post to the Teams channel',
+                  <Check
+                    name="teams-posts"
+                    on={form.teamsPosts}
+                    onChange={(on) => set('teamsPosts', on)}
+                  />,
+                )}
                 <Note t={t}>
                   From cloudpunch@aptask.com to the person, with their manager copied. Once each per
-                  shift, never on a holiday.
+                  shift, never on a holiday. With Teams on, each one is also posted to the channel,
+                  and the corrections waiting once a day at 10:00 India time (ADR-0043; needs the
+                  channel&apos;s webhook on the server).
                 </Note>
               </>
             )}

@@ -8,6 +8,8 @@ import { teamNow } from '../team/service.js';
 import { ShiftAlertJob } from './job.js';
 import { clockIn, shiftMailText, zoneName, type ShiftMail } from './mail.js';
 import { dueAlerts, firstClockInFor } from './rules.js';
+import { TeamsNotices } from './teams.js';
+import type { TeamsPost } from '../ops/teams.js';
 
 const MIN = 60_000;
 const log = pino({ level: 'silent' });
@@ -425,5 +427,45 @@ describe('regular late starters (ADR-0037 §4)', () => {
     expect(r?.starts).toEqual({ missed: 3, not_working: 0, days: 30, regular: true });
     expect(f?.starts).toEqual({ missed: 0, not_working: 1, days: 30, regular: false });
     expect(n?.starts).toBeUndefined();
+  });
+});
+
+describe('Teams posts with the shift-start emails (ADR-0043 §3)', () => {
+  it('each email claimed is also posted, once', async () => {
+    await db.policies.put(
+      {
+        scope: 'global',
+        scopeId: null,
+        reason: null,
+        actorUserId: randomUUID(),
+        correlationId: randomUUID(),
+        at: clock,
+      },
+      { alerts: { shift_emails: true, teams_posts: true } },
+    );
+    const posts: TeamsPost[] = [];
+    const j = new ShiftAlertJob({
+      db,
+      log,
+      siteUrl: 'https://cloudpunch.aptask.com',
+      now: () => clock,
+      send: async (m) => {
+        outbox.push(m);
+      },
+      teams: new TeamsNotices({
+        db,
+        log,
+        siteUrl: 'https://cloudpunch.aptask.com',
+        post: async (p) => {
+          posts.push(p);
+        },
+      }),
+    });
+    clock = at(20);
+    await j.runOnce();
+    await j.runOnce();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(outbox).toHaveLength(2);
+    expect(posts.map((p) => p.title).sort()).toEqual(outbox.map((m) => m.subject).sort());
   });
 });

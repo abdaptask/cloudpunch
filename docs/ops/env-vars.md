@@ -39,6 +39,16 @@ else.
 CloudTrail. If a variable would leak a credential when logged, it
 belongs in Secrets Manager instead.
 
+**Teams webhooks (ADR-0043).** `TEAMS_ALERT_WEBHOOK_URL` (the API's
+error alerts, and the server's health check via `alert.env`) and
+`TEAMS_NOTICE_WEBHOOK_URL` (missed starts, corrections waiting): `https`
+URLs, unset = off. A webhook URL lets anyone post to the channel, so it
+is a credential: on the pilot VM it lives only in the root-only
+`/etc/cloudpunch/api.env` / `alert.env` (written by
+`scripts/install-alerts.sh`) and the GitHub secret of the same name; in
+production it moves to Secrets Manager (`cloudpunch/<env>/teams/alert-webhook`,
+`…/notice-webhook`).
+
 ## 2. Parameter Store (non-secret configuration)
 
 Path prefix `cloudpunch/config/`. Refreshed every 5 minutes (or on

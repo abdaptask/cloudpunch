@@ -15,7 +15,8 @@ public at **`https://cloudpunch.aptask.com`** through a Cloudflare Tunnel
 | Database | Postgres 16, localhost only, DB `cloudpunch_dev` | roles `cloudpunch_migrator` (DDL) and `cloudpunch_app` (data) |
 | Backups | cron `/etc/cron.d/cloudpunch-backup`, 02:30 nightly | `/var/backups/cloudpunch/*.dump`, 14 days, **on the same disk** |
 | Off-site backups (ADR-0035) | `cloudpunch-db-backup.timer`, 02:00 India time | S3 `aptask-cloudpunch-backups/db/`, encrypted to the owner's key, 30 days |
-| Alerts (ADR-0035) | `cloudpunch-health.timer` (5 min), `cloudpunch-alert@`, GitHub `uptime` (15 min) | emails from cloudpunch@ to `ALERT_TO` |
+| Alerts (ADR-0035, ADR-0043) | `cloudpunch-health.timer` (every minute, two failures in a row), `cloudpunch-alert@`, the API's own monitor, GitHub `uptime` (15 min) | emails from cloudpunch@ to `ALERT_TO` / Administrators, and the Teams channel at `TEAMS_ALERT_WEBHOOK_URL` |
+| Teams notices (ADR-0043) | the API | missed starts and corrections waiting to `TEAMS_NOTICE_WEBHOOK_URL`, while Rules → Shift-start emails → "Also post to the Teams channel" is on |
 | Public access | `cloudflared.service` (tunnel **cloudpunch**, id `e02aec2a-06b9-4b69-b795-c92e5c7b55a1`) | Cloudflare dashboard → Zero Trust → Networks → Tunnels → cloudpunch → Public Hostname: `cloudpunch.aptask.com` → **HTTP** `localhost:8080` (HTTPS here gives 502) |
 | Firewall | `ufw` | 22 from anywhere (key only); 443 from 10/8, 172.16/12, 192.168/16, 100.64/10 |
 | Node / pnpm | `/opt/node` (v20, SHA-256-verified tarball), pnpm 9.15.0 via corepack (`COREPACK_HOME=/opt/corepack`) | |
@@ -315,6 +316,58 @@ with an old key still need that old key.
 `cloudpunch-backup`, run `bash scripts/install-backup.sh --reconfigure`
 (it keeps the bucket name; type the new key), then delete the old key in
 IAM.
+
+## Teams alerts and notices: one-time setup (ADR-0043)
+
+**Teams (owner, once).** In the Teams channel that should get alerts
+(for example a private "CloudPunch alerts" channel):
+
+1. Channel **⋯ → Workflows → "Post to a channel when a webhook request
+   is received"** (or, where still offered, **⋯ → Connectors →
+   Incoming Webhook**). Name it "CloudPunch".
+2. Copy the **webhook URL** it shows. Treat it like a password: anyone
+   with it can post in the channel. Keep it in the password manager as
+   `cloudpunch/teams-alert-webhook`.
+3. For notices (missed starts, corrections waiting) in a different
+   channel, do the same there; otherwise the alerts channel gets both.
+
+**Server (once, after a deploy that includes these files),** from Git
+Bash on the PC:
+
+```sh
+bash scripts/install-alerts.sh
+```
+
+It asks for the URL(s) (hidden), writes `TEAMS_ALERT_WEBHOOK_URL` into
+`/etc/cloudpunch/alert.env` and `api.env` and `TEAMS_NOTICE_WEBHOOK_URL`
+into `api.env`, installs the every-minute health check, restarts the
+API, and posts "Fixed: Teams alerts are on" to the channel and by email.
+
+**GitHub (once),** so the outside check can post when the whole server
+is down: repository **Settings → Secrets and variables → Actions → New
+repository secret** `TEAMS_ALERT_WEBHOOK_URL`, the same alerts URL.
+
+**Notices:** Rules → Shift-start emails → **"Also post to the Teams
+channel"**. Off until ticked.
+
+**What posts, and when:**
+
+- **"Problem: api / site / database / disk space"**, then **"Fixed: …"**:
+  the server's check, every minute, after two failures in a row. "site"
+  means the API is fine but the internet side isn't (the tunnel).
+- **"Problem: cloudpunch.aptask.com is down"**: GitHub, from outside,
+  every 15 minutes while it's down.
+- **"Uploads are being refused"** (50+ events in 15 minutes), **"The API
+  is answering with errors"** (20+ in 15 minutes), **"… keeps failing"**
+  (a background job, 3 times in a row, then "… works again"): the API
+  itself, at most once an hour each. Also emailed to Administrators.
+- **Shift-start notices** as they're emailed, and **"Corrections
+  waiting"** once a day at 10:00 India time, while the Rules switch is on.
+
+**Change or remove a webhook:** run `bash scripts/install-alerts.sh`
+again with the new URL; to switch Teams off, delete the
+`TEAMS_*_WEBHOOK_URL` lines from both files and
+`sudo systemctl restart cloudpunch-api`.
 
 ## Restore a backup
 

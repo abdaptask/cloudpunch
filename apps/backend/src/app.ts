@@ -34,6 +34,9 @@ import { DayReportJob } from './reports/job.js';
 import { reportRoutes } from './reports/routes.js';
 import { historyRoutes } from './history/routes.js';
 import { sendShiftMail, type ShiftMail } from './alerts/mail.js';
+import { TeamsNotices } from './alerts/teams.js';
+import { OpsMonitor } from './ops/monitor.js';
+import { postTeams } from './ops/teams.js';
 
 export interface BuildAppOptions {
   /** Tests inject a fake Graph; otherwise built from the OBO certificate. */
@@ -127,6 +130,36 @@ export async function buildApp(opts: BuildAppOptions) {
     const newPlace = alertSend
       ? new NewPlaceAlerts({ db, log: app.log, send: alertSend, siteUrl: opts.env.PUBLIC_SITE_URL })
       : null;
+    // ADR-0043: the Teams channel webhooks, and the API watching itself
+    // (refused uploads, server errors, background jobs failing).
+    const siteUrl = opts.env.PUBLIC_SITE_URL;
+    const alertHook = opts.env.TEAMS_ALERT_WEBHOOK_URL;
+    const noticeHook = opts.env.TEAMS_NOTICE_WEBHOOK_URL;
+    const monitor =
+      alertSend || alertHook
+        ? new OpsMonitor({
+            log: app.log,
+            siteUrl,
+            email: alertSend
+              ? async (a) => {
+                  const to = [
+                    ...new Set((await db.roles.holders(['Administrator'])).map((h) => h.email)),
+                  ];
+                  if (to.length === 0) return;
+                  await alertSend({ to, cc: [], subject: a.title, text: a.lines.join('\n\n') });
+                }
+              : null,
+            teams: alertHook ? (p) => postTeams(alertHook, p) : null,
+          })
+        : undefined;
+    if (monitor) {
+      app.addHook('onResponse', async (_req, reply) => {
+        if (reply.statusCode >= 500) monitor.serverError();
+      });
+    }
+    const teams = noticeHook
+      ? new TeamsNotices({ db, log: app.log, post: (p) => postTeams(noticeHook, p), siteUrl })
+      : undefined;
     // ADR-0029: off until the global `connections.record` setting is on.
     const connections = new ConnectionRecorder({
       db,
@@ -139,7 +172,7 @@ export async function buildApp(opts: BuildAppOptions) {
     app.addHook('preHandler', async (req) => roleNotes.fromRequest(req));
     await app.register(meRoutes, { db: opts.db });
     await app.register(devicesRoutes, { db: opts.db, connections });
-    await app.register(eventsRoutes, { db: opts.db, connections });
+    await app.register(eventsRoutes, { db: opts.db, connections, monitor });
     await app.register(dayRoutes, { db: opts.db });
     await app.register(policyRoutes, { db: opts.db });
     await app.register(policyAdminRoutes, { db: opts.db });
@@ -161,6 +194,8 @@ export async function buildApp(opts: BuildAppOptions) {
         log: app.log,
         send: alertSend,
         siteUrl: opts.env.PUBLIC_SITE_URL,
+        teams,
+        monitor,
       });
       app.addHook('onReady', async () => job.start());
       app.addHook('onClose', async () => job.stop());
@@ -170,6 +205,7 @@ export async function buildApp(opts: BuildAppOptions) {
         log: app.log,
         send: alertSend,
         siteUrl: opts.env.PUBLIC_SITE_URL,
+        monitor,
       });
       app.addHook('onReady', async () => dayReports.start());
       app.addHook('onClose', async () => dayReports.stop());

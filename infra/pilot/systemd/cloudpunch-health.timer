@@ -1,9 +1,10 @@
 [Unit]
-Description=CloudPunch: health check every 5 minutes
+Description=CloudPunch: health check every minute (ADR-0043)
 
 [Timer]
 OnBootSec=2min
-OnUnitActiveSec=5min
+OnUnitActiveSec=1min
+AccuracySec=5s
 
 [Install]
 WantedBy=timers.target
