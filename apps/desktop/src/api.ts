@@ -807,6 +807,18 @@ export const api = {
       kind: c.kind,
       reason: c.reason,
     }),
+  /** An Administrator corrects someone's time; it counts at once (ADR-0049). */
+  adminCorrectTime: (
+    c: CorrectionInput & { employeeId: string },
+  ): Promise<{ correction: DayCorrection }> =>
+    invoke<{ correction: DayCorrection }>('admin_correct_time', {
+      employeeId: c.employeeId,
+      from: c.from,
+      to: c.to,
+      tzIana: c.tzIana,
+      kind: c.kind,
+      reason: c.reason,
+    }),
   correctionsQueue: (): Promise<CorrectionQueue> => invoke<CorrectionQueue>('corrections_queue'),
   /** "Not working today" for the shift showing (ADR-0031). */
   notWorkingToday: (): Promise<StateView> => invoke<StateView>('not_working_today'),

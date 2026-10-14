@@ -314,6 +314,7 @@ pub fn run() {
             commands::install_update_now,
             commands::check_for_update,
             commands::request_correction,
+            commands::admin_correct_time,
             commands::corrections_queue,
             commands::not_working_today,
             commands::extend_break,

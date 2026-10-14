@@ -107,6 +107,7 @@ export function AdminConsole({
           <Reports
             canOpenDays={has('team.timeline.read')}
             canSetOffice={has('hr.employee.write')}
+            canCorrectTime={has('admin.correction.approve')}
           />
         );
     }

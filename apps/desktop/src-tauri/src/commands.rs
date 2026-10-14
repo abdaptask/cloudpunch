@@ -1172,6 +1172,32 @@ pub async fn team_days(
     answer(fetched)
 }
 
+/// An Administrator corrects someone's time, counted at once (ADR-0049).
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub async fn admin_correct_time(
+    auth: State<'_, Arc<Auth>>,
+    employee_id: String,
+    from: String,
+    to: String,
+    tz_iana: String,
+    kind: String,
+    reason: String,
+) -> Result<serde_json::Value, String> {
+    let (_, fetched) = fetch_as_user(&auth, move |http, base, token| {
+        let c = admin::CorrectionRequest {
+            from: &from,
+            to: &to,
+            tz_iana: &tz_iana,
+            kind: &kind,
+            reason: &reason,
+        };
+        admin::admin_correct_time(http, base, token, &employee_id, &c)
+    })
+    .await?;
+    answer(fetched)
+}
+
 /// Ask to correct your own time (`employeeId` absent), or, as their
 /// manager, correct a report's (ADR-0030 §3).
 #[tauri::command]

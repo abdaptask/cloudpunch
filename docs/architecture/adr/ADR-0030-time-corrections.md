@@ -1,6 +1,7 @@
 # ADR-0030 — Time corrections: requested, approved, laid over the record
 
 - **Status:** Accepted (2026-10-01, the owner approved; §3 per the owner's answers)
+- **Amended by:** ADR-0049 (an Administrator corrects someone's time; it counts at once)
 - **Date:** 2026-10-01
 - **Deciders:** Abdulla Sheikh (project owner), Architecture (Claude)
 - **Builds on:** ADR-0004 (immutable events; "a correction is a new row,

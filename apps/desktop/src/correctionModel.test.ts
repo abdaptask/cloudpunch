@@ -64,6 +64,15 @@ describe('words', () => {
         }),
       ),
     ).toBe('Approved by Nilesh Darekar');
+    // Entered by an Administrator for someone: it counted at once (ADR-0049).
+    expect(
+      statusText(
+        c({
+          status: 'approved',
+          decisions: [{ decision: 'approved', by: 'Abdulla Sheikh', at: 'x', note: null }],
+        }),
+      ),
+    ).toBe('Corrected by Abdulla Sheikh');
   });
 
   it('offers this computer first when it is another zone', () => {

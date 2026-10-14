@@ -22,6 +22,9 @@ import { nameOf } from '../team/service.js';
  *
  *   POST /v1/me/corrections                   ask to correct your own time
  *   POST /v1/team/:employeeId/corrections     a manager corrects a direct report (endorsed)
+ *   POST /v1/admin/employees/:employeeId/corrections
+ *                                             an Administrator corrects anyone's time;
+ *                                             it counts at once (ADR-0049)
  *   GET  /v1/corrections/queue                what waits on the caller
  *   POST /v1/corrections/:id/decision         { decision: endorse | approve | reject | withdraw, note? }
  *
@@ -133,13 +136,18 @@ const correctionRoutesImpl: FastifyPluginAsync<CorrectionRoutesOptions> = async 
     return { user, approver: caps.has(Capability.AdminCorrectionApprove) };
   }
 
-  /** Validate and store a correction; the reply is sent either way. */
+  /**
+   * Validate and store a correction; the reply is sent either way.
+   * `approve`: an Administrator's own entry, approved by them at once
+   * (ADR-0049).
+   */
   async function request(
     reply: FastifyReply,
     body: unknown,
     subject: Employee,
     by: AppUser,
     endorse: boolean,
+    approve = false,
   ) {
     const parsed = requestBody.safeParse(body);
     if (!parsed.success) {
@@ -171,7 +179,9 @@ const correctionRoutesImpl: FastifyPluginAsync<CorrectionRoutesOptions> = async 
         'a pending correction already covers part of this time',
       );
     }
-    const c = await db.corrections.request({
+    const correlationId = randomUUID();
+    const at = new Date();
+    let c = await db.corrections.request({
       employeeId: subject.id,
       fromAt: from,
       toAt: to,
@@ -181,9 +191,21 @@ const correctionRoutesImpl: FastifyPluginAsync<CorrectionRoutesOptions> = async 
       reason: b.reason,
       requestedByUserId: by.id,
       endorse,
-      correlationId: randomUUID(),
-      at: new Date(),
+      correlationId,
+      at,
     });
+    if (approve) {
+      await db.corrections.decide({
+        correctionId: c.id,
+        employeeId: subject.id,
+        decision: 'approved',
+        decidedByUserId: by.id,
+        note: 'Entered by an Administrator for them (ADR-0049)',
+        correlationId,
+        at,
+      });
+      c = (await db.corrections.findById(c.id)) ?? c;
+    }
     return reply.code(201).send({ correction: await correctionView(db, c, new Map()) });
   }
 
@@ -219,6 +241,31 @@ const correctionRoutesImpl: FastifyPluginAsync<CorrectionRoutesOptions> = async 
         return problem(reply, 404, 'not_found', 'no such person on your team');
       }
       return request(reply, req.body, e, c.user, true);
+    },
+  );
+
+  // ADR-0049: an Administrator corrects anyone's time, and it counts at
+  // once. Never their own: that still takes a second Administrator.
+  app.post(
+    '/v1/admin/employees/:employeeId/corrections',
+    { preHandler: [requireCapability([Capability.AdminCorrectionApprove])] },
+    async (req, reply) => {
+      const c = await caller(req, reply);
+      if (!c) return reply;
+      const { employeeId } = req.params as { employeeId: string };
+      const e = UUID.test(employeeId) ? await db.employees.findById(employeeId) : null;
+      if (!e || e.status !== 'active') {
+        return problem(reply, 404, 'not_found', 'no such person');
+      }
+      if (c.user.employeeId === e.id) {
+        return problem(
+          reply,
+          409,
+          'own_time',
+          'your own time needs another Administrator: ask to correct it instead',
+        );
+      }
+      return request(reply, req.body, e, c.user, false, true);
     },
   );
 
