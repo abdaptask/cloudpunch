@@ -1,0 +1,10 @@
+# Keep the image build context small and secret-free (infra/aws/Dockerfile).
+**/node_modules
+**/dist
+target
+.git
+.claude
+**/.env*
+**/*.tfvars
+infra/terraform/.terraform
+apps/desktop/src-tauri

@@ -13,6 +13,27 @@ break_glass_role_arn = ""
 ecs_task_role_arn    = ""
 ci_release_role_arn  = ""
 
+# --- Production on AWS (ADR-0045) -------------------------------------
+# env = "prod"
+# db_engine         = "rds"          # or "aurora" (ADR-0035's plan)
+# db_instance_class = "db.t4g.small"
+# db_multi_az       = false          # true: a standby in a second AZ
+# api_desired_count = 1              # 2: survives an AZ outage
+# alarm_emails      = ["abdulla@aptask.com"]
+#
+# The pilot's /etc/cloudpunch/api.env WITHOUT its secrets (no
+# POSTGRES_APP_URL, no key files): ids and mail settings only.
+# app_environment = {
+#   ENTRA_TENANT_ID              = "a6300e5c-dae4-413c-a6d2-646fbc2aa587"
+#   ENTRA_API_CLIENT_ID          = "63bca00e-a546-4f0c-a076-e2450e52406e"
+#   ENTRA_API_APPLICATION_ID_URI = "api://63bca00e-a546-4f0c-a076-e2450e52406e"
+#   ENTRA_WEB_CLIENT_ID          = "<from api.env>"
+#   ENTRA_OBO_CERT_THUMBPRINT    = "<from api.env>"
+#   WELCOME_FROM                 = "cloudpunch@aptask.com"
+#   WELCOME_CC                   = "<from api.env>"
+#   ALERT_TO                     = "<from api.env>"
+# }
+
 extra_tags = {
   # CostCentre = "eng-platform"
   # Datastore  = "ap-south-1"

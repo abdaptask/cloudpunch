@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Infra: the move to AWS, prepared (ADR-0045, proposed; nothing created)
+
+- **ADR-0045** proposes a smaller production shape than ADR-0035 for
+  ~60 people: the Cloudflare tunnel runs inside the API task (no load
+  balancer, no inbound port), no NAT gateway, RDS PostgreSQL 16 on one
+  `db.t4g.small` (Aurora one variable away), EFS for installers and the
+  IP database (no code change). About $80 a month at list prices.
+- **Terraform** (plan only, never applied): VPC and security groups,
+  RDS/Aurora, ECR, EFS, the app's secrets, the ECS service with the
+  `cloudflared` sidecar, the job task, EventBridge schedules for the
+  VM's timers, CloudWatch email alarms, a GitHub OIDC deploy role and a
+  transfer bucket for the cutover's dump. Not yet run through
+  `terraform validate`.
+- **Image:** `infra/aws/Dockerfile` (Node 20, the API through tsx and
+  the built web app, like the VM) with an entrypoint for the API and the
+  jobs (`migrate`, `purge-connections`, `dbip-update`,
+  `bootstrap-roles`, `restore`). `scripts/deploy-aws.sh` builds, migrates
+  and rolls out.
+- **Runbook:** `docs/ops/aws-cutover.md`: what the owner provides, build,
+  rehearsal with the pilot's data, a ~45-minute switch on a quiet Sunday
+  morning, and going back to the VM.
 ### Desktop and server: no more lost events after a server error; a warning when the computer's clock is off
 
 - **Lost events (root cause of Masrat Afzal's 13 gaps, 2026-10-13):**
