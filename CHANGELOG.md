@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Desktop and server: no more lost events after a server error; a warning when the computer's clock is off
+
+- **Lost events (root cause of Masrat Afzal's 13 gaps, 2026-10-13):**
+  after a server error the outbox retried the failed (older) events
+  later with backoff, but drained newer events of the same session as
+  soon as they were due. They reached the server first; it refused them
+  as a sequence gap (more than 10 ahead) or, when the older ones
+  finally arrived, those as out of order, and the app poisoned both.
+  Now a session's events go strictly in order: a row waits while an
+  earlier row of its session is still waiting out a retry, and each
+  batch is sorted by sequence. A `sequence_gap_too_large` refusal is
+  retried with backoff (set aside only after 16 tries) instead of being
+  poisoned at once.
+- **Server:** a batch that failed part-way after storing its clock-out
+  (or other closing event) left the session open, because the retry
+  saw the clock-out as a duplicate. A re-sent closing event now closes
+  the session.
+- **Clock warning:** every 10 minutes the app reads the server's time
+  (the `Date` header of `/readyz`). If this computer's clock is more
+  than 5 s fast or 2 min slow, the main window shows "Your computer's
+  clock is 2 min 30 s fast" with how to sync it on Windows or macOS,
+  and hides it once the clock is right. Nothing about the clock is
+  sent anywhere.
 ### Server and ops: faster alerts, and posts in a Teams channel (ADR-0043; migration 0020)
 
 - **Uptime:** the server's health check runs **every minute** (was 5),

@@ -466,6 +466,12 @@ export interface BreakOption {
   maxMinutes: number | null;
 }
 
+/** How far this computer's clock is off, and which way. */
+export interface ClockSkew {
+  ahead: boolean;
+  seconds: number;
+}
+
 /** Mirrors `agent::StateView`. Timestamps are epoch ms. */
 export interface StateView {
   status: Status;
@@ -515,6 +521,8 @@ export interface StateView {
   awayCheck: { inputSince: number; deadline: number } | null;
   /** Clocked in on another computer: no clock-in here (ADR-0028). */
   blockedElsewhere: BlockedElsewhere | null;
+  /** This computer's clock is off from the server's (owner, 2026-10-14). */
+  clockSkew?: ClockSkew | null;
 }
 
 /** The window's close button was pressed (ADR-0013 §1). */
