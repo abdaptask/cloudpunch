@@ -308,6 +308,13 @@ impl Outbox {
     /// (or now) AND are not poisoned, oldest sequence first. The rows
     /// stay in the outbox until `mark_sent`, `mark_failed`, or
     /// `mark_poisoned` moves them along — a crash mid-batch is safe.
+    ///
+    /// A session's events go in order or not at all: a row waits while
+    /// an earlier row of its session is still waiting out a retry.
+    /// Otherwise, after a server error, newer events overtook the older
+    /// ones being retried; the server refused them as a sequence gap
+    /// or, later, the older ones as out of order, and both were
+    /// poisoned and lost (2026-10-13, a computer whose clock ran fast).
     pub fn drain(&self, max: usize) -> Result<Vec<OutboxEntry>, OutboxError> {
         let now_secs = unix_seconds(SystemTime::now())?;
         let mut stmt = self.conn.prepare(
@@ -318,7 +325,13 @@ impl Outbox {
                     correlation_id, device_id, employee_id
              FROM outbox
              WHERE next_retry_at <= ?1 AND poisoned = 0
-             ORDER BY next_retry_at ASC, sequence_number ASC
+               AND NOT EXISTS (
+                 SELECT 1 FROM outbox earlier
+                 WHERE earlier.session_id = outbox.session_id
+                   AND earlier.poisoned = 0
+                   AND earlier.sequence_number < outbox.sequence_number
+                   AND earlier.next_retry_at > ?1)
+             ORDER BY created_at ASC, session_id ASC, sequence_number ASC
              LIMIT ?2",
         )?;
         let rows = stmt.query_map(params![now_secs, max as i64], row_to_entry)?;
@@ -760,6 +773,69 @@ mod tests {
         outbox.mark_sent("01J8Q00000000000000000000A").unwrap();
         assert_eq!(outbox.pending_count().unwrap(), 0);
         assert!(outbox.get("01J8Q00000000000000000000A").unwrap().is_none());
+    }
+
+    #[test]
+    fn a_session_waits_behind_its_own_retry_others_do_not() {
+        // 2026-10-13: after a server error the older rows wait out a
+        // retry; newer rows of that session must not go first.
+        let outbox = Outbox::open_in_memory(&make_key()).unwrap();
+        outbox
+            .enqueue(&mk_input("01J8Q00000000000000000000A", 1))
+            .unwrap();
+        outbox
+            .enqueue(&mk_input("01J8Q00000000000000000000B", 2))
+            .unwrap();
+        let mut other = mk_input("01J8Q00000000000000000000C", 1);
+        other.session_id = "tttttttt-tttt-tttt-tttt-tttttttttttt".to_string();
+        outbox.enqueue(&other).unwrap();
+        outbox
+            .mark_failed(
+                "01J8Q00000000000000000000A",
+                "500",
+                SystemTime::now() + Duration::from_secs(120),
+            )
+            .unwrap();
+        let due: Vec<_> = outbox
+            .drain(10)
+            .unwrap()
+            .into_iter()
+            .map(|e| e.event_ulid)
+            .collect();
+        assert_eq!(due, vec!["01J8Q00000000000000000000C".to_string()]);
+        // Once the first is due again, both go, in order.
+        outbox
+            .mark_failed("01J8Q00000000000000000000A", "500", SystemTime::now())
+            .unwrap();
+        let mine: Vec<_> = outbox
+            .drain(10)
+            .unwrap()
+            .into_iter()
+            .filter(|e| e.session_id.starts_with('s'))
+            .map(|e| e.sequence_number)
+            .collect();
+        assert_eq!(mine, vec![1, 2]);
+    }
+
+    #[test]
+    fn a_poisoned_row_does_not_hold_up_its_session() {
+        let outbox = Outbox::open_in_memory(&make_key()).unwrap();
+        outbox
+            .enqueue(&mk_input("01J8Q00000000000000000000A", 1))
+            .unwrap();
+        outbox
+            .enqueue(&mk_input("01J8Q00000000000000000000B", 2))
+            .unwrap();
+        outbox
+            .mark_poisoned("01J8Q00000000000000000000A", "signature_invalid")
+            .unwrap();
+        let due: Vec<_> = outbox
+            .drain(10)
+            .unwrap()
+            .into_iter()
+            .map(|e| e.sequence_number)
+            .collect();
+        assert_eq!(due, vec![2]);
     }
 
     #[test]

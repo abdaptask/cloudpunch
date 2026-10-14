@@ -6,6 +6,7 @@ import { BreakPicker, callName } from './BreakPicker.js';
 import { ClockInPrompt } from './ClockInPrompt.js';
 import { ClockOutDialog } from './ClockOutDialog.js';
 import { BreakOverBanner } from './BreakOverBanner.js';
+import { ClockSkewBanner } from './ClockSkewBanner.js';
 import {
   CorrectionForm,
   CorrectionsBanner,
@@ -574,6 +575,7 @@ export function App(): JSX.Element {
               onCancel={() => setBreakPicker(false)}
             />
           )}
+          {signedIn && view?.clockSkew && <ClockSkewBanner skew={view.clockSkew} />}
           {signedIn && view?.status === 'on_break' && view.breakOverSince !== null && (
             <BreakOverBanner
               breakName={breakName(view)}

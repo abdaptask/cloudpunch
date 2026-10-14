@@ -15,7 +15,10 @@
 //!      [`apply_response`]).
 //!
 //! Poison policy (2b.6.1):
-//!   - Per-event `Rejected`  → poison that ULID.
+//!   - Per-event `Rejected`  → poison that ULID, except a
+//!     `sequence_gap_too_large`, which clears once the earlier events
+//!     arrive: retried with backoff, poisoned only after
+//!     [`MAX_GAP_RETRIES`] tries.
 //!   - `ValidationFailed`    → poison every event in the sent batch.
 //!   - `DeviceInvalid`, `SessionInvalid` → poison (won't recover
 //!     without operator action; keep for audit).
@@ -58,6 +61,10 @@ pub use client::{
     BackendClient, PerEventOutcome, PerEventResult, SendBatchResponse, SessionEnvelope,
 };
 pub use reqwest_client::ReqwestBackendClient;
+
+/// Tries before a `sequence_gap_too_large` event is set aside: about
+/// an hour at the backoff cap, plenty for earlier events to land.
+pub const MAX_GAP_RETRIES: i64 = 16;
 
 #[derive(Debug, Clone)]
 pub struct SyncConfig {
@@ -244,7 +251,12 @@ fn group_by_session(entries: Vec<OutboxEntry>) -> Vec<Vec<OutboxEntry>> {
     }
     order
         .into_iter()
-        .map(|k| groups.remove(&k).expect("group key was inserted"))
+        .map(|k| {
+            let mut group = groups.remove(&k).expect("group key was inserted");
+            // The server checks each event against the ones before it.
+            group.sort_by_key(|e| e.sequence_number);
+            group
+        })
         .collect()
 }
 
@@ -262,7 +274,21 @@ fn apply_response(
                         let _ = outbox.mark_sent(&r.event_ulid);
                     }
                     PerEventOutcome::Rejected { code, message } => {
-                        let _ = outbox.mark_poisoned(&r.event_ulid, &format!("{code}: {message}"));
+                        let tries = envelope
+                            .events
+                            .iter()
+                            .find(|e| e.event_ulid == r.event_ulid)
+                            .map(|e| e.retry_count)
+                            .unwrap_or(0);
+                        let reason = format!("{code}: {message}");
+                        if code == "sequence_gap_too_large" && tries < MAX_GAP_RETRIES {
+                            // Earlier events haven't landed yet: not lost, later.
+                            let retry_at =
+                                SystemTime::now() + config.backoff.delay(tries.max(0) as u32);
+                            let _ = outbox.mark_failed(&r.event_ulid, &reason, retry_at);
+                        } else {
+                            let _ = outbox.mark_poisoned(&r.event_ulid, &reason);
+                        }
                     }
                 }
             }
@@ -395,6 +421,54 @@ mod tests {
     }
 
     // ---- group_by_session pure fn ----
+
+    #[test]
+    fn group_by_session_sends_each_session_in_sequence_order() {
+        let entries = vec![
+            mk_event_full("C", 3, "s1"),
+            mk_event_full("A", 1, "s1"),
+            mk_event_full("B", 2, "s1"),
+        ];
+        let groups = group_by_session(entries);
+        let seqs: Vec<_> = groups[0].iter().map(|e| e.sequence_number).collect();
+        assert_eq!(seqs, vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn a_sequence_gap_is_retried_not_lost_until_the_cap() {
+        let outbox = Outbox::open_in_memory(&make_key()).unwrap();
+        outbox
+            .enqueue(&mk_event("01J8Q00000000000000000000A", 12, "s1"))
+            .unwrap();
+        let gap = |env: &SessionEnvelope| SendBatchResponse::Accepted {
+            results: env
+                .events
+                .iter()
+                .map(|e| PerEventResult {
+                    event_ulid: e.event_ulid.clone(),
+                    outcome: PerEventOutcome::Rejected {
+                        code: "sequence_gap_too_large".into(),
+                        message: "sequence 12 exceeds watermark 0 + max gap 10".into(),
+                    },
+                })
+                .collect(),
+        };
+        run_tick(&outbox, &MockClient::new(gap), &cfg());
+        let row = outbox.get("01J8Q00000000000000000000A").unwrap().unwrap();
+        assert!(!row.poisoned, "kept for a retry");
+        assert_eq!(row.retry_count, 1);
+        assert!(row.next_retry_at > SystemTime::now());
+
+        // After MAX_GAP_RETRIES tries it is set aside like any refusal.
+        for _ in 1..MAX_GAP_RETRIES {
+            outbox
+                .mark_failed("01J8Q00000000000000000000A", "gap", SystemTime::now())
+                .unwrap();
+        }
+        run_tick(&outbox, &MockClient::new(gap), &cfg());
+        let row = outbox.get("01J8Q00000000000000000000A").unwrap().unwrap();
+        assert!(row.poisoned);
+    }
 
     #[test]
     fn group_by_session_preserves_first_seen_order_of_sessions() {

@@ -112,6 +112,8 @@ pub struct StateView {
     pub away_check: Option<AwayCheckView>,
     /// Clocked in on another computer: no clock-in here (ADR-0028).
     pub blocked_elsewhere: Option<BlockedView>,
+    /// This computer's clock is off from the server's (owner, 2026-10-14).
+    pub clock_skew: Option<crate::clock_skew::ClockSkew>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -136,6 +138,11 @@ impl StateView {
             since: epoch_ms(s.since),
             until: epoch_ms(s.until),
         });
+        self
+    }
+
+    pub fn with_clock_skew(mut self, skew: Option<crate::clock_skew::ClockSkew>) -> Self {
+        self.clock_skew = skew;
         self
     }
 
@@ -271,6 +278,7 @@ pub fn view_of(
         presence_check: None,
         away_check: None,
         blocked_elsewhere: None,
+        clock_skew: None,
     }
 }
 
@@ -504,6 +512,8 @@ struct Inner {
     started_at: SystemTime,
     /// Clocked in on another computer (ADR-0028): no clock-in here.
     blocked: Option<BlockedView>,
+    /// The clock is off from the server's, last we looked.
+    clock_skew: Option<crate::clock_skew::ClockSkew>,
 }
 
 /// Core settings from a policy, adopted only while clocked out.
@@ -536,6 +546,7 @@ impl Inner {
         )
         .with_break_over(self.break_over_since)
         .with_blocked(self.blocked.as_ref())
+        .with_clock_skew(self.clock_skew)
     }
 
     /// The shift window `now` is in, if the person has a shift (ADR-0031).
@@ -680,6 +691,7 @@ impl<U: Ui> Agent<U> {
                 offer_training: true,
                 planned_break: None,
                 blocked: None,
+                clock_skew: None,
             }),
             ui: OnceLock::new(),
             tray_notice: AtomicBool::new(false),
@@ -847,6 +859,22 @@ impl<U: Ui> Agent<U> {
         };
         self.apply(&view, &plan, snapshot);
         true
+    }
+
+    /// What the last clock check found (`None`: the clock is fine).
+    /// Tells the window only when that changed.
+    pub fn note_clock_skew(&self, skew: Option<crate::clock_skew::ClockSkew>) {
+        let view = {
+            let mut inner = self.lock();
+            if inner.clock_skew == skew {
+                return;
+            }
+            inner.clock_skew = skew;
+            inner.view()
+        };
+        if let Some(ui) = self.ui.get() {
+            ui.state_changed(&view, tray_snapshot(self.state(), None));
+        }
     }
 
     /// The person signed in to, unlocked or woke the computer at `at`.

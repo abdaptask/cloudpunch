@@ -679,6 +679,44 @@ describe('ingestBatch — happy paths', () => {
     expect(session?.closedReason).toBe('user_clock_out');
   });
 
+  it('a retry after a server error part-way through still closes the session', async () => {
+    // The clock-out is stored, then the batch fails before the session
+    // is closed (a 500); the app retries the same events.
+    const in1 = await signedEvent(ctx, { event_type: 'USER_CLOCK_IN', sequence_number: 1 });
+    const out = await signedEvent(ctx, { event_type: 'USER_CLOCK_OUT', sequence_number: 2 });
+    const insert = ctx.db.timeEvents.insertOne.bind(ctx.db.timeEvents);
+    let failOnce = true;
+    ctx.db.timeEvents.insertOne = async (e) => {
+      const r = await insert(e);
+      if (e.eventType === 'USER_CLOCK_OUT' && failOnce) {
+        failOnce = false;
+        throw new Error('connection reset');
+      }
+      return r;
+    };
+    const batch = {
+      db: ctx.db,
+      authOid: ctx.userOid,
+      deviceId: ctx.deviceId,
+      sessionId: ctx.sessionId,
+      employeeId: ctx.employeeId,
+      correlationId: ctx.correlationId,
+      events: [in1, out],
+    };
+    await expect(ingestBatch(batch)).rejects.toThrow('connection reset');
+    expect((await ctx.db.timeSessions.findById(ctx.sessionId))?.closedAt).toBeNull();
+
+    const r = await ingestBatch(batch);
+    expect(r.status).toBe('batch_accepted');
+    if (r.status === 'batch_accepted') {
+      expect(r.results.map((x) => x.status)).toEqual(['duplicate_noop', 'duplicate_noop']);
+      expect(r.sessionClosedWith).toBe('user_clock_out');
+    }
+    expect((await ctx.db.timeSessions.findById(ctx.sessionId))?.closedReason).toBe(
+      'user_clock_out',
+    );
+  });
+
   it('an offline clock-out closes the session when it happened, not when it arrived', async () => {
     const hours = (h: number) => new Date(Date.now() - h * 3_600_000).toISOString();
     const in1 = await signedEvent(ctx, {

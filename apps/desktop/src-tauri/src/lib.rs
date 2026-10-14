@@ -38,6 +38,7 @@ pub mod autostart;
 pub mod backend_http;
 pub mod call_type;
 pub mod clock_in_prompt;
+pub mod clock_skew;
 pub mod commands;
 pub mod days;
 pub mod enroll;
@@ -258,6 +259,24 @@ pub fn run() {
     recorder.set_online_flag(watchers.is_online());
     let restore_recorder = recorder.clone();
     let _ticker = agent.start_ticker();
+    // Is this computer's clock right? Shown on screen when it isn't.
+    let skew_agent = agent.clone();
+    let clock_check = std::thread::Builder::new()
+        .name("cp-clock-check".into())
+        .spawn(move || {
+            std::thread::sleep(std::time::Duration::from_secs(20));
+            loop {
+                if let Some(base) = backend_http::base_url() {
+                    if let Some(ms) = clock_skew::measure(&base) {
+                        skew_agent.note_clock_skew(clock_skew::verdict(ms));
+                    }
+                }
+                std::thread::sleep(clock_skew::EVERY);
+            }
+        });
+    if let Err(e) = clock_check {
+        eprintln!("[cloudpunch] clock check thread failed to start: {e}");
+    }
 
     let setup_agent = agent.clone();
     // Started by Windows at sign-in: stay in the tray (ADR-0036 §1).
