@@ -25,6 +25,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   break past its limit, not only planned ones (a break from the idle
   question had only one quiet notification). "5 / 10 more min" works on
   those too.
+### An Administrator corrects someone's time, and it counts at once (ADR-0049)
+
+- `POST /v1/admin/employees/:employeeId/corrections` (Administrators): for
+  any active employee, any day in the last 30 days including today, never
+  the future, never their own time. It is stored as a request plus an
+  `approved` decision by the same Administrator, and both are audited. No
+  migration.
+- Console → Reports → Day summary → a person → **Correct time**. The day
+  views read "Corrected by <Administrator>".
+- ADR-0030 is marked "Amended by ADR-0049".
 
 ### Desktop 0.1.44: every break counts in the app's totals
 

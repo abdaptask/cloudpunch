@@ -69,8 +69,15 @@ export function spanText(c: Pick<DayCorrection, 'from' | 'to'>): string {
 }
 
 /** Where a correction stands, in words. */
+/** An Administrator entered it for the person, so it counted at once (ADR-0049). */
+export const enteredByAdmin = (c: DayCorrection): boolean =>
+  c.status === 'approved' &&
+  c.decisions.some((d) => d.decision === 'approved' && d.by === c.requested_by) &&
+  !c.decisions.some((d) => d.decision === 'endorsed');
+
 export function statusText(c: DayCorrection): string {
   const by = (d: string): string => c.decisions.find((x) => x.decision === d)?.by ?? 'someone';
+  if (enteredByAdmin(c)) return `Corrected by ${c.requested_by}`;
   switch (c.status) {
     case 'requested':
       return 'Waiting for the manager';
@@ -103,6 +110,7 @@ const ERROR_TEXT: Record<string, string> = {
   overlaps_pending: 'Part of this time already has a correction waiting.',
   validation: 'Check the times and the reason.',
   not_found: 'Only their manager can correct their time.',
+  own_time: 'Your own time needs another Administrator. Ask to correct it from your app.',
   not_allowed: "You can't do that with this correction any more.",
   already_decided: 'Someone has already decided this one.',
   offline: "Can't reach CloudPunch right now.",

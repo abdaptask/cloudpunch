@@ -12,6 +12,7 @@ import {
   KINDS,
   correctionErrorText,
   correctionSpan,
+  enteredByAdmin,
   spanText,
   statusText,
   zoneChoices,
@@ -52,10 +53,13 @@ export function CorrectionForm({
   onSubmit,
   onDone,
   onCancel,
+  note,
 }: {
   date: string;
   defaultTz: string | null;
   submitLabel: string;
+  /** A line above the buttons, e.g. that it counts at once (ADR-0049). */
+  note?: string;
   onSubmit: (c: Omit<CorrectionInput, 'employeeId'>) => Promise<unknown>;
   onDone: () => void;
   onCancel: () => void;
@@ -176,6 +180,7 @@ export function CorrectionForm({
           style={input(t)}
         />
       </label>
+      {note && <span style={{ fontSize: 12, color: t.muted }}>{note}</span>}
       {error && (
         <span role="alert" style={{ fontSize: 12, color: t.danger }}>
           {error}
@@ -223,7 +228,8 @@ export function DayCorrections({
             {spanText(c)} · {KIND_LABEL[c.kind]}
           </span>
           <span style={{ fontSize: 12, color: c.status === 'rejected' ? t.danger : t.muted }}>
-            {statusText(c)} · asked by {c.requested_by} · “{c.reason}”
+            {statusText(c)}
+            {enteredByAdmin(c) ? '' : ` · asked by ${c.requested_by}`} · “{c.reason}”
           </span>
         </li>
       ))}

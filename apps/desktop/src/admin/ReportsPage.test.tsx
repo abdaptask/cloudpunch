@@ -19,6 +19,7 @@ const mocks = vi.hoisted(() => ({
   reportDay: vi.fn(),
   teamDay: vi.fn(),
   adminSetOfficeDay: vi.fn(),
+  adminCorrectTime: vi.fn(),
 }));
 vi.mock('../api.js', () => ({ api: mocks }));
 
@@ -229,5 +230,41 @@ describe('marking someone in office from the day summary (owner, 2026-10-14)', (
     const panel = screen.getByLabelText('report-person-day');
     expect(within(panel).queryByRole('button', { name: 'Mark in office on this day' })).toBeNull();
     expect(panel).toHaveTextContent('counts as worked');
+  });
+});
+
+describe('an Administrator corrects time from the day summary (ADR-0049)', () => {
+  it('saves a correction that counts straight away', async () => {
+    mocks.adminCorrectTime.mockResolvedValue({ correction: {} });
+    const user = userEvent.setup();
+    render(<ReportsPage canOpenDays={false} canCorrectTime />);
+    const rows = within(await screen.findByRole('list', { name: 'timeline-rows' }));
+    await user.click(rows.getByRole('button', { name: /^Roshni Test/ }));
+    const panel = screen.getByLabelText('report-person-day');
+    await user.click(within(panel).getByRole('button', { name: 'Correct time' }));
+    const form = within(screen.getByRole('form', { name: 'correction-form' }));
+    expect(form.getByText('Counts straight away, recorded as corrected by you.')).toBeTruthy();
+    await user.type(form.getByLabelText('correction-start'), '10:00');
+    await user.type(form.getByLabelText('correction-end'), '11:00');
+    await user.selectOptions(form.getByLabelText('correction-kind'), 'working');
+    await user.type(form.getByLabelText('correction-reason'), 'Forgot to end the bio break');
+    await user.click(form.getByRole('button', { name: 'Save correction' }));
+    expect(mocks.adminCorrectTime).toHaveBeenCalledWith(
+      expect.objectContaining({
+        employeeId: 'e1',
+        kind: 'working',
+        reason: 'Forgot to end the bio break',
+      }),
+    );
+    expect(await screen.findByRole('status')).toHaveTextContent('It counts now');
+  });
+
+  it('is not offered without the right', async () => {
+    const user = userEvent.setup();
+    render(<ReportsPage canOpenDays canSetOffice />);
+    const rows = within(await screen.findByRole('list', { name: 'timeline-rows' }));
+    await user.click(rows.getByRole('button', { name: /^Roshni Test/ }));
+    const panel = screen.getByLabelText('report-person-day');
+    expect(within(panel).queryByRole('button', { name: 'Correct time' })).toBeNull();
   });
 });

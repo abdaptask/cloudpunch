@@ -715,6 +715,35 @@ pub fn request_correction(
     send(http, base, token, reqwest::Method::POST, &path, Some(&body))
 }
 
+/// An Administrator corrects someone's time; it counts at once
+/// (ADR-0049). Never their own: the server refuses that.
+pub fn admin_correct_time(
+    http: &Client,
+    base: &str,
+    token: &str,
+    employee_id: &str,
+    c: &CorrectionRequest<'_>,
+) -> Result<Value, DayError> {
+    if !is_uuid(employee_id) {
+        return Err(DayError::Refused("invalid_argument".into()));
+    }
+    let body = serde_json::json!({
+        "from": c.from,
+        "to": c.to,
+        "tz_iana": c.tz_iana,
+        "kind": c.kind,
+        "reason": c.reason,
+    });
+    send(
+        http,
+        base,
+        token,
+        reqwest::Method::POST,
+        &format!("/v1/admin/employees/{employee_id}/corrections"),
+        Some(&body),
+    )
+}
+
 /// What waits on the caller: `{ to_endorse, to_approve }`.
 pub fn corrections_queue(http: &Client, base: &str, token: &str) -> Result<Value, DayError> {
     send(

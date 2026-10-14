@@ -37,6 +37,7 @@ export type WebApi = Pick<
   | 'requestCorrection'
   | 'correctionsQueue'
   | 'decideCorrection'
+  | 'adminCorrectTime'
   // The admin console (ADR-0038).
   | 'adminPeople'
   | 'adminPeopleSearch'
@@ -209,6 +210,18 @@ export const api: WebApi = {
       `/v1/corrections/${id}/decision`,
       text ? { decision, note: text } : { decision },
     );
+  },
+
+  // ADR-0049: an Administrator's correction counts at once.
+  adminCorrectTime: async (c) => {
+    check(UUID.test(c.employeeId));
+    return send('POST', `/v1/admin/employees/${c.employeeId}/corrections`, {
+      from: c.from,
+      to: c.to,
+      tz_iana: c.tzIana,
+      kind: c.kind,
+      reason: c.reason,
+    });
   },
 
   // The admin console (ADR-0038 §2): the same requests as the Rust

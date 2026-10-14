@@ -266,3 +266,46 @@ describe('limits (ADR-0030 §5)', () => {
     expect((await ask(body(20, 19))).statusCode).toBe(201);
   });
 });
+
+describe('an Administrator corrects on someone’s behalf (ADR-0049)', () => {
+  const url = (id: string) => `/v1/admin/employees/${id}/corrections`;
+
+  it('counts at once, for anyone (not only their reports), today included, and is audited', async () => {
+    // Nilesh is an Administrator who manages nobody; Sam has no manager.
+    const res = await call(nilesh, ADMIN, 'POST', url(sam), body(3, 1, 'working'));
+    expect(res.statusCode).toBe(201);
+    const c = (
+      res.json() as {
+        correction: { id: string; status: string; decisions: { decision: string; by: string }[] };
+      }
+    ).correction;
+    expect(c.status).toBe('approved');
+    expect(c.decisions.map((d) => [d.decision, d.by])).toEqual([['approved', 'Nilesh Test']]);
+    expect(db.correctionAudit.map((a) => [a.action, a.actorUserId])).toEqual([
+      ['correction_requested', userOf[nilesh]],
+      ['correction_approved', userOf[nilesh]],
+    ]);
+    // Nothing waits on anyone; it is on Sam's record.
+    const q = (await call(mona, MGR_ADMIN, 'GET', '/v1/corrections/queue')).json() as Queue;
+    expect([...q.to_approve, ...q.to_endorse]).toEqual([]);
+    const listed = await db.corrections.listForEmployee(sam, new Date(0), new Date());
+    expect(listed.map((x) => x.id)).toEqual([c.id]);
+  });
+
+  it('never their own time, and only for Administrators', async () => {
+    const own = await call(nilesh, ADMIN, 'POST', url(nilesh), body(3, 1));
+    expect(own.statusCode).toBe(409);
+    expect((own.json() as { code: string }).code).toBe('own_time');
+    expect((await call(roshni, EMP, 'POST', url(sam), body(3, 1))).statusCode).toBe(403);
+    expect((await call(hema, HR, 'POST', url(sam), body(3, 1))).statusCode).toBe(403);
+    expect((await call(nilesh, ADMIN, 'POST', url(randomUUID()), body(3, 1))).statusCode).toBe(404);
+  });
+
+  it('keeps the limits: never the future, nor over a pending request', async () => {
+    const future = await call(nilesh, ADMIN, 'POST', url(sam), body(1, -1));
+    expect((future.json() as { code: string }).code).toBe('in_future');
+    expect((await call(sam, EMP, 'POST', '/v1/me/corrections', body(5, 3))).statusCode).toBe(201);
+    const clash = await call(nilesh, ADMIN, 'POST', url(sam), body(4, 2));
+    expect((clash.json() as { code: string }).code).toBe('overlaps_pending');
+  });
+});

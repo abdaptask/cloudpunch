@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api, type DayReport, type DayReportRow } from '../api.js';
 import { localDateOf, LOOKBACK_DAYS, shiftDate } from '../dayHistory.js';
+import { CorrectionForm } from '../Corrections.js';
 import { EarlierDay } from '../TeamScreen.js';
 import { Button } from '../ui/Button.js';
 import { useTheme, type Theme } from '../ui/theme.js';
@@ -61,10 +62,13 @@ const selectedStyle = (t: Theme, on: boolean) =>
 export function ReportsPage({
   canOpenDays,
   canSetOffice = false,
+  canCorrectTime = false,
 }: {
   canOpenDays: boolean;
   /** HR and Administrators: mark someone in the office that day (ADR-0039). */
   canSetOffice?: boolean;
+  /** Administrators: correct someone's time, counted at once (ADR-0049). */
+  canCorrectTime?: boolean;
 }): JSX.Element {
   const t = useTheme();
   const c = chartColors(t);
@@ -84,6 +88,7 @@ export function ReportsPage({
     text: string;
   } | null>(null);
   const [officeBusy, setOfficeBusy] = useState(false);
+  const [correcting, setCorrecting] = useState(false);
   const now = Date.now();
 
   useEffect(() => {
@@ -103,6 +108,8 @@ export function ReportsPage({
       current = false;
     };
   }, [date, reloads]);
+
+  useEffect(() => setCorrecting(false), [open]);
 
   // In the office that day, or not after all (ADR-0039): they leave the
   // timeline for the "In office" chip, and come back if undone.
@@ -154,7 +161,7 @@ export function ReportsPage({
     if (d <= today && d >= shiftDate(today, -LOOKBACK_DAYS)) setDate(d);
   };
   const pct = (n: number): number => (onShift > 0 ? (n / onShift) * 100 : 0);
-  const canOpen = canOpenDays || canSetOffice;
+  const canOpen = canOpenDays || canSetOffice || canCorrectTime;
   const openRow = canOpen
     ? { onOpen: (r: DayReportRow) => setOpen(open === r.employee_id ? null : r.employee_id) }
     : {};
@@ -521,7 +528,30 @@ export function ReportsPage({
                     Clocked in that day, so it counts as worked even if they were in the office.
                   </span>
                 )}
+                {canCorrectTime && !correcting && (
+                  <Button variant="chip" onClick={() => setCorrecting(true)}>
+                    Correct time
+                  </Button>
+                )}
               </div>
+              {canCorrectTime && correcting && (
+                <CorrectionForm
+                  date={date}
+                  defaultTz={opened.tz}
+                  submitLabel="Save correction"
+                  note="Counts straight away, recorded as corrected by you."
+                  onSubmit={(c) => api.adminCorrectTime({ ...c, employeeId: opened.employee_id })}
+                  onDone={() => {
+                    setCorrecting(false);
+                    setOfficeStatus({
+                      kind: 'saved',
+                      text: `Corrected ${opened.name}'s time on ${date}. It counts now, and they can see it.`,
+                    });
+                    setReloads((n) => n + 1);
+                  }}
+                  onCancel={() => setCorrecting(false)}
+                />
+              )}
               {canOpenDays && <EarlierDay id={opened.employee_id} date={date} canCorrect={false} />}
             </div>
           )}
@@ -582,9 +612,11 @@ function Tile({
 export function Reports({
   canOpenDays,
   canSetOffice = false,
+  canCorrectTime = false,
 }: {
   canOpenDays: boolean;
   canSetOffice?: boolean;
+  canCorrectTime?: boolean;
 }): JSX.Element {
   const t = useTheme();
   const [tab, setTab] = useState<'insights' | 'day' | 'trends'>('insights');
@@ -617,7 +649,11 @@ export function Reports({
       {tab === 'insights' ? (
         <InsightsInbox key={shown.n} initial={shown.filter} />
       ) : tab === 'day' ? (
-        <ReportsPage canOpenDays={canOpenDays} canSetOffice={canSetOffice} />
+        <ReportsPage
+          canOpenDays={canOpenDays}
+          canSetOffice={canSetOffice}
+          canCorrectTime={canCorrectTime}
+        />
       ) : (
         <OverviewPage
           onShowInsights={(filter) => {
