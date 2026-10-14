@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Desktop 0.1.45: correct today, not just past days (ADR-0030)
+
+- **Ask to correct today** under Details: forgot to end a break, or
+  clocked in late, can be sent the same day instead of waiting until
+  tomorrow. Today's pending and approved corrections show there too.
+  The server already allowed it (up to now, never the future); approval
+  is unchanged (manager endorses, an Administrator approves).
+
 ### Desktop 0.1.44: every break counts in the app's totals
 
 - Tea and Personal breaks were left out of the dashboard's **Breaks**
