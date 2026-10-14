@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   formatDuration,
+  KIND_LABEL,
   KIND_ORDER,
   sessionsToday,
   totalsByKind,
@@ -145,5 +146,20 @@ describe('logged idle (ADR-0018)', () => {
     expect(groupOf('idle')).toBe('idle');
     expect(totals(segs, now)).toEqual({ working: 30 * MIN, break: 0, prompt: 0, idle: 30 * MIN });
     expect(KIND_ORDER).toContain('idle');
+  });
+
+  it('totals every kind, so tea and personal breaks count (every break, paid or not)', () => {
+    expect([...KIND_ORDER].sort()).toEqual(Object.keys(KIND_LABEL).sort());
+    const now = Date.UTC(2026, 9, 14, 16, 0);
+    const segs: Segment[] = [
+      { kind: 'rest_break', startedAt: now - 60 * MIN, endedAt: now - 40 * MIN, session: 1 },
+      { kind: 'personal_break', startedAt: now - 40 * MIN, endedAt: now - 30 * MIN, session: 1 },
+      { kind: 'away_training', startedAt: now - 30 * MIN, endedAt: now - 10 * MIN, session: 1 },
+    ];
+    const byKind = totalsByKind(segs, now);
+    const sum = (g: string): number =>
+      KIND_ORDER.filter((k) => groupOf(k) === g).reduce((a, k) => a + (byKind[k] ?? 0), 0);
+    expect(sum('break')).toBe(30 * MIN);
+    expect(sum('working')).toBe(20 * MIN);
   });
 });
