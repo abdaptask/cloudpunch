@@ -16,6 +16,8 @@ export function ClockOutDialog({
   onClockOut,
   onBreak,
   onCancel,
+  update = null,
+  onClockOutAndUpdate,
 }: {
   /** True while working (Active / on a call): offer a break instead. */
   offerBreaks: boolean;
@@ -27,6 +29,9 @@ export function ClockOutDialog({
   /** Opens "Take a break" (ADR-0023). */
   onBreak: () => void;
   onCancel: () => void;
+  /** A downloaded update's version: offer to update on the way out (ADR-0046 §2). */
+  update?: string | null;
+  onClockOutAndUpdate?: (then: 'none' | 'shutdown') => void;
 }): JSX.Element {
   const t = useTheme();
   const text: CSSProperties = { margin: 0, fontSize: 14, lineHeight: 1.5, color: t.muted };
@@ -66,9 +71,25 @@ export function ClockOutDialog({
           Take a break instead
         </Button>
       )}
-      <Button variant="stop" onClick={onClockOut}>
-        {signOut ? 'Yes, clock out and sign out' : 'Yes, clock out'}
+      {update && onClockOutAndUpdate && !signOut && (
+        <>
+          <Button variant="stop" onClick={() => onClockOutAndUpdate('none')}>
+            Clock out and update
+          </Button>
+          <Button variant="secondary" onClick={() => onClockOutAndUpdate('shutdown')}>
+            Clock out, update and shut down
+          </Button>
+        </>
+      )}
+      <Button
+        variant={update && onClockOutAndUpdate && !signOut ? 'secondary' : 'stop'}
+        onClick={onClockOut}
+      >
+        {signOut ? 'Yes, clock out and sign out' : update ? 'Clock out only' : 'Yes, clock out'}
       </Button>
+      {update && onClockOutAndUpdate && !signOut && (
+        <p style={{ ...text, fontSize: 12 }}>CloudPunch {update} is ready to install.</p>
+      )}
       <button
         type="button"
         onClick={onCancel}

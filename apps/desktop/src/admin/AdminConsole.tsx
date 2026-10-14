@@ -99,7 +99,7 @@ export function AdminConsole({
       case 'rules':
         return <RulesPage canEditCompany={has('admin.policy.write')} onDirtyChange={setDirty} />;
       case 'computers':
-        return <ComputersPage />;
+        return <ComputersPage canPush={has('admin.policy.write')} />;
       case 'connections':
         return <ConnectionsPage />;
       case 'reports':

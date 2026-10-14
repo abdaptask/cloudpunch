@@ -10,6 +10,9 @@ const mocks = vi.hoisted(() => ({
   setHoliday: vi.fn(),
   removeHoliday: vi.fn(),
   adminDevices: vi.fn(),
+  adminUpdatesLatest: vi.fn(),
+  adminPolicyGet: vi.fn(),
+  adminPolicyPut: vi.fn(),
   teamConnections: vi.fn(),
   personConnections: vi.fn(),
 }));
@@ -31,6 +34,15 @@ beforeEach(() => {
   });
   mocks.setHoliday.mockImplementation(async (date: string, name: string) => ({ date, name }));
   mocks.removeHoliday.mockResolvedValue(null);
+  mocks.adminUpdatesLatest.mockResolvedValue({ windows: '0.1.42', macos: '0.1.42' });
+  mocks.adminPolicyGet.mockResolvedValue({
+    override: { document: { idle: { threshold_seconds: 180 } } },
+    effective: { policy: {} },
+  });
+  mocks.adminPolicyPut.mockImplementation(async (_s: string, _i: null, document: unknown) => ({
+    override: { document },
+    effective: { policy: document },
+  }));
 });
 
 describe('Holidays page (ADR-0038 §9)', () => {
@@ -174,5 +186,43 @@ describe('Connections page (ADR-0038 §9)', () => {
       screen.getByRole('complementary', { name: 'connections of Roshni' }),
     ).toBeInTheDocument();
     expect(mocks.personConnections).toHaveBeenCalledWith('e2');
+  });
+});
+
+describe('Computers → Push the update (ADR-0046 §3)', () => {
+  it('pushes "everyone on the latest by…" into the company settings, keeping the rest', async () => {
+    mocks.adminDevices.mockResolvedValue({ devices: [] });
+    const user = userEvent.setup();
+    render(<ComputersPage canPush />);
+    const panel = await screen.findByRole('region', { name: 'push-update' });
+    expect(await within(panel).findByText(/Latest: Windows 0.1.42 · Mac 0.1.42\./)).toBeTruthy();
+    await user.selectOptions(within(panel).getByLabelText('push-when'), 'soon');
+    await user.click(within(panel).getByRole('button', { name: 'Push the update' }));
+    const [scope, id, document, reason] = mocks.adminPolicyPut.mock.calls[0] as [
+      string,
+      null,
+      { idle: unknown; updates: { required_by: string; pushed_at: string } },
+      string,
+    ];
+    expect([scope, id]).toEqual(['global', null]);
+    expect(document.idle).toEqual({ threshold_seconds: 180 });
+    const by = Date.parse(document.updates.required_by) - Date.now();
+    expect(by).toBeGreaterThan(4 * 60_000);
+    expect(by).toBeLessThanOrEqual(5 * 60_000);
+    expect(reason).toMatch(/^Pushed the update \(Windows 0.1.42 · Mac 0.1.42\)/);
+    expect(await within(panel).findByRole('status')).toHaveTextContent('Pushed.');
+    expect(within(panel).getByLabelText('push-status')).toBeInTheDocument();
+    await user.click(within(panel).getByRole('button', { name: 'Stop the push' }));
+    expect(mocks.adminPolicyPut.mock.calls[1]?.[2]).toMatchObject({
+      updates: { required_by: null, pushed_at: null },
+    });
+  });
+
+  it('an Auditor sees it but cannot push', async () => {
+    mocks.adminDevices.mockResolvedValue({ devices: [] });
+    render(<ComputersPage />);
+    const panel = await screen.findByRole('region', { name: 'push-update' });
+    expect(panel).toHaveTextContent('Only an Administrator can push an update.');
+    expect(mocks.adminPolicyGet).not.toHaveBeenCalled();
   });
 });

@@ -372,6 +372,8 @@ pub fn run() {
             commands::admin_set_office_day,
             commands::admin_bulk_office,
             commands::report_day,
+            commands::update_now,
+            commands::admin_updates_latest,
             commands::admin_retention_preview,
             commands::admin_policy_history,
             commands::admin_person_history,
@@ -399,7 +401,8 @@ pub fn run() {
             // After an update, the updater restarts the app with the same
             // arguments (`--autostart` too): that isn't a sign-in, so the
             // window shows as after any other start.
-            let after_update = updater::restarted_after_update(app.handle());
+            let then = updater::restarted_after_update(app.handle());
+            let after_update = then.is_some();
             let at_sign_in = at_sign_in && !after_update;
             setup_agent.attach(agent::TauriUi::new(app.handle().clone()));
             let started = if after_update {
@@ -435,6 +438,30 @@ pub fn run() {
             }
             if updates {
                 updater::start(app.handle().clone());
+            }
+            // What the person chose before the update (ADR-0046 §2, §4).
+            match then {
+                Some(updater::AfterUpdate::ClockIn) => {
+                    let agent = setup_agent.clone();
+                    let handle = app.handle().clone();
+                    std::thread::spawn(move || {
+                        // Let the restore and enrolment settle first.
+                        std::thread::sleep(std::time::Duration::from_secs(3));
+                        let line = match agent.handle(machine::Input::ClockIn) {
+                            Ok(_) => "clocked in after the update".to_string(),
+                            Err(e) => format!("clock-in after the update refused: {e:?}"),
+                        };
+                        updater::log(&handle, &line);
+                    });
+                }
+                Some(updater::AfterUpdate::ShutDown) => {
+                    let handle = app.handle().clone();
+                    std::thread::spawn(move || {
+                        std::thread::sleep(std::time::Duration::from_secs(5));
+                        updater::shut_down_computer(&handle);
+                    });
+                }
+                _ => {}
             }
             let snapshot = agent::tray_snapshot(setup_agent.state(), None);
             tray::install(app.handle(), snapshot)?;

@@ -1417,6 +1417,13 @@ pub fn save_csv(app: AppHandle, name: String, text: String) -> Result<String, St
     Ok(path.display().to_string())
 }
 
+/// The newest published version per system (ADR-0046 §3).
+#[tauri::command]
+pub async fn admin_updates_latest(auth: State<'_, Arc<Auth>>) -> Result<serde_json::Value, String> {
+    let (_, fetched) = fetch_as_user(&auth, admin::updates_latest).await?;
+    answer(fetched)
+}
+
 /// The company holidays (ADR-0037 §1).
 #[tauri::command]
 pub async fn holidays(auth: State<'_, Arc<Auth>>) -> Result<serde_json::Value, String> {
@@ -1831,6 +1838,15 @@ pub async fn not_working_today(
         .and_then(|d| chrono::NaiveDate::parse_from_str(d, "%Y-%m-%d").ok())
         .ok_or_else(|| "internal".to_string())?;
     Ok(agent.mark_not_working(date))
+}
+
+/// Windows-style update choices (ADR-0046 §2): `then` is `clock_in`
+/// ("Update and clock in", or "Update and clock back in" while clocked
+/// in), `shutdown` ("Clock out, update and shut down") or `none`
+/// ("Clock out and update"). Clocks out first if clocked in.
+#[tauri::command]
+pub fn update_now(app: AppHandle, then: String) -> Result<(), String> {
+    crate::updater::update_with(&app, crate::updater::AfterUpdate::from_choice(&then))
 }
 
 /// Close dialog: "Clock out & quit".

@@ -1,33 +1,46 @@
-//! When a downloaded update may install (ADR-0022 §2).
+//! When a downloaded update installs (ADR-0022 §2, amended by ADR-0046).
 //!
-//! The app always comes back clocked out after a restart, so an update
-//! installs only when that costs nothing: clocked out, nothing tracked
-//! yet in the current working day, and the person has just signed in to,
-//! unlocked or woken the computer (or the app has just started). That's
-//! normally first thing in the morning. Clocked in means never.
-//!
-//! The 8 am clock-in popup doesn't hold it back (ADR-0022 amendment,
-//! 2026-09-30): it opens on the same first tick, so it used to block
-//! every morning install for people who start after 8 am ET. The
-//! restart takes seconds and the popup opens again on the new version.
+//! - Clocked out for two minutes: it installs by itself. Today's
+//!   timeline comes back from its journal after the restart, so a day
+//!   already worked no longer holds it back (it did, and updates almost
+//!   never installed: ADR-0046 Context).
+//! - Clocked in: it never installs on its own, except when the company
+//!   pushed the update (`updates.required_by`) and that time has passed:
+//!   then a 5-minute notice, then "update and clock back in" (clock out,
+//!   install, clock in on the new version). A session is never carried
+//!   across a restart.
+//! - The person can always choose sooner (update and clock in, clock out
+//!   and update, update and shut down); that is the commands' business.
 //!
 //! Pure logic: the Tauri updater plugin downloads and installs.
 
 use std::time::{Duration, SystemTime};
 
-/// "Just signed in" or "just started": the moment an update may take.
-pub const JUST_SIGNED_IN: Duration = Duration::from_secs(30 * 60);
+/// Clocked out this long before an update installs by itself.
+pub const CLOCKED_OUT_FOR: Duration = Duration::from_secs(2 * 60);
+/// The notice before a pushed update clocks someone out and back in.
+pub const NOTICE: Duration = Duration::from_secs(5 * 60);
 
 #[derive(Debug, Clone, Copy)]
 pub struct UpdateInputs {
     pub now: SystemTime,
     pub clocked_out: bool,
-    /// Anything tracked in the current working day (ADR-0016 §1).
-    pub worked_today: bool,
-    /// Latest Windows logon / unlock / wake.
-    pub signed_in_at: Option<SystemTime>,
-    /// When this run of the app started.
-    pub started_at: SystemTime,
+    /// Since when clocked out (the app's start, if it started so).
+    pub clocked_out_since: Option<SystemTime>,
+    /// A pushed update's deadline (ADR-0046 §3).
+    pub required_by: Option<SystemTime>,
+}
+
+/// What to do with a downloaded update now.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum UpdateAction {
+    /// Clocked out: install and restart, quietly.
+    Install(String),
+    /// A pushed update is overdue while clocked in: say so; it happens
+    /// at the end of the notice.
+    Notice(String),
+    /// The notice ran out: clock out, install, clock back in.
+    UpdateAndClockBackIn(String),
 }
 
 #[derive(Debug, Clone, Default)]
@@ -39,6 +52,8 @@ pub struct UpdateState {
     tried: Option<String>,
     /// The last reason logged for waiting, so the log says it once.
     logged_wait: Option<(String, &'static str)>,
+    /// When a pushed update's notice runs out.
+    notice_until: Option<SystemTime>,
 }
 
 impl UpdateState {
@@ -50,34 +65,68 @@ impl UpdateState {
     pub fn ready(&self) -> Option<&str> {
         self.ready.as_deref()
     }
+
+    /// When a pushed update will clock this person out and back in.
+    pub fn notice_until(&self) -> Option<SystemTime> {
+        self.notice_until
+    }
+
+    /// The person updated (or chose to): nothing more to do this run.
+    pub fn mark_tried(&mut self) {
+        self.tried = self.ready.clone();
+        self.notice_until = None;
+    }
 }
 
-fn recent(at: SystemTime, now: SystemTime) -> bool {
-    now.duration_since(at)
-        .is_ok_and(|ago| ago <= JUST_SIGNED_IN)
+/// Whether a push's deadline has passed: "Clock in now" is no longer offered.
+pub fn overdue(inp: &UpdateInputs) -> bool {
+    inp.required_by.is_some_and(|by| inp.now >= by)
 }
 
-/// Why a downloaded update isn't installing now (`None`: it can).
+/// Why a downloaded update isn't installing now (`None`: it can, or
+/// the notice handles it).
 fn wait_reason(inp: &UpdateInputs) -> Option<&'static str> {
-    if !inp.clocked_out {
-        return Some("clocked in");
+    if inp.clocked_out {
+        let long_enough = inp.clocked_out_since.is_some_and(|since| {
+            inp.now
+                .duration_since(since)
+                .is_ok_and(|d| d >= CLOCKED_OUT_FOR)
+        });
+        return (!long_enough).then_some("just clocked out");
     }
-    if inp.worked_today {
-        return Some("already worked today");
-    }
-    let moment =
-        inp.signed_in_at.is_some_and(|at| recent(at, inp.now)) || recent(inp.started_at, inp.now);
-    (!moment).then_some("waiting for the next sign-in, unlock, wake or start")
+    (!overdue(inp)).then_some("clocked in")
 }
 
-/// The version to install now, if this is the moment; marks it tried.
-pub fn install_now(st: &mut UpdateState, inp: UpdateInputs) -> Option<String> {
+/// What to do now, if anything; installing marks the version tried.
+pub fn decide(st: &mut UpdateState, inp: UpdateInputs) -> Option<UpdateAction> {
     let version = st.ready.clone()?;
-    if st.tried.as_ref() == Some(&version) || wait_reason(&inp).is_some() {
+    if st.tried.as_ref() == Some(&version) {
         return None;
     }
-    st.tried = Some(version.clone());
-    Some(version)
+    if inp.clocked_out {
+        st.notice_until = None;
+        if wait_reason(&inp).is_some() {
+            return None;
+        }
+        st.tried = Some(version.clone());
+        return Some(UpdateAction::Install(version));
+    }
+    if !overdue(&inp) {
+        st.notice_until = None;
+        return None;
+    }
+    match st.notice_until {
+        None => {
+            st.notice_until = Some(inp.now + NOTICE);
+            Some(UpdateAction::Notice(version))
+        }
+        Some(until) if inp.now >= until => {
+            st.tried = Some(version.clone());
+            st.notice_until = None;
+            Some(UpdateAction::UpdateAndClockBackIn(version))
+        }
+        Some(_) => None,
+    }
 }
 
 /// A line for the update log when the reason a downloaded update waits
@@ -100,91 +149,130 @@ pub fn wait_note(st: &mut UpdateState, inp: UpdateInputs) -> Option<String> {
 mod tests {
     use super::*;
 
-    const HOUR: Duration = Duration::from_secs(3600);
+    const MIN: Duration = Duration::from_secs(60);
 
-    fn morning() -> (UpdateState, UpdateInputs) {
-        let now = SystemTime::UNIX_EPOCH + 1000 * HOUR;
+    fn ready() -> (UpdateState, UpdateInputs) {
+        let now = SystemTime::UNIX_EPOCH + 1000 * 60 * MIN;
         let mut st = UpdateState::default();
         st.set_ready("0.1.2".into());
         let inp = UpdateInputs {
             now,
             clocked_out: true,
-            worked_today: false,
-            signed_in_at: Some(now - Duration::from_secs(60)),
-            started_at: now - 20 * HOUR,
+            clocked_out_since: Some(now - 3 * MIN),
+            required_by: None,
         };
         (st, inp)
     }
 
     #[test]
-    fn installs_just_after_the_first_sign_in_of_the_day_once() {
-        let (mut st, inp) = morning();
-        assert_eq!(install_now(&mut st, inp).as_deref(), Some("0.1.2"));
-        assert_eq!(install_now(&mut st, inp), None, "once per run");
-        // A newer download is a new chance.
-        st.set_ready("0.1.3".into());
-        assert_eq!(install_now(&mut st, inp).as_deref(), Some("0.1.3"));
-    }
-
-    #[test]
-    fn never_while_clocked_in_or_after_work_today() {
-        let (mut st, inp) = morning();
-        let clocked_in = UpdateInputs {
-            clocked_out: false,
-            ..inp
-        };
-        assert_eq!(install_now(&mut st, clocked_in), None);
-        let worked = UpdateInputs {
-            worked_today: true,
-            ..inp
-        };
-        assert_eq!(install_now(&mut st, worked), None, "lunch unlock waits");
-        // None of those used up the attempt.
-        assert_eq!(install_now(&mut st, inp).as_deref(), Some("0.1.2"));
-    }
-
-    #[test]
-    fn only_just_after_a_sign_in_or_start() {
-        let (mut st, inp) = morning();
-        let long_ago = UpdateInputs {
-            signed_in_at: Some(inp.now - JUST_SIGNED_IN - Duration::from_secs(1)),
-            ..inp
-        };
-        assert_eq!(install_now(&mut st, long_ago), None);
-        let never = UpdateInputs {
-            signed_in_at: None,
-            ..inp
-        };
-        assert_eq!(install_now(&mut st, never), None);
-        let just_started = UpdateInputs {
-            started_at: inp.now - Duration::from_secs(120),
-            ..long_ago
-        };
-        assert_eq!(install_now(&mut st, just_started).as_deref(), Some("0.1.2"));
-    }
-
-    #[test]
-    fn wait_note_says_each_reason_once_per_version() {
-        let (mut st, inp) = morning();
-        let clocked_in = UpdateInputs {
-            clocked_out: false,
-            ..inp
-        };
+    fn clocked_out_for_two_minutes_it_installs_once_whatever_was_worked() {
+        let (mut st, inp) = ready();
         assert_eq!(
-            wait_note(&mut st, clocked_in).as_deref(),
+            decide(&mut st, inp),
+            Some(UpdateAction::Install("0.1.2".into()))
+        );
+        assert_eq!(decide(&mut st, inp), None, "once per run");
+        st.set_ready("0.1.3".into());
+        assert_eq!(
+            decide(&mut st, inp),
+            Some(UpdateAction::Install("0.1.3".into()))
+        );
+    }
+
+    #[test]
+    fn just_clocked_out_it_waits_and_says_why_once() {
+        let (mut st, inp) = ready();
+        let just = UpdateInputs {
+            clocked_out_since: Some(inp.now - MIN),
+            ..inp
+        };
+        assert_eq!(decide(&mut st, just), None);
+        assert_eq!(
+            wait_note(&mut st, just).as_deref(),
+            Some("update 0.1.2 waits: just clocked out")
+        );
+        assert_eq!(wait_note(&mut st, just), None);
+    }
+
+    #[test]
+    fn clocked_in_never_unless_a_push_is_overdue_then_notice_then_clock_back_in() {
+        let (mut st, inp) = ready();
+        let working = UpdateInputs {
+            clocked_out: false,
+            clocked_out_since: None,
+            ..inp
+        };
+        assert_eq!(decide(&mut st, working), None);
+        assert_eq!(
+            wait_note(&mut st, working).as_deref(),
             Some("update 0.1.2 waits: clocked in")
         );
-        assert_eq!(wait_note(&mut st, clocked_in), None, "said once");
-        assert_eq!(wait_note(&mut st, inp), None, "can install: no wait");
-        st.set_ready("0.1.3".into());
-        assert!(wait_note(&mut st, clocked_in).is_some(), "new version");
-        install_now(&mut st, inp);
-        assert_eq!(wait_note(&mut st, clocked_in), None, "already tried");
+        // Pushed, not yet due.
+        let pushed = UpdateInputs {
+            required_by: Some(inp.now + 60 * MIN),
+            ..working
+        };
+        assert_eq!(decide(&mut st, pushed), None);
+        assert!(!overdue(&pushed));
+        // Due: a notice first, nothing more for five minutes, then the update.
+        let due = UpdateInputs {
+            required_by: Some(inp.now - MIN),
+            ..working
+        };
+        assert!(overdue(&due));
+        assert_eq!(
+            decide(&mut st, due),
+            Some(UpdateAction::Notice("0.1.2".into()))
+        );
+        assert_eq!(st.notice_until(), Some(inp.now + NOTICE));
+        let later = UpdateInputs {
+            now: inp.now + 4 * MIN,
+            ..due
+        };
+        assert_eq!(decide(&mut st, later), None);
+        let end = UpdateInputs {
+            now: inp.now + NOTICE,
+            ..due
+        };
+        assert_eq!(
+            decide(&mut st, end),
+            Some(UpdateAction::UpdateAndClockBackIn("0.1.2".into()))
+        );
+        assert_eq!(decide(&mut st, end), None, "once");
     }
 
     #[test]
-    fn nothing_without_a_downloaded_update() {
-        let (_, inp) = morning();
-        assert_eq!(install_now(&mut UpdateState::default(), inp), None);
+    fn clocking_out_during_the_notice_installs_quietly_instead() {
+        let (mut st, inp) = ready();
+        let due = UpdateInputs {
+            clocked_out: false,
+            clocked_out_since: None,
+            required_by: Some(inp.now - MIN),
+            ..inp
+        };
+        assert!(matches!(
+            decide(&mut st, due),
+            Some(UpdateAction::Notice(_))
+        ));
+        assert!(st.notice_until().is_some());
+        let out = UpdateInputs {
+            now: inp.now + 3 * MIN,
+            clocked_out: true,
+            clocked_out_since: Some(inp.now),
+            ..due
+        };
+        assert_eq!(
+            decide(&mut st, out),
+            Some(UpdateAction::Install("0.1.2".into()))
+        );
+        assert_eq!(st.notice_until(), None);
+    }
+
+    #[test]
+    fn nothing_downloaded_nothing_to_do() {
+        let (_, inp) = ready();
+        let mut st = UpdateState::default();
+        assert_eq!(decide(&mut st, inp), None);
+        assert_eq!(wait_note(&mut st, inp), None);
     }
 }

@@ -1,9 +1,10 @@
 //! Tauri glue for the auto-update (ADR-0022). [`crate::app_update`]
 //! decides *when*; this checks, downloads and installs.
 //!
-//! - Checks our API a minute after start and every 4 hours, with the
-//!   app's normal bearer token (the plugin sends it on the download
-//!   too). Signed out, or a build with no backend: no check.
+//! - Checks our API a minute after start and every 30 minutes, and
+//!   within a minute of a pushed update (ADR-0046 §3), with the app's
+//!   normal bearer token (the plugin sends it on the download too).
+//!   Signed out, or a build with no backend: no check.
 //! - A new version is downloaded straight away; its signature is checked
 //!   against the key built into the app before it can install.
 //! - The agent's tick calls [`install`] at the safe moment; it checks
@@ -15,6 +16,7 @@
 //!   `update.log` in the app's log folder (versions and reasons only),
 //!   so a missed update can be explained afterwards.
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 
@@ -24,6 +26,7 @@ use tauri_plugin_updater::{Update, UpdaterExt};
 use crate::agent::Agent;
 use crate::backend_http;
 use crate::commands::Auth;
+use crate::machine::{CoreState, Input};
 
 const FIRST_CHECK: Duration = Duration::from_secs(60);
 const LOG_FILE: &str = "update.log";
@@ -42,31 +45,90 @@ const RESTART_MARKER: &str = "restart-after-update";
 /// Older than this, a marker is from an install that never restarted.
 const MARKER_FRESH: Duration = Duration::from_secs(10 * 60);
 
-fn mark_restart(app: &AppHandle) {
+/// What the new version does once it starts (ADR-0046 §6).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AfterUpdate {
+    /// Nothing more: the window shows as after any start.
+    Nothing,
+    /// "Update and clock in": clock in on the new version.
+    ClockIn,
+    /// "Update and shut down": ask the computer to shut down.
+    ShutDown,
+}
+
+impl AfterUpdate {
+    fn as_str(self) -> &'static str {
+        match self {
+            AfterUpdate::Nothing => "",
+            AfterUpdate::ClockIn => "clock-in",
+            AfterUpdate::ShutDown => "shutdown",
+        }
+    }
+
+    fn parse(s: &str) -> Self {
+        match s.trim() {
+            "clock-in" => AfterUpdate::ClockIn,
+            "shutdown" => AfterUpdate::ShutDown,
+            _ => AfterUpdate::Nothing,
+        }
+    }
+
+    /// From the window's choice: `clock_in`, `shutdown` or anything else.
+    pub fn from_choice(s: &str) -> Self {
+        Self::parse(&s.replace('_', "-").replace("shut-down", "shutdown"))
+    }
+}
+
+fn mark_restart(app: &AppHandle, then: AfterUpdate) {
     let Ok(dir) = app.path().app_data_dir() else {
         return;
     };
     let _ = std::fs::create_dir_all(&dir);
-    if let Err(e) = std::fs::write(dir.join(RESTART_MARKER), b"") {
+    if let Err(e) = std::fs::write(dir.join(RESTART_MARKER), then.as_str()) {
         log(app, &format!("restart marker not written: {e}"));
     }
 }
 
-/// True, once, when this start is the restart after an update.
-pub fn restarted_after_update<R: tauri::Runtime>(app: &AppHandle<R>) -> bool {
-    let Ok(dir) = app.path().app_data_dir() else {
-        return false;
-    };
+/// `Some(what next)`, once, when this start is the restart after an update.
+pub fn restarted_after_update<R: tauri::Runtime>(app: &AppHandle<R>) -> Option<AfterUpdate> {
+    let dir = app.path().app_data_dir().ok()?;
     take_marker(&dir.join(RESTART_MARKER), SystemTime::now())
 }
 
-/// Whether `path` was left within `MARKER_FRESH` of `now`; removes it.
-pub(crate) fn take_marker(path: &std::path::Path, now: SystemTime) -> bool {
+/// The marker's intent if `path` was left within `MARKER_FRESH` of
+/// `now`; removes it either way.
+pub(crate) fn take_marker(path: &std::path::Path, now: SystemTime) -> Option<AfterUpdate> {
     let fresh = std::fs::metadata(path)
         .and_then(|m| m.modified())
         .is_ok_and(|at| now.duration_since(at).map_or(true, |d| d < MARKER_FRESH));
+    let what = std::fs::read_to_string(path).unwrap_or_default();
     let _ = std::fs::remove_file(path);
-    fresh
+    fresh.then(|| AfterUpdate::parse(&what))
+}
+
+/// Ask the computer to shut down ("Update and shut down", ADR-0046 §4).
+/// Windows gives a minute, cancellable with `shutdown /a`.
+pub fn shut_down_computer<R: tauri::Runtime>(app: &AppHandle<R>) {
+    #[cfg(windows)]
+    let result = std::process::Command::new("shutdown")
+        .args([
+            "/s",
+            "/t",
+            "60",
+            "/c",
+            "CloudPunch is up to date. The computer shuts down in a minute (shutdown /a cancels).",
+        ])
+        .spawn();
+    #[cfg(target_os = "macos")]
+    let result = std::process::Command::new("osascript")
+        .args(["-e", "tell application \"System Events\" to shut down"])
+        .spawn();
+    #[cfg(not(any(windows, target_os = "macos")))]
+    let result: std::io::Result<std::process::Child> = Err(std::io::Error::other("not supported"));
+    match result {
+        Ok(_) => crate::applog::write(app, LOG_FILE, "shutdown requested after the update"),
+        Err(e) => crate::applog::write(app, LOG_FILE, &format!("shutdown failed: {e}")),
+    }
 }
 
 /// The server's name for this platform's updates (ADR-0026 §4).
@@ -74,7 +136,15 @@ pub(crate) fn take_marker(path: &std::path::Path, now: SystemTime) -> bool {
 const UPDATE_PLATFORM: &str = "darwin";
 #[cfg(not(target_os = "macos"))]
 const UPDATE_PLATFORM: &str = "windows";
-const EVERY: Duration = Duration::from_secs(4 * 3600);
+const EVERY: Duration = Duration::from_secs(30 * 60);
+/// How often the loop looks for a "check soon" from a push.
+const POLL: Duration = Duration::from_secs(60);
+static CHECK_SOON: AtomicBool = AtomicBool::new(false);
+
+/// A pushed update arrived (ADR-0046 §3): check within a minute.
+pub fn check_soon() {
+    CHECK_SOON.store(true, Ordering::Release);
+}
 
 /// A downloaded, verified update waiting for its moment.
 #[derive(Default)]
@@ -96,7 +166,11 @@ pub fn start(app: AppHandle) {
                 if let Err(e) = tauri::async_runtime::block_on(check_once(&app)) {
                     log(&app, &format!("update check failed: {e}"));
                 }
-                std::thread::sleep(EVERY);
+                let mut waited = Duration::ZERO;
+                while waited < EVERY && !CHECK_SOON.swap(false, Ordering::AcqRel) {
+                    std::thread::sleep(POLL);
+                    waited += POLL;
+                }
             }
         });
     if let Err(e) = spawned {
@@ -208,14 +282,73 @@ pub fn install_now(app: &AppHandle) -> Result<(), String> {
         app,
         &format!("installing update {} (Restart to update)", update.version),
     );
-    mark_restart(app);
+    mark_restart(app, AfterUpdate::Nothing);
     update.install(bytes).map_err(|e| {
         log(
             app,
             &format!("update {} failed to install: {e}", update.version),
         );
         "install_failed".to_string()
-    })
+    })?;
+    restart_on_mac(app);
+    Ok(())
+}
+
+/// macOS replaces the app in place; nothing restarts it (ADR-0046 §5).
+/// Windows' installer restarts it itself.
+fn restart_on_mac(app: &AppHandle) {
+    #[cfg(target_os = "macos")]
+    app.restart();
+    #[cfg(not(target_os = "macos"))]
+    let _ = app;
+}
+
+/// The person's choice (ADR-0046 §2): clock out if clocked in, install
+/// the downloaded update, and do `then` on the new version.
+pub fn update_with(app: &AppHandle, then: AfterUpdate) -> Result<(), String> {
+    let agent = app.state::<Arc<Agent>>().inner().clone();
+    let pending = app
+        .try_state::<Pending>()
+        .ok_or_else(|| "no_update".to_string())?;
+    let guard = pending.0.lock().map_err(|_| "no_update".to_string())?;
+    let (update, bytes) = guard.as_ref().ok_or_else(|| "no_update".to_string())?;
+    if agent.state() != CoreState::ClockedOut {
+        agent
+            .handle(Input::ClockOut)
+            .map_err(|_| "clock_out_failed".to_string())?;
+    }
+    agent.update_started();
+    log(
+        app,
+        &format!(
+            "installing update {} (then: {})",
+            update.version,
+            match then {
+                AfterUpdate::Nothing => "nothing",
+                AfterUpdate::ClockIn => "clock in",
+                AfterUpdate::ShutDown => "shut down",
+            }
+        ),
+    );
+    mark_restart(app, then);
+    update.install(bytes).map_err(|e| {
+        log(
+            app,
+            &format!("update {} failed to install: {e}", update.version),
+        );
+        "install_failed".to_string()
+    })?;
+    restart_on_mac(app);
+    Ok(())
+}
+
+/// A pushed update's notice ran out (ADR-0046 §3): clock out, update,
+/// clock back in.
+pub fn update_and_clock_back_in(app: &AppHandle, version: &str) {
+    log(app, &format!("update {version}: notice over, updating"));
+    if let Err(e) = update_with(app, AfterUpdate::ClockIn) {
+        log(app, &format!("update {version} not installed: {e}"));
+    }
 }
 
 /// Install `version` now if it's the one downloaded and a restart still
@@ -241,9 +374,10 @@ pub fn install(app: &AppHandle, version: &str) {
         return;
     }
     log(app, &format!("installing update {version}"));
-    mark_restart(app);
-    if let Err(e) = update.install(bytes) {
-        log(app, &format!("update {version} failed to install: {e}"));
+    mark_restart(app, AfterUpdate::Nothing);
+    match update.install(bytes) {
+        Ok(()) => restart_on_mac(app),
+        Err(e) => log(app, &format!("update {version} failed to install: {e}")),
     }
 }
 
@@ -256,18 +390,41 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join(RESTART_MARKER);
         // None left: an ordinary start.
-        assert!(!take_marker(&path, SystemTime::now()));
+        assert_eq!(take_marker(&path, SystemTime::now()), None);
 
         std::fs::write(&path, b"").unwrap();
-        assert!(take_marker(&path, SystemTime::now()));
+        assert_eq!(
+            take_marker(&path, SystemTime::now()),
+            Some(AfterUpdate::Nothing)
+        );
         // Taken: the next start is ordinary again.
         assert!(!path.exists());
-        assert!(!take_marker(&path, SystemTime::now()));
+        assert_eq!(take_marker(&path, SystemTime::now()), None);
+
+        // What to do next comes back with it (ADR-0046 §6).
+        std::fs::write(&path, b"clock-in").unwrap();
+        assert_eq!(
+            take_marker(&path, SystemTime::now()),
+            Some(AfterUpdate::ClockIn)
+        );
+        std::fs::write(&path, b"shutdown").unwrap();
+        assert_eq!(
+            take_marker(&path, SystemTime::now()),
+            Some(AfterUpdate::ShutDown)
+        );
 
         // An install that never restarted: too old to count, still removed.
-        std::fs::write(&path, b"").unwrap();
+        std::fs::write(&path, b"clock-in").unwrap();
         let later = SystemTime::now() + MARKER_FRESH + Duration::from_secs(1);
-        assert!(!take_marker(&path, later));
+        assert_eq!(take_marker(&path, later), None);
         assert!(!path.exists());
+    }
+
+    #[test]
+    fn the_window_choice_names_what_comes_after() {
+        assert_eq!(AfterUpdate::from_choice("clock_in"), AfterUpdate::ClockIn);
+        assert_eq!(AfterUpdate::from_choice("shutdown"), AfterUpdate::ShutDown);
+        assert_eq!(AfterUpdate::from_choice("shut_down"), AfterUpdate::ShutDown);
+        assert_eq!(AfterUpdate::from_choice("none"), AfterUpdate::Nothing);
     }
 }
