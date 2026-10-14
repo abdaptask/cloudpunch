@@ -101,6 +101,11 @@ as well as by email. Nothing about anyone else, ever.
 
 ### 6. AI narrative and suggestions (names removed)
 
+> **Deferred (owner, 2026-10-14): no spend.** The Claude API is billed
+> per call (estimated US$1–5 a month at ~60 people), and the owner wants
+> no running cost. Nothing below is built; findings, nudges and Trends
+> are rule-based and free. Revisit if a budget is approved.
+
 - Weekly (Monday, with ADR-0037 §4's email) and on demand in Insights:
   a short narrative per team and company-wide, and a suggested next
   step on each open finding.
@@ -142,4 +147,4 @@ as well as by email. Nothing about anyone else, ever.
    Trends (period comparison, by team, drill-down).
 4. Team → Insights for managers; My week for employees (desktop
    release).
-5. AI narrative and suggestions (needs the API key).
+5. AI narrative and suggestions: deferred, no spend (see §6).
