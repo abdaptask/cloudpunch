@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Server, web and desktop: data retention, off until HR sets the periods (ADR-0044; migration 0019)
+
+- **One way to delete old data:** a database function,
+  `cloudpunch_retention_purge(kind, days, dry_run)`, is the only path
+  that can remove rows from the append-only tables. The triggers still
+  refuse every UPDATE and every other DELETE; the function holds a
+  per-transaction lock only it can write, refuses periods below each
+  kind's floor, and writes one audit_log row per real run.
+- **What it covers:** time records (closed sessions, their events and
+  corrections; legal holds kept), idle explanations (not "On a break"
+  answers, which decide pay), the audit log, sent-email records, and
+  operational logs. Connection locations keep their 30-day job.
+- **Proposed periods for HR/legal:** time records 5 years (floor 3),
+  idle explanations 365 days (90), audit log 7 years (3), sent-email
+  records 365 days (120), operational logs 90 days (30).
+- **Nightly, off by default:** after 02:00 India time while
+  `retention.enabled` is on. **Rules → Data retention** (Administrators)
+  sets the switch and the periods, and "Check what would be deleted"
+  runs a dry run first (`GET /v1/admin/retention/preview`).
+- CI: the append-only scan allows only the marked purge function in
+  migration 0019, and checks it is the one SECURITY DEFINER function.
 ### Desktop and server: no more lost events after a server error; a warning when the computer's clock is off
 
 - **Lost events (root cause of Masrat Afzal's 13 gaps, 2026-10-13):**

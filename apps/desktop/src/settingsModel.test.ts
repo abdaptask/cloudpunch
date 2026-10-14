@@ -44,6 +44,12 @@ describe('settings form (ADR-0018 §5)', () => {
       missedClockInMinutes: 15,
       dayEmails: false,
       dayEmailAt: '08:00',
+      retentionEnabled: false,
+      retentionTimeYears: 5,
+      retentionIdleDays: 365,
+      retentionAuditYears: 7,
+      retentionNotificationsDays: 365,
+      retentionOperationalDays: 90,
     });
     // Missing values fall back to the schema defaults.
     expect(formFrom({})).toMatchObject({
@@ -288,5 +294,34 @@ describe('Rules page model (ADR-0038 §8)', () => {
     );
     expect(valueText('longDayHours', company)).toBe('8 hours');
     expect(breakText(company.breaks[1]!)).toBe('On · Meal break · Unpaid · 60 min');
+  });
+});
+
+describe('data retention settings (ADR-0044)', () => {
+  it('off by default with the proposed periods; written only company-wide; floors checked', () => {
+    const f = formFrom({});
+    expect(f).toMatchObject({
+      retentionEnabled: false,
+      retentionTimeYears: 5,
+      retentionIdleDays: 365,
+    });
+    const on = { ...f, retentionEnabled: true, retentionIdleDays: 180 };
+    expect(overrideWith({ retention: { other: 1 } }, on, true)['retention']).toEqual({
+      other: 1,
+      enabled: true,
+      time_records_years: 5,
+      idle_notes_days: 180,
+      audit_log_years: 7,
+      notifications_days: 365,
+      operational_days: 90,
+    });
+    expect(overrideWith(null, on)).not.toHaveProperty('retention');
+    expect(formIssues({ ...on, retentionTimeYears: 2 }).retentionTimeYears).toBe(
+      'Between 3 and 50 years',
+    );
+    expect(formIssues({ ...on, retentionIdleDays: 30 }).retentionIdleDays).toBe(
+      'Between 90 and 3650 days',
+    );
+    expect(formIssues(on)).toEqual({});
   });
 });

@@ -1114,6 +1114,20 @@ pub async fn admin_person_history(
     answer(fetched)
 }
 
+/// What the retention clean-up would delete now (ADR-0044 §3).
+#[tauri::command]
+pub async fn admin_retention_preview(
+    auth: State<'_, Arc<Auth>>,
+    periods: std::collections::BTreeMap<String, i64>,
+) -> Result<serde_json::Value, String> {
+    let periods: Vec<(String, i64)> = periods.into_iter().collect();
+    let (_, fetched) = fetch_as_user(&auth, move |http, base, token| {
+        admin::retention_preview(http, base, token, &periods)
+    })
+    .await?;
+    answer(fetched)
+}
+
 /// People (ADR-0020): everyone with a CloudPunch role.
 #[tauri::command]
 pub async fn admin_people(auth: State<'_, Arc<Auth>>) -> Result<serde_json::Value, String> {

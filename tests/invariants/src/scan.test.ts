@@ -7,11 +7,14 @@ import {
   bannedFields,
   cargoDependencies,
   exactlyAny,
+  isPurgeFunction,
   jsonKeys,
+  purgeBlocks,
   rustJsonKeys,
   schemaFields,
   tsFields,
   usesAny,
+  withoutPurgeBlocks,
 } from './scan.js';
 
 // Each scanner must catch a planted violation, or the real checks
@@ -108,6 +111,21 @@ describe('appendOnlyViolations', () => {
     expect(appendOnlyViolations('DELETE FROM office_day WHERE id = $1')).toHaveLength(1);
     expect(appendOnlyViolations('UPDATE office_pattern SET weekdays = $1')).toHaveLength(1);
     expect(appendOnlyViolations('DELETE FROM location_alert')).toHaveLength(1);
+    // ADR-0044: deletes outside the marked purge block still count.
+    const migration = [
+      'DELETE FROM time_event;',
+      '-- retention-purge:begin',
+      'CREATE OR REPLACE FUNCTION cloudpunch_retention_purge() RETURNS bigint',
+      '  LANGUAGE plpgsql SECURITY DEFINER AS $$ BEGIN DELETE FROM audit_log; END; $$;',
+      '-- retention-purge:end',
+    ].join('\n');
+    expect(appendOnlyViolations(withoutPurgeBlocks(migration))).toEqual(['DELETE FROM time_event']);
+    expect(purgeBlocks(migration)).toHaveLength(1);
+    expect(isPurgeFunction(purgeBlocks(migration)[0] ?? '')).toBe(true);
+    expect(isPurgeFunction('CREATE FUNCTION sneaky() SECURITY DEFINER')).toBe(false);
+    expect(
+      isPurgeFunction('CREATE FUNCTION cloudpunch_retention_purge() LANGUAGE plpgsql AS $$ $$'),
+    ).toBe(false);
     expect(appendOnlyViolations('UPDATE report_sent SET people = 0')).toHaveLength(1);
     // Trigger definitions and other tables are fine.
     expect(appendOnlyViolations('CREATE TRIGGER t BEFORE UPDATE ON time_event')).toEqual([]);

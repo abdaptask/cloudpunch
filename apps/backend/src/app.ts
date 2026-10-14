@@ -33,6 +33,8 @@ import { ShiftAlertJob } from './alerts/job.js';
 import { DayReportJob } from './reports/job.js';
 import { reportRoutes } from './reports/routes.js';
 import { historyRoutes } from './history/routes.js';
+import { RetentionJob } from './retention/job.js';
+import { retentionRoutes } from './retention/routes.js';
 import { sendShiftMail, type ShiftMail } from './alerts/mail.js';
 import { TeamsNotices } from './alerts/teams.js';
 import { OpsMonitor } from './ops/monitor.js';
@@ -186,6 +188,12 @@ export async function buildApp(opts: BuildAppOptions) {
     await app.register(reportRoutes, { db: opts.db });
     // Change history (ADR-0038 §8).
     await app.register(historyRoutes, { db: opts.db });
+    // Data retention (ADR-0044): the preview, and the nightly clean-up
+    // (off until retention.enabled is on).
+    await app.register(retentionRoutes, { db: opts.db });
+    const retention = new RetentionJob({ db: opts.db, log: app.log });
+    app.addHook('onReady', async () => retention.start());
+    app.addHook('onClose', async () => retention.stop());
     // ADR-0037 §3: the shift-start emails, checked every minute while
     // the server runs (only where CloudPunch's mailbox is configured).
     if (alertSend) {

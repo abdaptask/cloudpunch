@@ -424,6 +424,53 @@
       },
       "additionalProperties": false
     },
+    "retention": {
+      "type": "object",
+      "description": "Data retention (ADR-0044). Read from the global settings only. Off until HR/legal confirm the periods; each has a floor the database also enforces.",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Run the nightly clean-up (after 02:00 India time)."
+        },
+        "time_records_years": {
+          "type": "integer",
+          "minimum": 3,
+          "maximum": 50,
+          "default": 5,
+          "description": "Closed sessions, their events and corrections (not on legal hold)."
+        },
+        "idle_notes_days": {
+          "type": "integer",
+          "minimum": 90,
+          "maximum": 3650,
+          "default": 365,
+          "description": "Idle explanations and notes, except \"On a break\" answers (ADR-0042)."
+        },
+        "audit_log_years": {
+          "type": "integer",
+          "minimum": 3,
+          "maximum": 50,
+          "default": 7,
+          "description": "Who changed or viewed what."
+        },
+        "notifications_days": {
+          "type": "integer",
+          "minimum": 120,
+          "maximum": 3650,
+          "default": 365,
+          "description": "Records of shift-start, weekly, day-end and new-place emails sent."
+        },
+        "operational_days": {
+          "type": "integer",
+          "minimum": 30,
+          "maximum": 3650,
+          "default": 90,
+          "description": "Refused-upload counts and bulk-change idempotency answers."
+        }
+      },
+      "additionalProperties": false
+    },
     "connections": {
       "type": "object",
       "description": "Where people connect from (ADR-0029). Read from the global settings only; a department or employee value is ignored.",

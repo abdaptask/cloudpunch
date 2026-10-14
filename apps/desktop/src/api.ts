@@ -302,6 +302,20 @@ export interface HistoryEntry {
   reason: string | null;
 }
 
+/** A retention dry run (ADR-0044 §3): rows each kind would lose now. */
+export interface RetentionPreviewResult {
+  enabled: boolean;
+  kinds: { kind: string; days: number; rows: number }[];
+}
+
+export interface RetentionPeriods {
+  time_records_years: number;
+  idle_notes_days: number;
+  audit_log_years: number;
+  notifications_days: number;
+  operational_days: number;
+}
+
 export interface OfficeDays {
   employee_id: string;
   /** ISO weekdays, 1 = Monday … 7 = Sunday. */
@@ -588,6 +602,9 @@ export const api = {
   /** The changes made to a person, newest first (ADR-0038 §8). */
   adminPersonHistory: (employeeId: string): Promise<{ entries: HistoryEntry[] }> =>
     invoke('admin_person_history', { employeeId }),
+  /** What the clean-up would delete now for these periods; changes nothing (ADR-0044). */
+  adminRetentionPreview: (periods: RetentionPeriods): Promise<RetentionPreviewResult> =>
+    invoke('admin_retention_preview', { periods }),
   adminPeople: (): Promise<{ people: Person[] }> => invoke('admin_people'),
   adminPeopleSearch: (q: string): Promise<{ users: DirectoryUser[] }> =>
     invoke('admin_people_search', { q }),

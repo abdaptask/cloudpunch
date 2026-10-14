@@ -24,6 +24,7 @@ import type {
   AuditEntry,
   AuditRepo,
   UploadRefusalRepo,
+  RetentionRepo,
   UploadRefusalRow,
   NewShiftAssignment,
   OfficeDay,
@@ -89,9 +90,17 @@ export class PostgresDb implements DbRepositories {
   readonly reports: ReportRepo;
   readonly history: AuditRepo;
   readonly refusals: UploadRefusalRepo;
+  readonly retention: RetentionRepo;
 
   constructor(private readonly sql: postgres.Sql) {
     this.history = this.buildAuditRepo();
+    this.retention = {
+      purge: async (kind, days, dryRun) => {
+        const [row] = await this.sql<{ n: string }[]>`
+          SELECT cloudpunch_retention_purge(${kind}, ${days}::int, ${dryRun})::text AS n`;
+        return Number(row?.n ?? 0);
+      },
+    };
     this.refusals = {
       note: async (r) => {
         await this.sql`

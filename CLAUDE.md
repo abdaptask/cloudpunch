@@ -21,7 +21,11 @@ until API access is confirmed). AWS `ap-south-1` primary region.
    `tests/invariants/` (run by `pnpm test` in CI; ADR-0004 §10).
 2. **Immutable event history.** `time_event` table is append-only. Any code
    path that issues `UPDATE` or `DELETE` on `time_event` must be rejected in
-   CI.
+   CI. **One named exception (ADR-0044, owner-approved 2026-10-14):** rows
+   past their retention period leave only through the database function
+   `cloudpunch_retention_purge()` (migration 0019), which enforces a floor
+   per kind, audits every run, and is off until HR switches retention on.
+   No other code may delete from an append-only table.
 3. **Manager approval gate.** Attendance must not be exported to greytHR
    without a corresponding `approval` row with status `APPROVED` and a
    locked `timesheet_version`.

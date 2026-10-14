@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   adminPolicyGet: vi.fn(),
   adminPolicyPut: vi.fn(),
   adminPolicyHistory: vi.fn(),
+  adminRetentionPreview: vi.fn(),
 }));
 vi.mock('../api.js', () => ({ api: mocks }));
 
@@ -51,6 +52,7 @@ describe('Rules (ADR-0038 §8)', () => {
       'Connection location',
       'Shift-start emails',
       'Day-end summary',
+      'Data retention',
     ]);
     expect(await screen.findByLabelText('idle-prompt')).toHaveValue(3);
     expect(screen.queryByLabelText('long-day')).not.toBeInTheDocument();
@@ -190,5 +192,52 @@ describe('Rules: what changed (ADR-0038 §8)', () => {
     );
     await screen.findByRole('status');
     expect(within(changed).getByRole('button', { name: 'Show changes' })).toBeInTheDocument();
+  });
+});
+
+describe('Rules: data retention (ADR-0044)', () => {
+  it('off by default; a dry run for the periods on screen; saved company-wide', async () => {
+    mocks.adminRetentionPreview.mockResolvedValue({
+      enabled: false,
+      kinds: [
+        { kind: 'time_records', days: 1096, rows: 0 },
+        { kind: 'idle_notes', days: 90, rows: 42 },
+        { kind: 'audit_log', days: 1096, rows: 0 },
+        { kind: 'notifications', days: 120, rows: 8 },
+        { kind: 'operational', days: 30, rows: 0 },
+      ],
+    });
+    const user = userEvent.setup();
+    render(<RulesPage canEditCompany />);
+    await screen.findByLabelText('prompt-wait');
+    await user.click(screen.getByRole('button', { name: 'Data retention' }));
+    expect(screen.getByLabelText('retention-enabled')).not.toBeChecked();
+    const idle = screen.getByLabelText('retention-retentionIdleDays');
+    await user.clear(idle);
+    await user.type(idle, '30');
+    expect(screen.getByText('Between 90 and 3650 days')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Check what would be deleted' })).toBeDisabled();
+    await user.clear(idle);
+    await user.type(idle, '90');
+    await user.click(screen.getByRole('button', { name: 'Check what would be deleted' }));
+    expect(mocks.adminRetentionPreview).toHaveBeenCalledWith({
+      time_records_years: 5,
+      idle_notes_days: 90,
+      audit_log_years: 7,
+      notifications_days: 365,
+      operational_days: 90,
+    });
+    expect(await screen.findByLabelText('retention-preview')).toHaveTextContent(
+      'Would delete 50 rows now:42 idle explanations8 sent-email records',
+    );
+    await user.click(screen.getByLabelText('retention-enabled'));
+    await user.click(
+      within(screen.getByRole('region', { name: 'save-bar' })).getByRole('button', {
+        name: 'Save',
+      }),
+    );
+    const sent = mocks.adminPolicyPut.mock.calls[0]?.[2] as { retention: Record<string, unknown> };
+    expect(mocks.adminPolicyPut.mock.calls[0]?.[0]).toBe('global');
+    expect(sent.retention).toMatchObject({ enabled: true, idle_notes_days: 90 });
   });
 });
