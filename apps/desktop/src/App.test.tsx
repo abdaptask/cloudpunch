@@ -2024,3 +2024,47 @@ describe('Settings opens the admin console (ADR-0038 phase 8)', () => {
     expect(screen.queryByRole('button', { name: 'Settings' })).not.toBeInTheDocument();
   });
 });
+
+describe('correcting today (ADR-0030)', () => {
+  it('offers "Ask to correct today" without waiting for tomorrow', async () => {
+    const today = localDateOf(Date.now());
+    mocks.myCapabilities.mockResolvedValue(['self.correction.request']);
+    mocks.getDay.mockResolvedValue({
+      day: { date: today, sessions: [], corrections: [] },
+      thisDevice: 'this-pc',
+      stale: false,
+    } as unknown as DayResult);
+    const start = Date.now() - 3_600_000;
+    mocks.getState.mockResolvedValue(
+      view({
+        status: 'on_break',
+        breakKind: 'bio',
+        sessionStartedAt: start,
+        timeline: [{ kind: 'bio_break', startedAt: start, endedAt: null, session: 1 }],
+      }),
+    );
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole('button', { name: /Details: sessions and totals/ }));
+    expect(mocks.getDay).toHaveBeenCalledWith(today);
+    await user.click(await screen.findByRole('button', { name: 'Ask to correct today' }));
+    expect(screen.queryByRole('button', { name: 'Ask to correct today' })).not.toBeInTheDocument();
+  });
+
+  it('is not offered without the capability', async () => {
+    mocks.myCapabilities.mockResolvedValue([]);
+    const start = Date.now() - 3_600_000;
+    mocks.getState.mockResolvedValue(
+      view({
+        status: 'on_break',
+        breakKind: 'bio',
+        sessionStartedAt: start,
+        timeline: [{ kind: 'bio_break', startedAt: start, endedAt: null, session: 1 }],
+      }),
+    );
+    const user = userEvent.setup();
+    render(<App />);
+    await user.click(await screen.findByRole('button', { name: /Details: sessions and totals/ }));
+    expect(screen.queryByRole('button', { name: 'Ask to correct today' })).not.toBeInTheDocument();
+  });
+});
