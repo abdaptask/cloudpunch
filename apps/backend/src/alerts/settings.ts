@@ -8,6 +8,8 @@ import { effectivePolicyForScope } from '../policy/service.js';
  */
 export interface AlertSettings {
   on: boolean;
+  /** alerts.teams_posts (ADR-0043 §3): also post to the Teams channel. */
+  teamsPosts: boolean;
   graceMinutes: number;
   regularCount: number;
   regularDays: number;
@@ -15,6 +17,7 @@ export interface AlertSettings {
 
 export const ALERT_DEFAULTS: AlertSettings = {
   on: false,
+  teamsPosts: false,
   graceMinutes: 15,
   regularCount: 3,
   regularDays: 30,
@@ -28,6 +31,7 @@ export async function alertSettings(db: DbRepositories): Promise<AlertSettings> 
   const a = (policy['alerts'] ?? {}) as Record<string, unknown>;
   return {
     on: a['shift_emails'] === true,
+    teamsPosts: a['teams_posts'] === true,
     graceMinutes: whole(a['missed_clock_in_minutes'], 5, 120, ALERT_DEFAULTS.graceMinutes),
     regularCount: whole(a['regular_late_count'], 2, 20, ALERT_DEFAULTS.regularCount),
     regularDays: whole(a['regular_late_days'], 7, 90, ALERT_DEFAULTS.regularDays),

@@ -190,6 +190,10 @@ describe('PostgresDb — employees + users', () => {
     ).rejects.toThrow('mail down');
     expect(await db.reports.claimAndSend(other, async () => void sent++)).toBe(true);
     await expect(sql`DELETE FROM report_sent`).rejects.toThrow(/append-only/);
+    // ADR-0043 §3 (migration 0020): the daily Teams post, once a day.
+    const teams = { ...claim, report: 'teams_corrections' as const, recipient: 'teams' };
+    expect(await db.reports.claimAndSend(teams, async () => void sent++)).toBe(true);
+    expect(await db.reports.claimAndSend(teams, async () => void sent++)).toBe(false);
 
     const { userId } = await seedUser({});
     const correlationId = randomUUID();

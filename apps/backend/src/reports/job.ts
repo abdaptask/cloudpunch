@@ -5,6 +5,7 @@ import { effectivePolicyForScope } from '../policy/service.js';
 import { dateIn, shiftDate } from '../shifts/model.js';
 import { dayRows, INDIA_TZ, type DayRow } from './day.js';
 import { dayMailText } from './mail.js';
+import type { OpsMonitor } from '../ops/monitor.js';
 import { dayMailHtml } from './mailHtml.js';
 
 /**
@@ -44,7 +45,11 @@ export interface DayReportJobOptions {
   send: (m: ShiftMail) => Promise<void>;
   siteUrl: string;
   now?: () => Date;
+  /** Hears when the check keeps failing (ADR-0043 §2). */
+  monitor?: OpsMonitor | undefined;
 }
+
+const JOB = 'Day-end summary';
 
 export class DayReportJob {
   private timer: NodeJS.Timeout | null = null;
@@ -73,8 +78,10 @@ export class DayReportJob {
     this.running = true;
     try {
       await this.runOnce();
+      this.opts.monitor?.jobOk(JOB);
     } catch (err) {
       this.opts.log.warn({ err }, 'day reports: check failed');
+      this.opts.monitor?.jobFailed(JOB, err);
     } finally {
       this.running = false;
     }

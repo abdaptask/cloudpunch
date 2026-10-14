@@ -35,6 +35,8 @@ export interface SettingsForm {
   locationEmails: boolean;
   /** alerts.shift_emails (ADR-0037 §3); company-wide only. */
   shiftEmails: boolean;
+  /** alerts.teams_posts (ADR-0043 §3); company-wide only. */
+  teamsPosts: boolean;
   /** alerts.missed_clock_in_minutes (ADR-0037 §3); company-wide only. */
   missedClockInMinutes: number;
   /** reports.day_emails (ADR-0040 §2); company-wide only. */
@@ -134,6 +136,7 @@ export function formFrom(policy: Doc): SettingsForm {
     recordConnections: obj(policy['connections'])['record'] === true,
     locationEmails: obj(policy['alerts'])['location_emails'] === true,
     shiftEmails: obj(policy['alerts'])['shift_emails'] === true,
+    teamsPosts: obj(policy['alerts'])['teams_posts'] === true,
     missedClockInMinutes: num(obj(policy['alerts'])['missed_clock_in_minutes'], 15),
     dayEmails: obj(policy['reports'])['day_emails'] === true,
     dayEmailAt:
@@ -203,6 +206,7 @@ export function overrideWith(current: Doc | null, f: SettingsForm, global = fals
           alerts: {
             ...obj(base['alerts']),
             shift_emails: f.shiftEmails,
+            teams_posts: f.teamsPosts,
             location_emails: f.locationEmails,
             missed_clock_in_minutes: f.missedClockInMinutes,
           },
@@ -288,7 +292,7 @@ export const RULE_SECTIONS: readonly RuleSection[] = [
   {
     key: 'alerts',
     label: 'Shift-start emails',
-    fields: ['shiftEmails', 'missedClockInMinutes'],
+    fields: ['shiftEmails', 'missedClockInMinutes', 'teamsPosts'],
     companyOnly: true,
   },
   {
@@ -419,6 +423,8 @@ export function valueText(k: ScalarKey, f: SettingsForm): string {
       return onOff(f.locationEmails);
     case 'shiftEmails':
       return onOff(f.shiftEmails);
+    case 'teamsPosts':
+      return onOff(f.teamsPosts);
     case 'missedClockInMinutes':
       return MINUTES(f.missedClockInMinutes);
     case 'dayEmails':

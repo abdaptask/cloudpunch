@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Server and ops: faster alerts, and posts in a Teams channel (ADR-0043; migration 0020)
+
+- **Uptime:** the server's health check runs **every minute** (was 5),
+  also checks the site from the internet side (through the tunnel), and
+  alerts only after **two failures in a row**; one message when it
+  starts, one when it's fixed. Alerts go by email (as before) **and to a
+  Teams channel**; either one is enough. The GitHub uptime check also
+  posts to Teams when the whole server is down.
+- **The API watches itself:** 50+ refused uploads or 20+ server errors
+  in 15 minutes, or a background job (shift-start emails, day-end
+  summary) failing 3 times in a row, alert Administrators by email and
+  the Teams channel, at most once an hour each; "works again" when a
+  job recovers.
+- **Teams notices:** with Rules → Shift-start emails → "Also post to
+  the Teams channel" on (`alerts.teams_posts`, off by default), each
+  shift-start email is also posted, and the corrections waiting are
+  posted once a day at 10:00 India time, by who has to act. Migration
+  0020 lets `report_sent` claim that daily post.
+- New settings `TEAMS_ALERT_WEBHOOK_URL` and `TEAMS_NOTICE_WEBHOOK_URL`
+  (unset = off); `scripts/install-alerts.sh` sets them on the server.
+  See `docs/ops/pilot-vm.md`, "Teams alerts and notices".
 ### Web: works on a phone; browser tests (items 6 and 9, 2026-10-14)
 
 - **On a phone** (up to 720 wide): the admin console's sections become

@@ -30,3 +30,15 @@ jobs:
           done
           echo "::error::cloudpunch.aptask.com/livez didn't answer 3 times in 3 minutes"
           exit 1
+      # ADR-0043: the server can't report itself down, so this post does,
+      # to the same Teams channel as the server's alerts (repository
+      # secret TEAMS_ALERT_WEBHOOK_URL; unset = email only, as before).
+      - name: Post to Teams
+        if: failure()
+        env:
+          WEBHOOK: ${{ secrets.TEAMS_ALERT_WEBHOOK_URL }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          [ -n "$WEBHOOK" ] || { echo "no TEAMS_ALERT_WEBHOOK_URL secret"; exit 0; }
+          jq -n --arg run "$RUN_URL" '{type:"message",attachments:[{contentType:"application/vnd.microsoft.card.adaptive",contentUrl:null,content:{"$schema":"http://adaptivecards.io/schemas/adaptive-card.json",type:"AdaptiveCard",version:"1.4",body:[{type:"TextBlock",text:"Problem: cloudpunch.aptask.com is down",weight:"Bolder",size:"Medium",color:"Attention",wrap:true},{type:"TextBlock",text:"It did not answer from outside ApTask 3 times in 3 minutes: the server, its network or the Cloudflare Tunnel. Checked every 15 minutes; this repeats while it is down.",wrap:true}],actions:[{type:"Action.OpenUrl",title:"See the check",url:$run}]}}]}' |
+            curl -fsS --max-time 15 -H 'content-type: application/json' --data @- "$WEBHOOK" >/dev/null

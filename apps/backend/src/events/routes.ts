@@ -6,11 +6,14 @@ import type { ConnectionRecorder } from '../connections/recorder.js';
 import type { DbRepositories } from '../db/index.js';
 import { ingestBatch, type IngestBatchOutcome } from './ingest.js';
 import { ingestBatchBodySchema } from './schemas.js';
+import type { OpsMonitor } from '../ops/monitor.js';
 
 export interface EventsRoutesOptions {
   db: DbRepositories;
   /** ADR-0029: where the device connects from. */
   connections?: ConnectionRecorder | undefined;
+  /** Hears about refused uploads (ADR-0043 §2). */
+  monitor?: OpsMonitor | undefined;
 }
 
 const HTTP_STATUS_FOR: Record<Exclude<IngestBatchOutcome['status'], 'batch_accepted'>, number> = {
@@ -55,6 +58,7 @@ const eventsRoutesImpl: FastifyPluginAsync<EventsRoutesOptions> = async (app, op
     events: number,
     aheadSeconds: number | null = null,
   ): Promise<void> => {
+    opts.monitor?.refusedUpload(events);
     try {
       await opts.db.refusals.note({
         deviceId,

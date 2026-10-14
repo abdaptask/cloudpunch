@@ -16,6 +16,8 @@ import {
 } from './mail.js';
 import { dueAlerts, firstClockInFor, needsClockIn } from './rules.js';
 import { alertSettings, type AlertSettings } from './settings.js';
+import type { TeamsNotices } from './teams.js';
+import type { OpsMonitor } from '../ops/monitor.js';
 
 /**
  * ADR-0037 §3: once a minute, send the shift-start emails that are due.
@@ -42,7 +44,14 @@ export interface ShiftAlertJobOptions {
   send: (m: ShiftMail) => Promise<void>;
   siteUrl: string;
   now?: () => Date;
+  /** Posts to the Teams channel too (ADR-0043 §3). */
+  teams?: TeamsNotices | undefined;
+  /** Hears when the check keeps failing (ADR-0043 §2). */
+  monitor?: OpsMonitor | undefined;
 }
+
+/** The job's name in alerts. */
+const JOB = 'Shift-start emails';
 
 export class ShiftAlertJob {
   private timer: NodeJS.Timeout | null = null;
@@ -74,8 +83,11 @@ export class ShiftAlertJob {
     this.running = true;
     try {
       await this.runOnce();
+      await this.opts.teams?.correctionsDigest(this.now());
+      this.opts.monitor?.jobOk(JOB);
     } catch (err) {
       this.opts.log.warn({ err }, 'shift alerts: check failed');
+      this.opts.monitor?.jobFailed(JOB, err);
     } finally {
       this.running = false;
     }
@@ -286,7 +298,17 @@ export class ShiftAlertJob {
         },
         () => this.opts.send(mail),
       );
-      if (claimed) log.info({ employeeId: person.id, kind }, 'shift alerts: sent');
+      if (claimed) {
+        log.info({ employeeId: person.id, kind }, 'shift alerts: sent');
+        void this.opts.teams?.shiftAlert({
+          kind,
+          person,
+          start: window.start,
+          tz: window.shift.tzIana,
+          clockIn,
+          graceMinutes,
+        });
+      }
       return claimed;
     } catch (err) {
       log.warn({ err, employeeId: person.id, kind }, 'shift alerts: send failed; will retry');

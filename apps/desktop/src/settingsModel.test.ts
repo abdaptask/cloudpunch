@@ -40,6 +40,7 @@ describe('settings form (ADR-0018 §5)', () => {
       recordConnections: false,
       locationEmails: false,
       shiftEmails: false,
+      teamsPosts: false,
       missedClockInMinutes: 15,
       dayEmails: false,
       dayEmailAt: '08:00',
@@ -140,6 +141,7 @@ describe('settings form (ADR-0018 §5)', () => {
     const current = { alerts: { shift_emails: false, regular_late_count: 4 } };
     expect(overrideWith(current, on, true)['alerts']).toEqual({
       shift_emails: true,
+      teams_posts: false,
       location_emails: false,
       missed_clock_in_minutes: 20,
       regular_late_count: 4,
