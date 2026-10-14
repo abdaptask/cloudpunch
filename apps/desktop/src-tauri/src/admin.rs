@@ -96,6 +96,40 @@ pub fn person_history(
     )
 }
 
+/// What the retention clean-up would delete now (ADR-0044 §3): a dry
+/// run for the given periods (whole numbers only; the server checks
+/// the ranges).
+pub fn retention_preview(
+    http: &Client,
+    base: &str,
+    token: &str,
+    periods: &[(String, i64)],
+) -> Result<Value, DayError> {
+    const NAMES: [&str; 5] = [
+        "time_records_years",
+        "idle_notes_days",
+        "audit_log_years",
+        "notifications_days",
+        "operational_days",
+    ];
+    if periods.iter().any(|(k, _)| !NAMES.contains(&k.as_str())) {
+        return Err(DayError::Refused("invalid_argument".into()));
+    }
+    let query = periods
+        .iter()
+        .map(|(k, v)| format!("{k}={v}"))
+        .collect::<Vec<_>>()
+        .join("&");
+    send(
+        http,
+        base,
+        token,
+        reqwest::Method::GET,
+        &format!("/v1/admin/retention/preview?{query}"),
+        None,
+    )
+}
+
 pub fn get_policy(
     http: &Client,
     base: &str,
@@ -1109,6 +1143,17 @@ mod tests {
     #[test]
     fn person_history_refuses_a_bad_id_before_sending() {
         let r = person_history(&client(), "http://127.0.0.1:9", "t", "../x");
+        assert!(matches!(r, Err(DayError::Refused(c)) if c == "invalid_argument"));
+    }
+
+    #[test]
+    fn retention_preview_takes_only_known_periods() {
+        let r = retention_preview(
+            &client(),
+            "http://127.0.0.1:9",
+            "t",
+            &[("drop_table".to_string(), 1)],
+        );
         assert!(matches!(r, Err(DayError::Refused(c)) if c == "invalid_argument"));
     }
 

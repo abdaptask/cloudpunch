@@ -1,5 +1,5 @@
 import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
-import { api } from '../api.js';
+import { api, type RetentionPreviewResult } from '../api.js';
 import {
   breakIssues,
   breakText,
@@ -551,6 +551,41 @@ export function RulesPage({
                 </Note>
               </>
             )}
+
+            {section === 'retention' && scope === 'global' && (
+              <>
+                {row(
+                  'retentionEnabled',
+                  'Delete data past these periods, nightly',
+                  <Check
+                    name="retention-enabled"
+                    on={form.retentionEnabled}
+                    onChange={(on) => set('retentionEnabled', on)}
+                  />,
+                )}
+                {RETENTION_FIELDS.map(([key, label, unit]) =>
+                  row(
+                    key,
+                    `${label} (${unit})`,
+                    <NumberInput
+                      name={`retention-${key}`}
+                      value={form[key]}
+                      onChange={(v) => set(key, v)}
+                    />,
+                    issues[key],
+                  ),
+                )}
+                <RetentionPreview
+                  form={form}
+                  disabled={RETENTION_FIELDS.some(([k]) => !!issues[k])}
+                />
+                <Note t={t}>
+                  Off until HR/legal confirm the periods (ADR-0044). Nothing can be set below its
+                  minimum, and the database refuses it too. Connection locations are kept 30 days
+                  separately. Each night&apos;s clean-up is written to the audit log.
+                </Note>
+              </>
+            )}
           </div>
         </div>
       )}
@@ -813,6 +848,92 @@ function BreakTable({
         })}
       </tbody>
     </table>
+  );
+}
+
+/** The retention periods, as Rules shows them (ADR-0044 §1). */
+const RETENTION_FIELDS = [
+  ['retentionTimeYears', 'Time records', 'years'],
+  ['retentionIdleDays', 'Idle explanations', 'days'],
+  ['retentionAuditYears', 'Audit log', 'years'],
+  ['retentionNotificationsDays', 'Sent-email records', 'days'],
+  ['retentionOperationalDays', 'Operational logs', 'days'],
+] as const;
+
+const RETENTION_LABEL: Record<string, string> = {
+  time_records: 'time records (events, sessions, corrections)',
+  idle_notes: 'idle explanations',
+  audit_log: 'audit log rows',
+  notifications: 'sent-email records',
+  operational: 'operational log rows',
+};
+
+/** "Check what would be deleted": a dry run for the periods on screen. */
+function RetentionPreview({
+  form,
+  disabled,
+}: {
+  form: SettingsForm;
+  disabled: boolean;
+}): JSX.Element {
+  const t = useTheme();
+  const [result, setResult] = useState<RetentionPreviewResult | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const check = (): void => {
+    setBusy(true);
+    setError(null);
+    api
+      .adminRetentionPreview({
+        time_records_years: form.retentionTimeYears,
+        idle_notes_days: form.retentionIdleDays,
+        audit_log_years: form.retentionAuditYears,
+        notifications_days: form.retentionNotificationsDays,
+        operational_days: form.retentionOperationalDays,
+      })
+      .then(
+        (r) => {
+          setBusy(false);
+          setResult(r);
+        },
+        (e: unknown) => {
+          setBusy(false);
+          setError(errorText(String(e)));
+        },
+      );
+  };
+  const total = result?.kinds.reduce((n, k) => n + k.rows, 0) ?? 0;
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <Button
+        variant="secondary"
+        disabled={disabled || busy}
+        onClick={check}
+        style={{ alignSelf: 'flex-start' }}
+      >
+        {busy ? 'Checking…' : 'Check what would be deleted'}
+      </Button>
+      {error && (
+        <span role="alert" style={{ fontSize: 12.5, color: t.danger }}>
+          {error}
+        </span>
+      )}
+      {result && (
+        <div aria-label="retention-preview" style={{ fontSize: 12.5, lineHeight: 1.5 }}>
+          {total === 0
+            ? 'Nothing is older than these periods yet.'
+            : `Would delete ${total.toLocaleString('en-GB')} rows now:`}
+          {total > 0 &&
+            result.kinds
+              .filter((k) => k.rows > 0)
+              .map((k) => (
+                <span key={k.kind} style={{ display: 'block', color: t.muted }}>
+                  {k.rows.toLocaleString('en-GB')} {RETENTION_LABEL[k.kind] ?? k.kind}
+                </span>
+              ))}
+        </div>
+      )}
+    </div>
   );
 }
 

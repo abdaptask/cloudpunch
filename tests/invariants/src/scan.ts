@@ -158,6 +158,41 @@ export function cargoDependencies(toml: string): string[] {
  * named-shift and office-day tables) are append-only.
  * Returns each offending statement fragment.
  */
+/**
+ * ADR-0044 §2: the one block allowed to delete from append-only tables
+ * (the purge function in migration 0019), between these markers.
+ */
+export const PURGE_BEGIN = '-- retention-purge:begin';
+export const PURGE_END = '-- retention-purge:end';
+
+/** The marked purge blocks in `source`. */
+export function purgeBlocks(source: string): string[] {
+  const out: string[] = [];
+  let at = source.indexOf(PURGE_BEGIN);
+  while (at !== -1) {
+    const end = source.indexOf(PURGE_END, at);
+    if (end === -1) break;
+    out.push(source.slice(at, end + PURGE_END.length));
+    at = source.indexOf(PURGE_BEGIN, end);
+  }
+  return out;
+}
+
+/** `source` without its marked purge blocks. */
+export function withoutPurgeBlocks(source: string): string {
+  return purgeBlocks(source).reduce((s, b) => s.replace(b, ''), source);
+}
+
+/** A purge block is allowed only if it defines the SECURITY DEFINER purge function and nothing else. */
+export function isPurgeFunction(block: string): boolean {
+  const defs = [...block.matchAll(/CREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION\s+([a-z_]+)/gi)];
+  return (
+    defs.length === 1 &&
+    defs[0]?.[1] === 'cloudpunch_retention_purge' &&
+    /SECURITY\s+DEFINER/i.test(block)
+  );
+}
+
 export function appendOnlyViolations(source: string): string[] {
   const re =
     /\b(UPDATE\s+(?:ONLY\s+)?"?(time_event|audit_log|time_correction_decision|time_correction|shift_assignment|not_working_day|holiday|shift_alert|weekly_report_sent|admin_bulk_request|shift_template_version|shift_template|office_pattern|office_day|location_alert|report_sent)"?\s+SET\b|DELETE\s+FROM\s+(?:ONLY\s+)?"?(time_event|audit_log|time_correction_decision|time_correction|shift_assignment|not_working_day|holiday|shift_alert|weekly_report_sent|admin_bulk_request|shift_template_version|shift_template|office_pattern|office_day|location_alert|report_sent)"?\b|TRUNCATE\s+(?:TABLE\s+)?"?(time_event|audit_log|time_correction_decision|time_correction|shift_assignment|not_working_day|holiday|shift_alert|weekly_report_sent|admin_bulk_request|shift_template_version|shift_template|office_pattern|office_day|location_alert|report_sent)"?\b)/gi;

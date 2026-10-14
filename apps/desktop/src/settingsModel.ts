@@ -43,7 +43,23 @@ export interface SettingsForm {
   dayEmails: boolean;
   /** reports.day_email_at, HH:MM India time (ADR-0040 §2); company-wide only. */
   dayEmailAt: string;
+  /** retention.* (ADR-0044); company-wide only, off until HR sets the periods. */
+  retentionEnabled: boolean;
+  retentionTimeYears: number;
+  retentionIdleDays: number;
+  retentionAuditYears: number;
+  retentionNotificationsDays: number;
+  retentionOperationalDays: number;
 }
+
+/** Each retention period's allowed range (the low end is the floor, ADR-0044 §1). */
+export const RETENTION_RANGES = {
+  retentionTimeYears: [3, 50],
+  retentionIdleDays: [90, 3650],
+  retentionAuditYears: [3, 50],
+  retentionNotificationsDays: [120, 3650],
+  retentionOperationalDays: [30, 3650],
+} as const;
 
 export type BreakId = 'bio' | 'meal' | 'rest' | 'personal' | 'other';
 export type BreakPay = 'paid' | 'unpaid' | 'paid_up_to_limit';
@@ -138,6 +154,12 @@ export function formFrom(policy: Doc): SettingsForm {
     shiftEmails: obj(policy['alerts'])['shift_emails'] === true,
     teamsPosts: obj(policy['alerts'])['teams_posts'] === true,
     missedClockInMinutes: num(obj(policy['alerts'])['missed_clock_in_minutes'], 15),
+    retentionEnabled: obj(policy['retention'])['enabled'] === true,
+    retentionTimeYears: num(obj(policy['retention'])['time_records_years'], 5),
+    retentionIdleDays: num(obj(policy['retention'])['idle_notes_days'], 365),
+    retentionAuditYears: num(obj(policy['retention'])['audit_log_years'], 7),
+    retentionNotificationsDays: num(obj(policy['retention'])['notifications_days'], 365),
+    retentionOperationalDays: num(obj(policy['retention'])['operational_days'], 90),
     dayEmails: obj(policy['reports'])['day_emails'] === true,
     dayEmailAt:
       typeof obj(policy['reports'])['day_email_at'] === 'string'
@@ -183,6 +205,13 @@ export function formIssues(f: SettingsForm): Partial<Record<keyof SettingsForm, 
   if (!whole(f.missedClockInMinutes, 5, 120)) {
     out.missedClockInMinutes = 'Between 5 and 120 minutes';
   }
+  for (const [key, [lo, hi]] of Object.entries(RETENTION_RANGES) as [
+    keyof typeof RETENTION_RANGES,
+    readonly [number, number],
+  ][]) {
+    const unit = key.endsWith('Years') ? 'years' : 'days';
+    if (!whole(f[key], lo, hi)) out[key] = `Between ${lo} and ${hi} ${unit}`;
+  }
   if (Object.keys(breakIssues(f)).length > 0) out.breaks = 'Fix the break types marked below';
   else if (!f.breaks.some((b) => b.enabled)) out.breaks = 'Keep at least one break type on';
   return out;
@@ -214,6 +243,15 @@ export function overrideWith(current: Doc | null, f: SettingsForm, global = fals
             ...obj(base['reports']),
             day_emails: f.dayEmails,
             day_email_at: f.dayEmailAt,
+          },
+          retention: {
+            ...obj(base['retention']),
+            enabled: f.retentionEnabled,
+            time_records_years: f.retentionTimeYears,
+            idle_notes_days: f.retentionIdleDays,
+            audit_log_years: f.retentionAuditYears,
+            notifications_days: f.retentionNotificationsDays,
+            operational_days: f.retentionOperationalDays,
           },
         }
       : {}),
@@ -263,7 +301,15 @@ export function overrideWith(current: Doc | null, f: SettingsForm, global = fals
 export type ScalarKey = Exclude<keyof SettingsForm, 'breaks'>;
 
 export type RuleSectionKey =
-  'idle' | 'clockIn' | 'longDays' | 'breaks' | 'away' | 'connections' | 'alerts' | 'reports';
+  | 'idle'
+  | 'clockIn'
+  | 'longDays'
+  | 'breaks'
+  | 'away'
+  | 'connections'
+  | 'alerts'
+  | 'reports'
+  | 'retention';
 
 export interface RuleSection {
   key: RuleSectionKey;
@@ -299,6 +345,19 @@ export const RULE_SECTIONS: readonly RuleSection[] = [
     key: 'reports',
     label: 'Day-end summary',
     fields: ['dayEmails', 'dayEmailAt'],
+    companyOnly: true,
+  },
+  {
+    key: 'retention',
+    label: 'Data retention',
+    fields: [
+      'retentionEnabled',
+      'retentionTimeYears',
+      'retentionIdleDays',
+      'retentionAuditYears',
+      'retentionNotificationsDays',
+      'retentionOperationalDays',
+    ],
     companyOnly: true,
   },
 ];
@@ -431,6 +490,18 @@ export function valueText(k: ScalarKey, f: SettingsForm): string {
       return onOff(f.dayEmails);
     case 'dayEmailAt':
       return `${f.dayEmailAt} India time`;
+    case 'retentionEnabled':
+      return onOff(f.retentionEnabled);
+    case 'retentionTimeYears':
+      return `${f.retentionTimeYears} years`;
+    case 'retentionIdleDays':
+      return `${f.retentionIdleDays} days`;
+    case 'retentionAuditYears':
+      return `${f.retentionAuditYears} years`;
+    case 'retentionNotificationsDays':
+      return `${f.retentionNotificationsDays} days`;
+    case 'retentionOperationalDays':
+      return `${f.retentionOperationalDays} days`;
   }
 }
 

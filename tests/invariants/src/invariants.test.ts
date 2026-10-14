@@ -7,6 +7,10 @@ import {
   FORBIDDEN_RUST_APIS,
   FORBIDDEN_WEB_APIS,
   appendOnlyViolations,
+  isPurgeFunction,
+  PURGE_BEGIN,
+  purgeBlocks,
+  withoutPurgeBlocks,
   bannedFields,
   cargoDependencies,
   exactlyAny,
@@ -103,7 +107,24 @@ describe('invariant 2: time_event, audit_log and corrections are append-only', (
       // prove the triggers *reject* UPDATE/DELETE, and reset their DB.
       .filter((f) => !f.includes('/retention_worker/') && !f.endsWith('.test.ts'));
     expect(sources.length).toBeGreaterThan(10);
-    const hits = sources.flatMap((f) => appendOnlyViolations(read(f)).map((s) => `${f}: ${s}`));
+    // ADR-0044 §2: only the purge function's marked block may delete,
+    // and only in migration 0019.
+    const hits = sources.flatMap((f) => {
+      const src = f.endsWith('0019_retention_purge.sql') ? withoutPurgeBlocks(read(f)) : read(f);
+      return appendOnlyViolations(src).map((s) => `${f}: ${s}`);
+    });
     expect(hits).toEqual([]);
+  });
+
+  it('the purge path is one SECURITY DEFINER function, in migration 0019 only (ADR-0044)', () => {
+    const marked = [
+      ...files('apps/backend/db/migrations', /\.sql$/),
+      ...files('apps/backend/src', /\.ts$/),
+      ...files('apps/backend/scripts', /\.ts$/),
+    ].filter((f) => read(f).includes(PURGE_BEGIN));
+    expect(marked.map((f) => path.basename(f))).toEqual(['0019_retention_purge.sql']);
+    const blocks = purgeBlocks(read(marked[0] ?? ''));
+    expect(blocks).toHaveLength(1);
+    expect(isPurgeFunction(blocks[0] ?? '')).toBe(true);
   });
 });

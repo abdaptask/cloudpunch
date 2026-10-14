@@ -28,6 +28,8 @@ import type {
   AuditEntry,
   AuditRepo,
   UploadRefusalRepo,
+  RetentionKind,
+  RetentionRepo,
   UploadRefusalRow,
   ReportSentClaim,
   ReportViewAudit,
@@ -96,6 +98,13 @@ export class InMemoryDb implements DbRepositories {
   readonly reports: ReportRepo;
   readonly history: AuditRepo;
   readonly refusals: UploadRefusalRepo;
+  readonly retention: RetentionRepo;
+  /**
+   * The purge function (ADR-0044 §2) is the database's; here, what it
+   * would find per kind is set by tests, and each call is kept.
+   */
+  readonly retentionRows: Partial<Record<RetentionKind, number>> = {};
+  readonly retentionCalls: { kind: RetentionKind; days: number; dryRun: boolean }[] = [];
   /** upload_refusal (ADR-0040 §3.4). */
   readonly refusalRows: UploadRefusalRow[] = [];
   /**
@@ -247,6 +256,24 @@ export class InMemoryDb implements DbRepositories {
     };
     const newest = (rows: AuditEntry[], limit: number): AuditEntry[] =>
       [...rows].sort((a, b) => b.at.getTime() - a.at.getTime()).slice(0, limit);
+    // The database function's floors (migration 0019).
+    const floors: Record<RetentionKind, number> = {
+      time_records: 1096,
+      audit_log: 1096,
+      idle_notes: 90,
+      notifications: 120,
+      operational: 30,
+    };
+    this.retention = {
+      purge: async (kind, days, dryRun) => {
+        if (days < floors[kind])
+          throw new Error(`${kind} must be kept at least ${floors[kind]} days`);
+        this.retentionCalls.push({ kind, days, dryRun });
+        const n = this.retentionRows[kind] ?? 0;
+        if (!dryRun) this.retentionRows[kind] = 0;
+        return n;
+      },
+    };
     this.refusals = {
       note: async (r) => {
         const day = r.at.toISOString().slice(0, 10);

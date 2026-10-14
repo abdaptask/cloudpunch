@@ -910,6 +910,20 @@ export interface UploadRefusalRepo {
   between(from: string, to: string): Promise<UploadRefusalRow[]>;
 }
 
+/** What the retention clean-up removes (ADR-0044 §1). */
+export type RetentionKind =
+  'time_records' | 'idle_notes' | 'audit_log' | 'notifications' | 'operational';
+
+export interface RetentionRepo {
+  /**
+   * Remove (or, with `dryRun`, count) the rows of `kind` older than
+   * `days`, through the database's purge function (ADR-0044 §2): the
+   * only way rows leave an append-only table. Throws below the kind's
+   * floor. A real run writes its own audit_log row.
+   */
+  purge(kind: RetentionKind, days: number, dryRun: boolean): Promise<number>;
+}
+
 export interface BulkRequestRepo {
   /** The answer kept for this caller's key, if any. */
   find(
@@ -942,4 +956,5 @@ export interface DbRepositories {
   reports: ReportRepo;
   history: AuditRepo;
   refusals: UploadRefusalRepo;
+  retention: RetentionRepo;
 }

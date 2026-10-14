@@ -52,6 +52,7 @@ export type WebApi = Pick<
   | 'removeHoliday'
   | 'adminDepartments'
   | 'adminPolicyGet'
+  | 'adminRetentionPreview'
   | 'adminPolicyHistory'
   | 'adminPersonHistory'
   | 'adminPolicyPut'
@@ -254,6 +255,15 @@ export const api: WebApi = {
   },
   adminDepartments: () => get('/v1/admin/departments'),
   adminPolicyGet: async (scope, id) => get(policyPath(scope, id)),
+  adminRetentionPreview: async (p) => {
+    const q = Object.entries(p)
+      .map(([k, v]) => {
+        check(Number.isInteger(v));
+        return `${k}=${String(v)}`;
+      })
+      .join('&');
+    return get(`/v1/admin/retention/preview?${q}`);
+  },
   adminPolicyHistory: async (scope, id) => get(`${policyPath(scope, id)}/history`),
   adminPersonHistory: async (employeeId) => {
     check(UUID.test(employeeId));

@@ -313,6 +313,108 @@ describe('PostgresDb — employees + users', () => {
     expect(await db.refusals.between('2026-10-12', '2026-10-13')).toHaveLength(3);
   });
 
+  it('ADR-0044: only the purge function deletes from append-only tables, never below a floor', async () => {
+    const empId = await seedEmployee();
+    const { userId } = await seedUser({ employeeId: empId });
+    const device = await db.devices.enroll({
+      id: randomUUID(),
+      userId,
+      os: 'windows',
+      hostnameHash: 'sha256-' + '0'.repeat(64),
+      publicKeyEd25519: new Uint8Array(32),
+      appVersion: '0.1.0',
+    });
+    const DAY = 86_400_000;
+    const ago = (days: number) => new Date(Date.now() - days * DAY);
+    const session = async (openedDaysAgo: number, closed: boolean) => {
+      const s = await db.timeSessions.open({
+        employeeId: empId,
+        deviceId: device.id,
+        openedAt: ago(openedDaysAgo),
+      });
+      if (closed) await db.timeSessions.close(s.id, ago(openedDaysAgo - 0.1), 'user_clock_out');
+      return s.id;
+    };
+    let n = 0;
+    const event = async (
+      sessionId: string,
+      type: string,
+      at: Date,
+      payload: Record<string, string> = {},
+    ) => {
+      n += 1;
+      const ulid = `01J8Q${String(n).padStart(21, '0')}`;
+      await sql`
+        INSERT INTO time_event (event_ulid, event_type, session_id, employee_id, sequence_number,
+                                client_ts, server_ts, monotonic_ns, tz_iana, utc_offset_minutes,
+                                device_id, app_version, origin, offline_captured, payload,
+                                integrity_signature, correlation_id)
+        VALUES (${ulid}, ${type}, ${sessionId}, ${empId}, ${n}, ${at}, ${at}, 0, 'Asia/Kolkata',
+                330, ${device.id}, '0.1.0', 'user', false, ${sql.json(payload)},
+                ${Buffer.alloc(64)}, ${randomUUID()})`;
+    };
+    // Six years ago: a closed session with two events; another on legal hold.
+    const old = await session(6 * 365, true);
+    await event(old, 'USER_CLOCK_IN', ago(6 * 365));
+    await event(old, 'USER_CLOCK_OUT', ago(6 * 365 - 0.1));
+    const held = await session(6 * 365, true);
+    await event(held, 'USER_CLOCK_IN', ago(6 * 365));
+    await sql`UPDATE time_session SET legal_hold_until = current_date + 30 WHERE id = ${held}`;
+    // Today's session: a clock-in, and two idle answers from 200 days ago.
+    const today = await session(0.1, false);
+    await event(today, 'USER_CLOCK_IN', ago(0.1));
+    await event(today, 'USER_IDLE_EXPLAINED', ago(200), { explanation: 'meeting' });
+    await event(today, 'USER_IDLE_EXPLAINED', ago(200), { explanation: 'break' });
+    await sql`
+      INSERT INTO audit_log (actor_type, entity_type, action, correlation_id, occurred_at)
+      VALUES ('system', 'test', 'old_row', ${randomUUID()}, ${ago(8 * 365)})`;
+    const count = async (table: string) =>
+      (await sql<{ n: number }[]>`SELECT count(*)::int AS n FROM ${sql(table)}`)[0]?.n;
+
+    // Ordinary deletes are still refused, for any role, and a flag alone doesn't open them.
+    await expect(sql`DELETE FROM time_event`).rejects.toThrow(/append-only/);
+    await expect(sql`DELETE FROM audit_log`).rejects.toThrow(/append-only/);
+    await expect(
+      sql.begin(async (tx) => {
+        await tx`SELECT set_config('cloudpunch.retention_purge', 'guess', true)`;
+        await tx`DELETE FROM time_event`;
+      }),
+    ).rejects.toThrow(/append-only/);
+    // The floors hold in the database, whatever the caller asks.
+    await expect(db.retention.purge('time_records', 365, false)).rejects.toThrow(/at least 1096/);
+    await expect(db.retention.purge('idle_notes', 30, true)).rejects.toThrow(/at least 90/);
+
+    // A dry run counts and changes nothing.
+    expect(await db.retention.purge('time_records', 1096, true)).toBe(3);
+    expect(await db.retention.purge('idle_notes', 90, true)).toBe(1);
+    expect(await count('time_event')).toBe(6);
+
+    // For real: the old session and its events, not the held one; the
+    // meeting answer, not the break (ADR-0042); the old audit row.
+    expect(await db.retention.purge('time_records', 1096, false)).toBe(3);
+    expect(await db.retention.purge('idle_notes', 90, false)).toBe(1);
+    expect(await db.retention.purge('audit_log', 1096, false)).toBe(1);
+    expect(await count('time_event')).toBe(3);
+    const sessions = await sql<{ id: string }[]>`SELECT id FROM time_session`;
+    expect(sessions.map((r) => r.id).sort()).toEqual([held, today].sort());
+    const left = await sql<{ payload: { explanation?: string } }[]>`
+      SELECT payload FROM time_event WHERE event_type = 'USER_IDLE_EXPLAINED'`;
+    expect(left.map((r) => r.payload.explanation)).toEqual(['break']);
+
+    // Each real run is audited; the lock is gone; deletes are refused again.
+    const runs = await sql<{ kind: string; rows: number }[]>`
+      SELECT new_value->>'kind' AS kind, (new_value->>'rows')::int AS rows
+      FROM audit_log WHERE action = 'retention_purged' ORDER BY occurred_at`;
+    expect(runs.map((r) => [r.kind, r.rows])).toEqual([
+      ['time_records', 3],
+      ['idle_notes', 1],
+      ['audit_log', 1],
+    ]);
+    expect(await count('retention_purge_lock')).toBe(0);
+    await expect(sql`DELETE FROM time_event`).rejects.toThrow(/append-only/);
+    await expect(sql`UPDATE audit_log SET reason = 'x'`).rejects.toThrow(/append-only/);
+  });
+
   it('ADR-0039: office patterns and one-offs, newest first; append-only', async () => {
     const a = await seedEmployee();
     const { userId } = await seedUser({ employeeId: a });
