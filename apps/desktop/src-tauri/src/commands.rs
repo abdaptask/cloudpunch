@@ -1380,6 +1380,47 @@ pub async fn report_day(
     answer(fetched)
 }
 
+/// Findings in the caller's scope (ADR-0047 §4).
+#[tauri::command]
+pub async fn insights(
+    auth: State<'_, Arc<Auth>>,
+    closed: bool,
+) -> Result<serde_json::Value, String> {
+    let (_, fetched) = fetch_as_user(&auth, move |http, base, token| {
+        admin::insights(http, base, token, closed)
+    })
+    .await?;
+    answer(fetched)
+}
+
+/// A finding's history (ADR-0047 §2).
+#[tauri::command]
+pub async fn insight_history(
+    auth: State<'_, Arc<Auth>>,
+    id: String,
+) -> Result<serde_json::Value, String> {
+    let (_, fetched) = fetch_as_user(&auth, move |http, base, token| {
+        admin::insight_history(http, base, token, &id)
+    })
+    .await?;
+    answer(fetched)
+}
+
+/// Nudge or dismiss a finding (ADR-0047 §3).
+#[tauri::command]
+pub async fn insight_act(
+    auth: State<'_, Arc<Auth>>,
+    id: String,
+    action: String,
+    body: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    let (_, fetched) = fetch_as_user(&auth, move |http, base, token| {
+        admin::insight_act(http, base, token, &id, &action, &body)
+    })
+    .await?;
+    answer(fetched)
+}
+
 /// The overall report (ADR-0040 §3).
 #[tauri::command]
 pub async fn report_overview(

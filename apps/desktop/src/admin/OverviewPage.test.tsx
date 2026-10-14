@@ -10,6 +10,8 @@ const mocks = vi.hoisted(() => ({
   reportOverview: vi.fn(),
   saveCsv: vi.fn(),
   teamDay: vi.fn(),
+  adminEmployees: vi.fn(),
+  insights: vi.fn(),
 }));
 vi.mock('../api.js', () => ({ api: mocks }));
 
@@ -93,7 +95,25 @@ beforeEach(() => {
     },
     people: [],
   });
-  mocks.reportOverview.mockResolvedValue(OVERVIEW);
+  // The week asked for, and the week before it for the comparison.
+  mocks.reportOverview.mockImplementation(async (from: string) =>
+    from === '2026-09-28'
+      ? {
+          ...OVERVIEW,
+          from: '2026-09-28',
+          to: '2026-10-04',
+          totals: { ...OVERVIEW.totals, attendance: 0.8, late_starts: 0, missed_starts: 1 },
+        }
+      : OVERVIEW,
+  );
+  mocks.adminEmployees.mockResolvedValue({
+    employees: [
+      { id: 'id-Roshni Test', name: 'Roshni Test', email: null, reporting_manager_id: 'n' },
+      { id: 'id-=Farheen', name: '=Farheen', email: null, reporting_manager_id: null },
+      { id: 'n', name: 'Nilesh Test', email: null, reporting_manager_id: null },
+    ],
+  });
+  mocks.insights.mockResolvedValue({ status: 'live', insights: [] });
   mocks.saveCsv.mockImplementation(async (name: string) => `C:\\Users\\x\\Downloads\\${name}`);
 });
 
@@ -126,15 +146,25 @@ describe('overview model (ADR-0040 §3)', () => {
   });
 });
 
-describe('Reports → Overview (ADR-0040 §3)', () => {
-  it('last week by default: totals, charts, a table per area, health; CSV saved', async () => {
+describe('Reports → Trends (ADR-0040 §3, ADR-0047 §4)', () => {
+  it('last week by default: totals against the week before, teams, a table per area, health; CSV saved', async () => {
     const user = userEvent.setup();
     render(<Reports canOpenDays />);
-    await user.click(screen.getByRole('tab', { name: 'Overview' }));
+    await user.click(screen.getByRole('tab', { name: 'Trends' }));
     const totals = await screen.findByLabelText('overview-totals');
-    expect(mocks.reportOverview).toHaveBeenCalledTimes(1);
+    expect(mocks.reportOverview).toHaveBeenCalledWith('2026-10-05', '2026-10-11');
+    expect(mocks.reportOverview).toHaveBeenCalledWith('2026-09-28', '2026-10-04');
     expect(totals).toHaveTextContent('Attendance90%9 of 10 shift days');
-    expect(screen.getByRole('img', { name: '5 Oct: 90%' })).toBeTruthy();
+    expect(await screen.findByLabelText('Attendance change')).toHaveTextContent(
+      '▲ up 10 pts on the week before',
+    );
+    expect(screen.getByLabelText('Late starts change')).toHaveTextContent(
+      '▼ up 2 on the week before',
+    );
+    expect(screen.getByLabelText('Missed starts change')).toHaveTextContent('no change');
+    const teams = await screen.findByLabelText('teams');
+    expect(teams).toHaveTextContent("Nilesh Test's team · 1");
+    expect(teams).toHaveTextContent('No manager · 1');
     expect(screen.getByRole('img', { name: '5 Oct: 2 / 1' })).toBeTruthy();
     expect(screen.getByRole('table', { name: 'overview-hours' })).toHaveTextContent('80% (4/5)');
 
@@ -162,12 +192,50 @@ describe('Reports → Overview (ADR-0040 §3)', () => {
   it('a range over 93 days is not asked for', async () => {
     const user = userEvent.setup();
     render(<Reports canOpenDays />);
-    await user.click(screen.getByRole('tab', { name: 'Overview' }));
+    await user.click(screen.getByRole('tab', { name: 'Trends' }));
     await screen.findByLabelText('overview-totals');
+    expect(mocks.reportOverview).toHaveBeenCalledTimes(2);
     const from = screen.getByLabelText('overview-from');
     await user.clear(from);
     await user.type(from, '2026-01-01');
     expect(await screen.findByText('At most 93 days')).toBeTruthy();
-    expect(mocks.reportOverview).toHaveBeenCalledTimes(1);
+    expect(mocks.reportOverview).toHaveBeenCalledTimes(2);
+  });
+
+  it('Insights is the first tab; a number in Trends opens it filtered', async () => {
+    mocks.insights.mockResolvedValueOnce({ status: 'live', insights: [] }).mockResolvedValue({
+      status: 'live',
+      insights: [
+        {
+          id: '11111111-1111-4111-8111-111111111111',
+          employee_id: 'id-Roshni Test',
+          name: 'Roshni Test',
+          manager_name: 'Nilesh Test',
+          kind: 'late_starts',
+          severity: 'warning',
+          status: 'open',
+          headline: 'Late 3 times in the last 2 weeks',
+          evidence: {},
+          follow_up_on: null,
+          no_change: false,
+          opened_at: '2026-10-12T00:00:00Z',
+          updated_at: '2026-10-12T00:00:00Z',
+          draft: 'Hi Roshni, …',
+          last: null,
+        },
+      ],
+    });
+    const user = userEvent.setup();
+    render(<Reports canOpenDays />);
+    expect(screen.getByRole('tab', { name: 'Insights' })).toHaveAttribute('aria-selected', 'true');
+    expect(await screen.findByText(/no patterns in the last two weeks/)).toBeTruthy();
+
+    await user.click(screen.getByRole('tab', { name: 'Trends' }));
+    await user.click(await screen.findByRole('button', { name: '2 late starts in Nilesh Test' }));
+    expect(screen.getByRole('tab', { name: 'Insights' })).toHaveAttribute('aria-selected', 'true');
+    expect(await screen.findByLabelText('insight-kind')).toHaveValue('late_starts');
+    expect(screen.getByLabelText('insight-team')).toHaveValue('Nilesh Test');
+    expect(screen.getByLabelText(/^finding Roshni Test/)).toBeTruthy();
+    expect(mocks.insights).toHaveBeenCalledTimes(2);
   });
 });

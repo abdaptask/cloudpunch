@@ -23,6 +23,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   link) and a My week page for everyone with `self.timeline.read`;
   employees without team or admin access now land on it.
 - Only the person's own data; nothing about anyone else.
+### Web (and the next desktop): Insights and Trends in Reports, Insights in Team (ADR-0047 §4)
+
+- **Reports → Insights** (the first tab): the findings that need
+  attention, serious first, as cards. Each shows who, their manager's
+  team, what was found, the last step and a 14-day strip (one square a
+  day, colour plus a glyph: on time, late, no clock-in, short, off,
+  office, holiday, not working). **Nudge** opens the drafted message to
+  edit and send; **Dismiss** asks for a reason; **History** lists every
+  step. Views: All open, Serious, No change after nudge, Nudged,
+  Follow-up due; filter by kind and team, or find a person. "Show
+  closed" lists resolved and dismissed ones.
+- **Reports → Trends** (was Overview): each headline against the
+  previous period of the same length ("Late starts 18 · ▼ up 6 on the
+  week before"), a by-team breakdown, and late and missed starts week
+  by week. A tile or a team's late/missed number opens Insights
+  filtered to the people behind it. Tables, CSV and health unchanged.
+- **Team → Insights** for managers: the same cards for their team.
+- No desktop version bump here; it ships with the next release.
 
 ### Server: actionable insights (ADR-0047, migration 0021)
 

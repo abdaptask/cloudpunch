@@ -15,6 +15,7 @@ import {
   STATUS_LABEL,
   workedText,
 } from './admin/dayReportModel.js';
+import { InsightsInbox } from './admin/InsightsPage.js';
 import { PersonConnections } from './ConnectionsView.js';
 import { CorrectionForm, DayCorrections } from './Corrections.js';
 import { placeOf } from './connectionsModel.js';
@@ -66,7 +67,7 @@ export function TeamScreen({
 }): JSX.Element {
   const t = useTheme();
   // `?view=day-summary` (the manager's day-end email) opens the Day summary.
-  const [tab, setTab] = useState<'today' | 'day' | 'exceptions'>(() => {
+  const [tab, setTab] = useState<'today' | 'day' | 'exceptions' | 'insights'>(() => {
     try {
       return new URLSearchParams(window.location.search).get('view') === 'day-summary'
         ? 'day'
@@ -109,6 +110,7 @@ export function TeamScreen({
                 ['today', 'Today'],
                 ['day', 'Day summary'],
                 ['exceptions', 'Exceptions'],
+                ['insights', 'Insights'],
               ] as const
             ).map(([key, label]) => (
               <Button
@@ -143,10 +145,12 @@ export function TeamScreen({
                 setPerson({ id: r.employee_id, name: r.name, subtitle: STATUS_LABEL[r.status] })
               }
             />
-          ) : (
+          ) : tab === 'exceptions' ? (
             <Exceptions
               onOpen={(e) => setPerson({ id: e.employee_id, name: e.name, subtitle: null })}
             />
+          ) : (
+            <InsightsInbox compact />
           )}
         </>
       )}

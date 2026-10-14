@@ -23,6 +23,8 @@ import {
 } from './dayReportModel.js';
 import { chartColors, DayTimeline, StatusChip, TimelineLegend } from './DayTimeline.js';
 import { OverviewPage } from './OverviewPage.js';
+import { InsightsInbox } from './InsightsPage.js';
+import type { InsightFilter } from './insightsModel.js';
 
 const ERROR_TEXT: Record<string, string> = {
   offline: "Can't reach CloudPunch right now.",
@@ -572,7 +574,11 @@ function Tile({
   );
 }
 
-/** Reports in the console: the day summary and the overview (ADR-0040 §2, §3). */
+/**
+ * Reports in the console: Insights first (ADR-0047 §4), the day summary
+ * and Trends (ADR-0040 §2, §3). A number in Trends opens Insights
+ * filtered to the people behind it.
+ */
 export function Reports({
   canOpenDays,
   canSetOffice = false,
@@ -581,10 +587,16 @@ export function Reports({
   canSetOffice?: boolean;
 }): JSX.Element {
   const t = useTheme();
-  const [tab, setTab] = useState<'day' | 'overview'>('day');
+  const [tab, setTab] = useState<'insights' | 'day' | 'trends'>('insights');
+  // The filter Trends asked for, and a counter so each click starts fresh.
+  const [shown, setShown] = useState<{ filter: Partial<InsightFilter>; n: number }>({
+    filter: {},
+    n: 0,
+  });
   const tabs: [typeof tab, string][] = [
+    ['insights', 'Insights'],
     ['day', 'Day summary'],
-    ['overview', 'Overview'],
+    ['trends', 'Trends'],
   ];
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -602,10 +614,17 @@ export function Reports({
           </Button>
         ))}
       </div>
-      {tab === 'day' ? (
+      {tab === 'insights' ? (
+        <InsightsInbox key={shown.n} initial={shown.filter} />
+      ) : tab === 'day' ? (
         <ReportsPage canOpenDays={canOpenDays} canSetOffice={canSetOffice} />
       ) : (
-        <OverviewPage />
+        <OverviewPage
+          onShowInsights={(filter) => {
+            setShown((s) => ({ filter, n: s.n + 1 }));
+            setTab('insights');
+          }}
+        />
       )}
     </div>
   );

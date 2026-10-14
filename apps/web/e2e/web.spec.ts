@@ -4,7 +4,7 @@ import { mockApi, scrollsSideways } from './api.js';
 /**
  * The web app in a real browser (item 9), at desktop width and on a
  * phone (item 6): Team, a person's day, the day summary, the admin
- * console, Shifts and the Overview. The page must never scroll
+ * console, Shifts, Insights and Trends. The page must never scroll
  * sideways; wide tables scroll inside their own box.
  */
 
@@ -82,15 +82,32 @@ test('Shifts fits the window, wide or a phone', async ({ page }) => {
   expect(await scrollsSideways(page)).toBe(false);
 });
 
-test('Reports → Overview loads its numbers and charts', async ({ page }) => {
+test('Reports opens on Insights: a finding with its strip and a nudge to edit', async ({
+  page,
+}) => {
   await page.goto('/app/admin/');
   await page
     .getByRole('navigation', { name: 'admin-sections' })
     .getByRole('button', { name: 'Reports', exact: true })
     .click();
-  await page.getByRole('tab', { name: 'Overview' }).click();
+  const card = page.getByLabel(/^finding Roshni Sahani/);
+  await expect(card).toContainText("Nilesh Darekar's team");
+  await expect(card.getByRole('img')).toHaveAttribute('aria-label', /^Last 14 days:/);
+  await card.getByRole('button', { name: 'Nudge' }).click();
+  await expect(card.getByLabel('nudge-message')).toHaveValue(/^Hi Roshni/);
+  expect(await scrollsSideways(page)).toBe(false);
+});
+
+test('Reports → Trends loads its numbers, teams and chart', async ({ page }) => {
+  await page.goto('/app/admin/');
+  await page
+    .getByRole('navigation', { name: 'admin-sections' })
+    .getByRole('button', { name: 'Reports', exact: true })
+    .click();
+  await page.getByRole('tab', { name: 'Trends' }).click();
   await expect(page.getByLabel('overview-totals')).toContainText('Attendance');
-  await expect(page.getByRole('figure', { name: 'attendance-chart' })).toBeVisible();
+  await expect(page.getByRole('figure', { name: 'teams' })).toBeVisible();
+  await expect(page.getByRole('figure', { name: 'starts-chart' })).toBeVisible();
   expect(await scrollsSideways(page)).toBe(false);
 });
 
