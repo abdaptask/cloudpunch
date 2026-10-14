@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Desktop 0.1.44: every break counts in the app's totals
+
+- Tea and Personal breaks were left out of the dashboard's **Breaks**
+  readout and **Today's totals** (and Training out of Worked): the
+  totals only added up a fixed list of kinds that predated them. Every
+  kind is counted now, paid or unpaid, with a test that fails if a kind
+  is ever missing. The server, Team and reports were always right.
+
 ### Docs: privacy notice
 
 - Employee privacy notice: new "Patterns, nudges and My week" section

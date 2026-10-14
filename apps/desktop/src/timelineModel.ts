@@ -207,7 +207,10 @@ export function sessionsToday(
   return [...groups.values()].sort((a, b) => a.startedAt - b.startedAt);
 }
 
-/** Display order for per-kind totals. */
+/**
+ * Display order for per-kind totals. Every kind must be here: the totals
+ * and the dashboard's Breaks / Worked readouts add up only these.
+ */
 export const KIND_ORDER: readonly SegmentKind[] = [
   'working',
   'call_teams',
@@ -215,9 +218,12 @@ export const KIND_ORDER: readonly SegmentKind[] = [
   'call_other',
   'away_meeting',
   'away_phone',
+  'away_training',
   'away_working',
   'bio_break',
   'meal_break',
+  'rest_break',
+  'personal_break',
   'other_break',
   'prompt',
   'idle',
