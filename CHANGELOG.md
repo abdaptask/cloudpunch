@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Desktop 0.1.47
+
+- Version bump: the console's Reports → Habits (ADR-0051) and Computers → Export CSV / Email to update.
+
 ### Computers: Export CSV and Email to update (ADR-0046, ADR-0038)
 
 - **Export CSV** on Console → Computers saves the list as shown (system,
