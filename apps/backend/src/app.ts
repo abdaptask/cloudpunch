@@ -31,6 +31,7 @@ import { teamRoutes } from './team/routes.js';
 import { RoleNotes } from './alerts/roles.js';
 import { ShiftAlertJob } from './alerts/job.js';
 import { DayReportJob } from './reports/job.js';
+import { HabitsJob } from './habits/job.js';
 import { reportRoutes } from './reports/routes.js';
 import { historyRoutes } from './history/routes.js';
 import { InsightsJob } from './insights/job.js';
@@ -228,6 +229,16 @@ export async function buildApp(opts: BuildAppOptions) {
       });
       app.addHook('onReady', async () => dayReports.start());
       app.addHook('onClose', async () => dayReports.stop());
+      // ADR-0051: the 30-day habits inspector's emails to Administrators.
+      const habits = new HabitsJob({
+        db: opts.db,
+        log: app.log,
+        send: alertSend,
+        siteUrl: opts.env.PUBLIC_SITE_URL,
+        monitor,
+      });
+      app.addHook('onReady', async () => habits.start());
+      app.addHook('onClose', async () => habits.stop());
     }
     await app.register(peopleRoutes, {
       db: opts.db,

@@ -264,6 +264,92 @@ export interface OverviewWeek {
   idle_ms: number;
 }
 
+/** A typical time in minutes after local midnight (ADR-0051). */
+export interface TypicalTime {
+  median: number;
+  low: number;
+  high: number;
+  spread: number;
+  n: number;
+}
+
+export type HabitFlag =
+  | 'few_days'
+  | 'steady'
+  | 'irregular_start'
+  | 'irregular_end'
+  | 'often_late'
+  | 'late_on_weekday'
+  | 'leaves_clocked_in'
+  | 'locks_without_clocking_out'
+  | 'leaves_early'
+  | 'split_days'
+  | 'long_days'
+  | 'missed_starts'
+  | 'starts_from_sign_in';
+
+/** One person's habits over the window (ADR-0051). */
+export interface PersonHabits {
+  employee_id: string;
+  name: string;
+  tz: string;
+  days_worked: number;
+  shift_days: number;
+  start: TypicalTime | null;
+  end: TypicalTime | null;
+  start_by_weekday: (number | null)[];
+  late_days: number;
+  late_median: number | null;
+  on_time_rate: number | null;
+  early_leaves: number;
+  left_clocked_in: number;
+  idle_cap_outs: number;
+  locked_outs: number;
+  split_days: number;
+  long_days: number;
+  missed_starts: number;
+  from_sign_in: number;
+  label: string;
+  notes: string[];
+  flags: HabitFlag[];
+}
+
+export interface HabitsReport {
+  from: string;
+  to: string;
+  people: PersonHabits[];
+  company: {
+    people: number;
+    days_worked: number;
+    on_time_rate: number | null;
+    median_start: number | null;
+    median_end: number | null;
+    start_hours: number[];
+    end_hours: number[];
+    flags: Partial<Record<HabitFlag, number>>;
+    weeks: {
+      week_start: string;
+      days_worked: number;
+      on_time_rate: number | null;
+      median_start: number | null;
+      median_end: number | null;
+      late_days: number;
+      left_clocked_in: number;
+      auto_outs: number;
+    }[];
+    changed: {
+      employee_id: string;
+      name: string;
+      start_shift: number | null;
+      end_shift: number | null;
+      first_start: number | null;
+      last_start: number | null;
+      first_end: number | null;
+      last_end: number | null;
+    }[];
+  };
+}
+
 export interface Overview {
   from: string;
   to: string;
@@ -948,6 +1034,8 @@ export const api = {
   /** The overall report for a range (ADR-0040 §3), HR and Administrators. */
   reportOverview: (from: string, to: string): Promise<Overview> =>
     invoke('report_overview', { from, to }),
+  /** The habits inspector's window so far (ADR-0051), HR and Administrators. */
+  reportHabits: (): Promise<HabitsReport> => invoke('report_habits'),
   /** Save a CSV in Downloads; resolves to where it went. */
   saveCsv: (name: string, text: string): Promise<string> => invoke('save_csv', { name, text }),
   /** The newest published version per system (ADR-0046 §3). */

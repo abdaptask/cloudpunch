@@ -199,6 +199,8 @@ export async function rangeRows(
   from: string,
   to: string,
   now: Date,
+  /** Each person's working days as loaded (the habits inspector, ADR-0051). */
+  onDays?: (employee: Employee, days: readonly WorkingDay[]) => void,
 ): Promise<DayRow[]> {
   const ids = people.map((p) => p.id);
   const dates = datesBetween(from, to);
@@ -217,6 +219,7 @@ export async function rangeRows(
   for (const employee of people) {
     const rows = history.filter((r) => r.employeeId === employee.id);
     const days = await daysAround(db, employee.id, shiftDate(from, -1), shiftDate(to, 1), now);
+    onDays?.(employee, days);
     const rules = await rulesFor(db, employee.id);
     const waiting = (await db.corrections.listForEmployee(employee.id, loadFrom, loadTo)).filter(
       (c) => ['requested', 'endorsed'].includes(correctionStatus(c)),

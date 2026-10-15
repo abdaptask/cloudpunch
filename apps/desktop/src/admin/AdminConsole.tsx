@@ -108,6 +108,7 @@ export function AdminConsole({
             canOpenDays={has('team.timeline.read')}
             canSetOffice={has('hr.employee.write')}
             canCorrectTime={has('admin.correction.approve')}
+            canSeeHabits={has('hr.employee.read')}
           />
         );
     }

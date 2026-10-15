@@ -8,6 +8,8 @@ import { LOOKBACK_DAYS, inLookback, spanDays } from '../days/service.js';
 import { peopleIn, scopeFor, type TeamScope } from '../team/service.js';
 import { countsOf, dayRows, problemsFirst } from './day.js';
 import { CSV_SECTIONS, overview, overviewCsv, type CsvSection } from './overview.js';
+import { habitsReport, HABITS_FROM, HABITS_TO } from '../habits/load.js';
+import { shiftDate } from '../shifts/model.js';
 
 /**
  * Reports (ADR-0040):
@@ -15,6 +17,7 @@ import { CSV_SECTIONS, overview, overviewCsv, type CsvSection } from './overview
  *   GET /v1/reports/day?date=   each person's day, for the caller's team
  *   GET /v1/reports/overview?from&to             HR and Administrators (§3)
  *   GET /v1/reports/overview.csv?from&to&section  the same, one section as CSV
+ *   GET /v1/reports/habits[?from&to]              the habits inspector (ADR-0051)
  *
  * Who is in it follows Team (ADR-0025 §2, invariant 5): a Manager their
  * direct reports; HR and Administrators everyone. Each request writes
@@ -122,6 +125,29 @@ const reportRoutesImpl: FastifyPluginAsync<ReportRoutesOptions> = async (app, op
   app.get('/v1/reports/overview', hrOrAdmin, async (req, reply) => {
     const result = await overviewFor(req, reply);
     if (!result) return reply;
+    return reply.code(200).send(result);
+  });
+
+  // ADR-0051: the habits inspector. Without dates, its window so far.
+  app.get('/v1/reports/habits', hrOrAdmin, async (req, reply) => {
+    const user = req.auth ? await db.users.findByEntraObjectId(req.auth.oid) : null;
+    if (!user) return problem(reply, 403, 'no_user_for_oid', 'your account has no CloudPunch user');
+    const now = new Date();
+    const q = req.query as { from?: string; to?: string };
+    const yesterday = shiftDate(now.toISOString().slice(0, 10), -1);
+    const from = q.from ?? HABITS_FROM;
+    let to = q.to ?? (yesterday < HABITS_TO ? yesterday : HABITS_TO);
+    if (!q.to && to < from) to = from;
+    const bad = rangeProblem(from, to, now);
+    if (bad) return problem(reply, 400, 'date_out_of_range', bad);
+    const result = await habitsReport(db, await db.employees.listActive(), from, to, now);
+    await db.reports.auditView({
+      actorUserId: user.id,
+      report: 'habits',
+      detail: { from, to, people: String(result.people.length) },
+      correlationId: randomUUID(),
+      at: now,
+    });
     return reply.code(200).send(result);
   });
 
