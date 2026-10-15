@@ -392,6 +392,7 @@ pub fn run() {
             commands::insight_act,
             commands::update_now,
             commands::admin_updates_latest,
+            commands::admin_update_remind,
             commands::admin_retention_preview,
             commands::admin_policy_history,
             commands::admin_person_history,

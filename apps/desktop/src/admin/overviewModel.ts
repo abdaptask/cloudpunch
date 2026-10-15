@@ -139,6 +139,9 @@ function cell(v: string): string {
   return /[",\n\r]/.test(safe) ? `"${safe.replace(/"/g, '""')}"` : safe;
 }
 
+/** The same, for other console CSVs. */
+export const csvCell = cell;
+
 export function csvOf(o: Overview, section: CsvSection): string {
   const cols = COLUMNS[section];
   const lines = [

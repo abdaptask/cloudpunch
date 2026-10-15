@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Computers: Export CSV and Email to update (ADR-0046, ADR-0038)
+
+- **Export CSV** on Console → Computers saves the list as shown (system,
+  Behind only and the search): person, email, system, CloudPunch
+  version, the latest published for that system, up to date, first set
+  up, last seen, status. `cloudpunch-computers-YYYY-MM-DD.csv`.
+- **Email to update** (Administrators, like Push the update) lists the
+  people whose computers are behind the latest published version, all
+  ticked; untick anyone, add an optional line, Send. Each person gets
+  their own email from CloudPunch's mailbox with their version and how
+  to update. `POST /v1/admin/updates/remind {user_ids, message?}`:
+  addresses and versions come from the server's records, at most one
+  email per person an hour, each one in audit_log
+  (`update_reminder_sent`). 503 when the mailbox isn't set up. No
+  migration.
+
 ### Alerts say who, why and what to do (ADR-0043)
 
 - The "server errors" alert now groups failures by cause and, for each,

@@ -11,6 +11,8 @@ const mocks = vi.hoisted(() => ({
   removeHoliday: vi.fn(),
   adminDevices: vi.fn(),
   adminUpdatesLatest: vi.fn(),
+  adminUpdateRemind: vi.fn(),
+  saveCsv: vi.fn(),
   adminPolicyGet: vi.fn(),
   adminPolicyPut: vi.fn(),
   teamConnections: vi.fn(),
@@ -224,5 +226,103 @@ describe('Computers → Push the update (ADR-0046 §3)', () => {
     const panel = await screen.findByRole('region', { name: 'push-update' });
     expect(panel).toHaveTextContent('Only an Administrator can push an update.');
     expect(mocks.adminPolicyGet).not.toHaveBeenCalled();
+  });
+});
+
+describe('Computers → Export CSV and Email to update', () => {
+  const device = (over: Record<string, unknown>) => ({
+    device_id: crypto.randomUUID(),
+    user_id: 'u1',
+    display_name: 'Sweta Pandit',
+    work_email: 'sweta@aptask.com',
+    os: 'windows',
+    app_version: '0.1.32',
+    enrolled_at: '2026-10-09T09:00:00Z',
+    last_seen_at: '2026-10-15T17:42:00Z',
+    revoked_at: null,
+    ...over,
+  });
+  const devices = [
+    device({}),
+    device({ os: 'macos', app_version: '0.1.42' }),
+    device({
+      user_id: 'u2',
+      display_name: 'Eela Kapilla',
+      work_email: 'eela@aptask.com',
+      app_version: '0.1.40',
+    }),
+    device({
+      user_id: 'u3',
+      display_name: 'Amit, "AB" Bisht',
+      work_email: 'amit@aptask.com',
+      os: 'macos',
+      app_version: '0.1.42',
+    }),
+  ];
+
+  it('exports the rows as shown, quoted, with up to date against the published version', async () => {
+    mocks.adminDevices.mockResolvedValue({ devices });
+    mocks.saveCsv.mockResolvedValue('Downloads/x.csv');
+    const user = userEvent.setup();
+    render(<ComputersPage />);
+    await screen.findByRole('table', { name: 'computers-table' });
+    await user.type(screen.getByLabelText('computers-table-find'), 'aptask.com');
+    await user.selectOptions(screen.getByLabelText('filter-os'), 'macos');
+    await user.click(screen.getByRole('button', { name: 'Export CSV' }));
+    const [name, text] = mocks.saveCsv.mock.calls[0] as [string, string];
+    expect(name).toMatch(/^cloudpunch-computers-\d{4}-\d{2}-\d{2}\.csv$/);
+    const lines = text.trim().split('\r\n');
+    expect(lines[0]).toBe(
+      'Person,Email,System,CloudPunch version,Latest for system,Up to date,First set up,Last seen,Status',
+    );
+    // Mac only, sorted by name, quotes escaped.
+    expect(lines).toHaveLength(3);
+    expect(lines[1]).toMatch(/^"Amit, ""AB"" Bisht",amit@aptask.com,macOS,0.1.42,0.1.42,yes,/);
+    expect(lines[2]).toMatch(/^Sweta Pandit,sweta@aptask.com,macOS,0.1.42,0.1.42,yes,.*,active$/);
+    expect(await screen.findByText('Saved Downloads/x.csv')).toBeTruthy();
+    // No Email to update without the push capability.
+    expect(screen.queryByRole('button', { name: 'Email to update' })).toBeNull();
+  });
+
+  it('emails the people behind, all ticked; unticking leaves someone out', async () => {
+    mocks.adminDevices.mockResolvedValue({ devices });
+    mocks.adminUpdateRemind.mockResolvedValue({
+      sent: 1,
+      sent_ids: ['u1'],
+      skipped: [],
+    });
+    const user = userEvent.setup();
+    render(<ComputersPage canPush />);
+    await user.click(await screen.findByRole('button', { name: 'Email to update' }));
+    const panel = screen.getByRole('region', { name: 'email-to-update' });
+    const list = within(panel).getByRole('list', { name: 'people-behind' });
+    // Behind 0.1.42: Sweta's Windows 0.1.32 and Eela's 0.1.40; not Amit.
+    expect(
+      within(list)
+        .getAllByRole('listitem')
+        .map((li) => li.textContent),
+    ).toEqual(['Eela Kapilla · Windows 0.1.40', 'Sweta Pandit · Windows 0.1.32']);
+    await user.click(within(panel).getByLabelText('remind-Eela Kapilla'));
+    await user.type(within(panel).getByLabelText('remind-message'), 'Today, please.');
+    await user.click(within(panel).getByRole('button', { name: 'Send to 1 person' }));
+    expect(mocks.adminUpdateRemind).toHaveBeenCalledWith(['u1'], 'Today, please.');
+    expect(await within(panel).findByRole('status')).toHaveTextContent('Sent to 1 person.');
+  });
+
+  it('says why someone was not sent to', async () => {
+    mocks.adminDevices.mockResolvedValue({ devices });
+    mocks.adminUpdateRemind.mockResolvedValue({
+      sent: 1,
+      sent_ids: ['u1'],
+      skipped: [{ id: 'u2', reason: 'reminded_recently' }],
+    });
+    const user = userEvent.setup();
+    render(<ComputersPage canPush />);
+    await user.click(await screen.findByRole('button', { name: 'Email to update' }));
+    const panel = screen.getByRole('region', { name: 'email-to-update' });
+    await user.click(within(panel).getByRole('button', { name: 'Send to 2 people' }));
+    expect(await within(panel).findByRole('status')).toHaveTextContent(
+      'Sent to 1 person. Not sent: Eela Kapilla (emailed in the last hour).',
+    );
   });
 });

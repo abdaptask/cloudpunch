@@ -30,6 +30,8 @@ export function DataTable<T>({
   selected,
   empty = 'Nothing here.',
   toolbar,
+  query,
+  onQueryChange,
 }: {
   /** The table's accessible name. */
   label: string;
@@ -46,9 +48,14 @@ export function DataTable<T>({
   empty?: string;
   /** Filters and buttons beside the search box. */
   toolbar?: ReactNode;
+  /** The search text, when the page needs it too (e.g. to export what's shown). */
+  query?: string;
+  onQueryChange?: (q: string) => void;
 }): JSX.Element {
   const t = useTheme();
-  const [q, setQ] = useState('');
+  const [ownQ, setOwnQ] = useState('');
+  const q = query ?? ownQ;
+  const setQ = onQueryChange ?? setOwnQ;
   const [sort, setSort] = useState(initialSort ?? null);
   const needle = q.trim().toLowerCase();
   const found =

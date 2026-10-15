@@ -1270,6 +1270,20 @@ export class PostgresDb implements DbRepositories {
           UPDATE device SET signout_requested_at = NULL, signout_requested_by = NULL
           WHERE id = ${id} AND signout_requested_at IS NOT NULL`;
       },
+      auditUpdateReminder: async (e) => {
+        await this.sql`
+          INSERT INTO audit_log (actor_type, actor_user_id, entity_type, entity_id, action,
+                                 previous_value, new_value, reason, correlation_id, occurred_at)
+          VALUES ('user', ${e.actorUserId}, 'update_reminder', ${e.userId}, 'update_reminder_sent',
+                  NULL, ${this.sql.json({ to: e.to, versions: [...e.versions], latest: e.latest })},
+                  NULL, ${e.correlationId}, ${e.at})`;
+      },
+      lastUpdateReminderAt: async (userId) => {
+        const [row] = await this.sql<{ at: Date | null }[]>`
+          SELECT max(occurred_at) AS at FROM audit_log
+          WHERE entity_type = 'update_reminder' AND entity_id = ${userId}`;
+        return row?.at ?? null;
+      },
     };
   }
 

@@ -1,8 +1,11 @@
 import { useEffect, useState } from 'react';
 import { api, type DeviceRow } from '../api.js';
+import { Button } from '../ui/Button.js';
 import { useTheme } from '../ui/theme.js';
+import { computersCsv, computersCsvName, peopleBehind, type Latest } from './computersModel.js';
 import { compareVersions, versionSummary } from './versions.js';
 import { DataTable, input, Notice } from './DataTable.js';
+import { EmailToUpdate } from './EmailToUpdate.js';
 import { PushUpdate } from './PushUpdate.js';
 
 const ERROR_TEXT: Record<string, string> = {
@@ -38,6 +41,13 @@ export function ComputersPage({ canPush = false }: { canPush?: boolean }): JSX.E
   const [error, setError] = useState<string | null>(null);
   const [os, setOs] = useState<'' | DeviceRow['os']>('');
   const [behindOnly, setBehindOnly] = useState(false);
+  const [q, setQ] = useState('');
+  const [latest, setLatest] = useState<Latest | null>(null);
+  const [emailing, setEmailing] = useState(false);
+  const [saved, setSaved] = useState<string | null>(null);
+  useEffect(() => {
+    api.adminUpdatesLatest().then(setLatest, () => setLatest(null));
+  }, []);
   useEffect(() => {
     let current = true;
     api.adminDevices().then(
@@ -59,6 +69,21 @@ export function ComputersPage({ canPush = false }: { canPush?: boolean }): JSX.E
   );
   const behind = (d: DeviceRow): boolean => !!newest && compareVersions(d.app_version, newest) < 0;
   const rows = (devices ?? []).filter((d) => (!os || d.os === os) && (!behindOnly || behind(d)));
+  const searchText = (d: DeviceRow): string => `${d.display_name} ${d.work_email}`;
+  // Export CSV: the rows as shown (system, behind only and the search).
+  const exportCsv = async (): Promise<void> => {
+    const needle = q.trim().toLowerCase();
+    const shown = rows
+      .filter((d) => !needle || searchText(d).toLowerCase().includes(needle))
+      .sort((a, b) => a.display_name.localeCompare(b.display_name));
+    try {
+      setSaved(
+        `Saved ${await api.saveCsv(computersCsvName(new Date()), computersCsv(shown, latest))}`,
+      );
+    } catch (e) {
+      setError(errorText(String(e)));
+    }
+  };
   // Versions sort as numbers: 0.1.9 before 0.1.10.
   const versionKey = (v: string): string =>
     v
@@ -75,6 +100,9 @@ export function ComputersPage({ canPush = false }: { canPush?: boolean }): JSX.E
       />
       {!devices && !error && <p style={{ margin: 0, fontSize: 13, color: t.muted }}>Loading…</p>}
       {devices && <PushUpdate behind={devices.filter(behind).length} canPush={canPush} />}
+      {devices && emailing && (
+        <EmailToUpdate people={peopleBehind(devices, latest)} onClose={() => setEmailing(false)} />
+      )}
       {devices && (
         <>
           <p aria-label="version-summary" style={{ margin: 0, fontSize: 13 }}>
@@ -90,7 +118,9 @@ export function ComputersPage({ canPush = false }: { canPush?: boolean }): JSX.E
             label="computers-table"
             rows={rows}
             rowKey={(d) => d.device_id}
-            search={(d) => `${d.display_name} ${d.work_email}`}
+            search={searchText}
+            query={q}
+            onQueryChange={setQ}
             searchPlaceholder="Find a person or computer"
             initialSort={{ key: 'version', dir: 'asc' }}
             empty="No computers match."
@@ -115,6 +145,14 @@ export function ComputersPage({ canPush = false }: { canPush?: boolean }): JSX.E
                   />
                   Behind only
                 </label>
+                <Button variant="chip" onClick={() => void exportCsv()}>
+                  Export CSV
+                </Button>
+                {canPush && (
+                  <Button variant="chip" onClick={() => setEmailing(true)}>
+                    Email to update
+                  </Button>
+                )}
               </>
             }
             columns={[
@@ -164,6 +202,11 @@ export function ComputersPage({ canPush = false }: { canPush?: boolean }): JSX.E
               },
             ]}
           />
+          {saved && (
+            <p role="status" style={{ margin: 0, fontSize: 12.5 }}>
+              {saved}
+            </p>
+          )}
           <p style={{ margin: 0, fontSize: 11.5, color: t.muted }}>
             The version a computer last sent time events with. An app updates at its next sign-in
             while clocked out, or with Restart to update.

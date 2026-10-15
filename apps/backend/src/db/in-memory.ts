@@ -3,6 +3,7 @@ import type {
   PeopleRepo,
   RoleChangeAudit,
   WelcomeAudit,
+  UpdateReminderAudit,
   AppUser,
   AppUserRepo,
   BulkRecord,
@@ -161,6 +162,8 @@ export class InMemoryDb implements DbRepositories {
   readonly roleAudit: RoleChangeAudit[] = [];
   /** audit_log rows written by welcome emails, for tests. */
   readonly welcomeAudit: WelcomeAudit[] = [];
+  /** "Update CloudPunch" emails sent (Computers → Email to update). */
+  readonly updateReminderAudit: UpdateReminderAudit[] = [];
   /** Reporting-line changes (ADR-0025 §1), for tests. */
   readonly managerAudit: SetManagerInput[] = [];
   readonly statusAudit: RecordStatusInput[] = [];
@@ -891,6 +894,13 @@ export class InMemoryDb implements DbRepositories {
         if (d)
           this.deviceById.set(id, { ...d, signoutRequestedAt: null, signoutRequestedBy: null });
       },
+      auditUpdateReminder: async (entry) => {
+        this.updateReminderAudit.push(entry);
+      },
+      lastUpdateReminderAt: async (userId) =>
+        this.updateReminderAudit
+          .filter((r) => r.userId === userId)
+          .reduce<Date | null>((a, r) => (a && a > r.at ? a : r.at), null),
     };
 
     this.timeSessions = {

@@ -291,6 +291,23 @@ export interface DeviceRepo {
   signOut(input: DeviceSignOutInput): Promise<{ closedAt: Date | null }>;
   /** Clear `signout_requested_*` (the device enrolled again after signing in). */
   clearSignOut(id: string): Promise<void>;
+  /** An "update CloudPunch" email sent to a person (ADR-0046), for audit_log. */
+  auditUpdateReminder(entry: UpdateReminderAudit): Promise<void>;
+  /** When that person (app_user id) was last sent one, from audit_log. */
+  lastUpdateReminderAt(userId: string): Promise<Date | null>;
+}
+
+/** An "update CloudPunch" email (Computers → Email to update). */
+export interface UpdateReminderAudit {
+  actorUserId: string;
+  /** The app_user it went to. */
+  userId: string;
+  to: string;
+  /** Their computers' versions, and the version asked for. */
+  versions: readonly string[];
+  latest: string;
+  correlationId: string;
+  at: Date;
 }
 
 export interface TimeSessionRepo {

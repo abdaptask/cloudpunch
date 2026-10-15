@@ -79,6 +79,7 @@ export type WebApi = Pick<
   | 'insightNudge'
   | 'insightDismiss'
   | 'adminUpdatesLatest'
+  | 'adminUpdateRemind'
   | 'reportOverview'
   | 'reportHabits'
   | 'saveCsv'
@@ -376,6 +377,13 @@ export const api: WebApi = {
       ...officePatternBody(weekdays, effectiveFrom, reason),
     }),
   adminUpdatesLatest: () => get('/v1/admin/updates/latest'),
+  adminUpdateRemind: async (userIds, message) => {
+    check(userIds.length > 0 && userIds.every((id) => UUID.test(id)));
+    return send('POST', '/v1/admin/updates/remind', {
+      user_ids: userIds,
+      ...(message?.trim() ? { message: message.trim() } : {}),
+    });
+  },
   insights: (status) => get(`/v1/insights?status=${status === 'closed' ? 'closed' : 'live'}`),
   insightHistory: async (id) => {
     check(UUID.test(id));
