@@ -62,6 +62,74 @@ describe('the API watching itself (ADR-0043 §2)', () => {
     m.serverError();
     await tick();
     expect(emails[0]?.title).toBe('The API is answering with errors');
+    expect(emails[0]?.lines[0]).toBe('20 requests failed in the last 15 minutes, for one reason.');
+  });
+
+  it("server errors from one computer's fast clock name the person, the why and the fix", async () => {
+    const now = { t: Date.UTC(2026, 9, 15, 12, 0) };
+    const emails: OpsAlert[] = [];
+    const m = new OpsMonitor({
+      log,
+      siteUrl: 'https://cloudpunch.aptask.com',
+      now: () => now.t,
+      email: async (a) => {
+        emails.push(a);
+      },
+      teams: null,
+      device: async (id) =>
+        id === 'd1' ? { name: 'Sweta Pandit', os: 'macos', appVersion: '0.1.33' } : null,
+    });
+    const refused = {
+      route: 'POST /v1/events',
+      error: 'new row for relation "time_event" violates check constraint "time_event_check"',
+      account: 'sweta@aptask.com',
+      deviceId: 'd1',
+    };
+    m.clockAhead('d1', 103);
+    for (let i = 0; i < 20; i++) {
+      m.serverError(refused);
+      now.t += 30_000;
+    }
+    await tick();
+    await tick();
+    expect(emails).toHaveLength(1);
+    const [a] = emails;
+    expect(a?.title).toBe("Sweta Pandit's computer clock is ahead: uploads are waiting");
+    const body = a?.lines.join('\n') ?? '';
+    expect(body).toContain(
+      "A computer's clock is ahead of real time: 20 times, 17:30–17:39 India time.",
+    );
+    expect(body).toContain('Request: POST /v1/events');
+    expect(body).toContain('Who: Sweta Pandit (Mac, CloudPunch 0.1.33)');
+    expect(body).toContain('Nothing is lost');
+    expect(body).toContain('about 2 minutes fast');
+    expect(body).toContain('automatic date and time');
+    // Once an hour, however many more fail.
+    for (let i = 0; i < 30; i++) m.serverError(refused);
+    await tick();
+    expect(emails).toHaveLength(1);
+  });
+
+  it('server errors of different kinds are listed by cause, the unknown with its error', async () => {
+    const now = { t: 0 };
+    const { m, emails } = monitor(now);
+    for (let i = 0; i < 15; i++) {
+      m.serverError({ route: 'GET /v1/team', error: 'connect ECONNREFUSED 127.0.0.1:5432' });
+    }
+    for (let i = 0; i < 5; i++) {
+      m.serverError({
+        route: 'GET /v1/reports/day',
+        error: 'Cannot read properties of undefined',
+        account: 'abdulla@aptask.com',
+      });
+    }
+    await tick();
+    await tick();
+    expect(emails[0]?.title).toBe('The API is answering with errors');
+    expect(emails[0]?.lines[0]).toBe('20 requests failed in the last 15 minutes, for 2 reasons.');
+    expect(emails[0]?.lines[1]).toContain("The server can't reach its database: 15 times");
+    expect(emails[0]?.lines[2]).toContain('Who: abdulla@aptask.com');
+    expect(emails[0]?.lines[2]).toContain('Error: Cannot read properties of undefined');
   });
 
   it('a job failing 3 times in a row, then once when it works again', async () => {

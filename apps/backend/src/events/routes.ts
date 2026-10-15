@@ -117,6 +117,7 @@ const eventsRoutesImpl: FastifyPluginAsync<EventsRoutesOptions> = async (app, op
         // Still a server error for the app (it keeps and retries the
         // events), but counted, with the likeliest reason.
         const ahead = aheadMs > CLOCK_AHEAD_MS;
+        if (ahead) opts.monitor?.clockAhead(parsed.data.device_id, Math.round(aheadMs / 1000));
         await refused(
           parsed.data.device_id,
           parsed.data.employee_id,

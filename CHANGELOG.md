@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Alerts say who, why and what to do (ADR-0043)
+
+- The "server errors" alert now groups failures by cause and, for each,
+  says how many and when (India time), the request, **who** (name,
+  Mac/Windows and CloudPunch version, looked up from the computer), the
+  likely **why** in plain words, and **what to do**. Known causes: a
+  computer clock running ahead (with how far ahead), the database
+  unreachable, timeouts; anything else shows its error text. When one
+  person's fast clock is the only cause, the subject names them.
+- The refused-uploads alert points at Reports → Trends (Overview was
+  renamed).
+
 ### Habits inspector: 30 days of clock-in and clock-out patterns (ADR-0051)
 
 - **Server:** every Monday from 08:30 India time until 13 Nov,
