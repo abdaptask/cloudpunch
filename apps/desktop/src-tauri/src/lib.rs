@@ -396,6 +396,7 @@ pub fn run() {
             commands::admin_policy_history,
             commands::admin_person_history,
             commands::report_overview,
+            commands::report_habits,
             commands::save_csv,
             commands::admin_devices,
             commands::my_connections,

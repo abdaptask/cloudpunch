@@ -80,6 +80,7 @@ export type WebApi = Pick<
   | 'insightDismiss'
   | 'adminUpdatesLatest'
   | 'reportOverview'
+  | 'reportHabits'
   | 'saveCsv'
 >;
 
@@ -396,6 +397,7 @@ export const api: WebApi = {
     check(DATE.test(from) && DATE.test(to));
     return get(`/v1/reports/overview?from=${from}&to=${to}`);
   },
+  reportHabits: async () => get('/v1/reports/habits'),
   // The browser's own download; the name is what it's saved as.
   saveCsv: async (name, text) => {
     const url = URL.createObjectURL(new Blob([text], { type: 'text/csv;charset=utf-8' }));

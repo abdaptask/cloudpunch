@@ -827,8 +827,11 @@ export interface LocationAlertRepo {
 
 /** A report email (ADR-0040 §2): which report, the day it covers, to whom. */
 export interface ReportSentClaim {
-  /** `teams_corrections`: the daily Teams post (ADR-0043 §3; recipient `teams`). */
-  report: 'day' | 'teams_corrections';
+  /**
+   * `teams_corrections`: the daily Teams post (ADR-0043 §3; recipient `teams`).
+   * `habits`: the habits inspector's weekly and final emails (ADR-0051; the date sent).
+   */
+  report: 'day' | 'teams_corrections' | 'habits';
   /** `YYYY-MM-DD`. */
   date: string;
   recipient: string;
@@ -839,7 +842,7 @@ export interface ReportSentClaim {
 /** Opening a report (ADR-0040 §4): one audit row per request, not per person. */
 export interface ReportViewAudit {
   actorUserId: string;
-  report: 'day' | 'overview' | 'insights';
+  report: 'day' | 'overview' | 'insights' | 'habits';
   detail: Record<string, string>;
   correlationId: string;
   at: Date;

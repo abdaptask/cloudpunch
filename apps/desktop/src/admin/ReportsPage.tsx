@@ -24,6 +24,7 @@ import {
 } from './dayReportModel.js';
 import { chartColors, DayTimeline, StatusChip, TimelineLegend } from './DayTimeline.js';
 import { OverviewPage } from './OverviewPage.js';
+import { HabitsPage } from './HabitsPage.js';
 import { InsightsInbox } from './InsightsPage.js';
 import type { InsightFilter } from './insightsModel.js';
 
@@ -604,6 +605,18 @@ function Tile({
   );
 }
 
+type ReportTab = 'insights' | 'day' | 'trends' | 'habits';
+
+/** The tab a link asked for (`?tab=habits`, from the habits email). */
+export function linkedTab(): ReportTab {
+  try {
+    const tab = new URLSearchParams(window.location.search).get('tab');
+    return tab === 'day' || tab === 'trends' || tab === 'habits' ? tab : 'insights';
+  } catch {
+    return 'insights';
+  }
+}
+
 /**
  * Reports in the console: Insights first (ADR-0047 §4), the day summary
  * and Trends (ADR-0040 §2, §3). A number in Trends opens Insights
@@ -613,13 +626,16 @@ export function Reports({
   canOpenDays,
   canSetOffice = false,
   canCorrectTime = false,
+  canSeeHabits = true,
 }: {
   canOpenDays: boolean;
   canSetOffice?: boolean;
   canCorrectTime?: boolean;
+  /** Reports → Habits (ADR-0051): HR and Administrators. */
+  canSeeHabits?: boolean;
 }): JSX.Element {
   const t = useTheme();
-  const [tab, setTab] = useState<'insights' | 'day' | 'trends'>('insights');
+  const [tab, setTab] = useState<ReportTab>(linkedTab);
   // The filter Trends asked for, and a counter so each click starts fresh.
   const [shown, setShown] = useState<{ filter: Partial<InsightFilter>; n: number }>({
     filter: {},
@@ -629,6 +645,7 @@ export function Reports({
     ['insights', 'Insights'],
     ['day', 'Day summary'],
     ['trends', 'Trends'],
+    ...(canSeeHabits ? ([['habits', 'Habits']] as [ReportTab, string][]) : []),
   ];
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -654,6 +671,8 @@ export function Reports({
           canSetOffice={canSetOffice}
           canCorrectTime={canCorrectTime}
         />
+      ) : tab === 'habits' ? (
+        <HabitsPage />
       ) : (
         <OverviewPage
           onShowInsights={(filter) => {

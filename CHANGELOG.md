@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Habits inspector: 30 days of clock-in and clock-out patterns (ADR-0051)
+
+- **Server:** every Monday from 08:30 India time until 13 Nov,
+  Administrators get "Habits so far" by email; on 14 Nov the
+  "30-day habits report". Per person: usual start and finish with their
+  range, weekday differences, late and missed starts, leaving early,
+  leaving clocked in, locking up without clocking out (ADR-0050), split
+  and long days, starts from sign-in, and a plain-English label
+  ("Steady 09:05–18:00", "Often late"…). Company: on time, usual hours,
+  clock-ins by hour, week by week, and who changed since their first
+  week. Rule-based, from the time records already kept; no AI, no cost.
+  Each email goes once (`report_sent`, **migration 0022**).
+- **Console:** Reports → **Habits** (HR and Administrators), the same
+  picture live with filters by habit; `GET /v1/reports/habits`.
+  Desktop (next release) and web.
+
 ### Desktop 0.1.46
 
 - Version bump for the release carrying screen-lock handling (ADR-0050).

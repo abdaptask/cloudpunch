@@ -1461,6 +1461,16 @@ pub async fn report_overview(
     answer(fetched)
 }
 
+/// The habits inspector (ADR-0051).
+#[tauri::command]
+pub async fn report_habits(auth: State<'_, Arc<Auth>>) -> Result<serde_json::Value, String> {
+    let (_, fetched) = fetch_as_user(&auth, move |http, base, token| {
+        admin::report_habits(http, base, token)
+    })
+    .await?;
+    answer(fetched)
+}
+
 /// Save a report's CSV in the user's Downloads folder (ADR-0040 §3);
 /// returns the full path. Only plain `.csv` names; never overwrites
 /// (adds " (2)" and so on).

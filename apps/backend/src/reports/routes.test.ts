@@ -180,3 +180,27 @@ describe('GET /v1/reports/overview (ADR-0040 §3, §4)', () => {
     expect(bad.statusCode).toBe(400);
   });
 });
+
+describe('GET /v1/reports/habits (ADR-0051)', () => {
+  it('HR and Administrators get everyone, audited; others may not', async () => {
+    const res = await get(stranger, [AppRole.Administrator], '/v1/reports/habits');
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as { from: string; people: { name: string }[]; company: unknown };
+    expect(body.from).toBe('2026-10-15');
+    expect(body.people.map((p) => p.name).sort()).toEqual([
+      'Farheen Test',
+      'Mona Test',
+      'Sam Test',
+    ]);
+    expect(body.company).toMatchObject({ days_worked: 0 });
+    expect(db.reportAudit.at(-1)).toMatchObject({ report: 'habits', detail: { people: '3' } });
+
+    const hr = await get(stranger, [AppRole.HR], `/v1/reports/habits?from=${today}&to=${today}`);
+    expect(hr.statusCode).toBe(200);
+    for (const roles of [[AppRole.Employee], [AppRole.Manager]]) {
+      expect((await get(manager, roles, '/v1/reports/habits')).statusCode).toBe(403);
+    }
+    const bad = await get(stranger, [AppRole.Administrator], '/v1/reports/habits?from=x&to=y');
+    expect(bad.statusCode).toBe(400);
+  });
+});

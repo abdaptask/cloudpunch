@@ -601,6 +601,19 @@ pub fn report_overview(
     )
 }
 
+/// The habits inspector's window so far (ADR-0051): HR and
+/// Administrators; the server picks the dates.
+pub fn report_habits(http: &Client, base: &str, token: &str) -> Result<Value, DayError> {
+    send(
+        http,
+        base,
+        token,
+        reqwest::Method::GET,
+        "/v1/reports/habits",
+        None,
+    )
+}
+
 /// A file name safe to write in Downloads: letters, digits, `.`, `-`,
 /// `_`, ending `.csv`, no leading dot.
 pub fn csv_name_ok(name: &str) -> bool {
