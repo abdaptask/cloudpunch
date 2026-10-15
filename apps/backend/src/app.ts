@@ -27,6 +27,7 @@ import { peopleRoutes, type PeopleRoutesOptions } from './people/routes.js';
 import { policyAdminRoutes } from './policy/admin-routes.js';
 import { policyRoutes } from './policy/routes.js';
 import { updateRoutes } from './updates/routes.js';
+import { updateRemindRoutes } from './updates/remind.js';
 import { teamRoutes } from './team/routes.js';
 import { RoleNotes } from './alerts/roles.js';
 import { ShiftAlertJob } from './alerts/job.js';
@@ -215,6 +216,13 @@ export async function buildApp(opts: BuildAppOptions) {
     await app.register(reportRoutes, { db: opts.db });
     // Change history (ADR-0038 §8).
     await app.register(historyRoutes, { db: opts.db });
+    // Computers → Email to update (ADR-0046): ask people behind to update.
+    await app.register(updateRemindRoutes, {
+      db: opts.db,
+      send: alertSend,
+      downloadsDir: opts.env.DOWNLOADS_DIR,
+      siteUrl: opts.env.PUBLIC_SITE_URL,
+    });
     // Actionable insights (ADR-0047): findings, nudges, My week.
     await app.register(insightRoutes, {
       db: opts.db,

@@ -611,12 +611,26 @@ export interface EmployeeRow {
 /** Versions: an enrolled device (ADR-0025 §3). */
 export interface DeviceRow {
   device_id: string;
+  /** The owner's app_user id. */
+  user_id: string;
   display_name: string;
   work_email: string;
   os: 'windows' | 'macos';
   app_version: string;
+  /** When this computer was first set up. */
+  enrolled_at: string;
   last_seen_at: string | null;
   revoked_at: string | null;
+}
+
+/** Why Email to update left someone out. */
+export type RemindSkip =
+  'not_found' | 'no_computer' | 'up_to_date' | 'no_email' | 'reminded_recently' | 'send_failed';
+
+export interface RemindResult {
+  sent: number;
+  sent_ids: string[];
+  skipped: { id: string; reason: RemindSkip }[];
 }
 
 /** People → Active machine (ADR-0028 §4): where someone is clocked in. */
@@ -1041,6 +1055,9 @@ export const api = {
   /** The newest published version per system (ADR-0046 §3). */
   adminUpdatesLatest: (): Promise<{ windows: string | null; macos: string | null }> =>
     invoke('admin_updates_latest'),
+  /** Computers → Email to update (ADR-0046): people by app_user id. */
+  adminUpdateRemind: (userIds: string[], message?: string): Promise<RemindResult> =>
+    invoke('admin_update_remind', { userIds, message: message ?? null }),
   /** The company holidays, last month to a year ahead (ADR-0037). */
   holidays: (): Promise<{ holidays: Holiday[] }> => invoke<{ holidays: Holiday[] }>('holidays'),
   /** Add or rename a holiday (HR and Administrators). */

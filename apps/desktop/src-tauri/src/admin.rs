@@ -638,6 +638,32 @@ pub fn updates_latest(http: &Client, base: &str, token: &str) -> Result<Value, D
     )
 }
 
+/// Computers → Email to update (ADR-0046): ask these people (app_user
+/// ids) to update; the server finds their addresses and versions.
+pub fn update_remind(
+    http: &Client,
+    base: &str,
+    token: &str,
+    user_ids: &[String],
+    message: Option<&str>,
+) -> Result<Value, DayError> {
+    if user_ids.is_empty() || user_ids.len() > 500 || !user_ids.iter().all(|id| is_uuid(id)) {
+        return Err(DayError::Refused("invalid_argument".into()));
+    }
+    let mut body = serde_json::json!({ "user_ids": user_ids });
+    if let Some(m) = message.map(str::trim).filter(|m| !m.is_empty()) {
+        body["message"] = Value::String(m.to_string());
+    }
+    send(
+        http,
+        base,
+        token,
+        reqwest::Method::POST,
+        "/v1/admin/updates/remind",
+        Some(&body),
+    )
+}
+
 /// The company holidays (ADR-0037 §1), last month to a year ahead.
 pub fn holidays(http: &Client, base: &str, token: &str) -> Result<Value, DayError> {
     send(
@@ -1299,6 +1325,20 @@ mod tests {
             &[("drop_table".to_string(), 1)],
         );
         assert!(matches!(r, Err(DayError::Refused(c)) if c == "invalid_argument"));
+    }
+
+    #[test]
+    fn update_remind_refuses_bad_ids_before_sending() {
+        let bad = |r: Result<Value, DayError>| matches!(r, Err(DayError::Refused(c)) if c == "invalid_argument");
+        let base = "http://127.0.0.1:9";
+        assert!(bad(update_remind(&client(), base, "t", &[], None)));
+        assert!(bad(update_remind(
+            &client(),
+            base,
+            "t",
+            &["../x".to_string()],
+            Some("hi")
+        )));
     }
 
     #[test]

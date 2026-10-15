@@ -1501,6 +1501,20 @@ pub async fn admin_updates_latest(auth: State<'_, Arc<Auth>>) -> Result<serde_js
     answer(fetched)
 }
 
+/// Computers → Email to update (ADR-0046).
+#[tauri::command]
+pub async fn admin_update_remind(
+    auth: State<'_, Arc<Auth>>,
+    user_ids: Vec<String>,
+    message: Option<String>,
+) -> Result<serde_json::Value, String> {
+    let (_, fetched) = fetch_as_user(&auth, move |http, base, token| {
+        admin::update_remind(http, base, token, &user_ids, message.as_deref())
+    })
+    .await?;
+    answer(fetched)
+}
+
 /// The company holidays (ADR-0037 §1).
 #[tauri::command]
 pub async fn holidays(auth: State<'_, Arc<Auth>>) -> Result<serde_json::Value, String> {
