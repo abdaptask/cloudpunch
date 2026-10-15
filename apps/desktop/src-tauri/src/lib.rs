@@ -161,9 +161,23 @@ fn spawn_drain(
                     OsSignal::NetworkReachabilityChanged { reachable, .. } => {
                         is_online_drain.store(*reachable, std::sync::atomic::Ordering::Release);
                     }
-                    // Arriving at the computer (ADR-0018 §4).
-                    OsSignal::SessionUnlocked { at } | OsSignal::Resumed { at } => {
+                    // Arriving at the computer (ADR-0018 §4), and the end
+                    // of a lock or sleep (ADR-0050).
+                    OsSignal::SessionUnlocked { at } => {
                         agent.note_signed_in(*at);
+                        agent.screen_unlocked(*at, machine::LockKind::Screen);
+                    }
+                    OsSignal::Resumed { at } => {
+                        agent.note_signed_in(*at);
+                        agent.screen_unlocked(*at, machine::LockKind::Sleep);
+                    }
+                    // Stepping away (ADR-0050): idle at once; past the
+                    // shift's end, the end of the day.
+                    OsSignal::SessionLocked { at } => {
+                        agent.screen_locked(*at, machine::LockKind::Screen);
+                    }
+                    OsSignal::Suspending { at } => {
+                        agent.screen_locked(*at, machine::LockKind::Sleep);
                     }
                     OsSignal::MediaInUseChanged {
                         mic,

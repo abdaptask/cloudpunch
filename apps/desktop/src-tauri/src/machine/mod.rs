@@ -189,6 +189,37 @@ pub const AWAY_CHECK_GAP: Duration = Duration::from_secs(30);
 pub const AWAY_CHECK_WAIT: Duration = Duration::from_secs(120);
 /// ADR-0048: after "Still on break", ask again after this much more use.
 pub const BREAK_CHECK_AGAIN: Duration = Duration::from_secs(10 * 60);
+/// ADR-0050 §2: locked this long past the shift's end (or after locking
+/// past it) ends the day, dated at the lock.
+pub const LOCKED_END_OF_DAY: Duration = Duration::from_secs(5 * 60);
+
+/// What took the computer away from the person (ADR-0050).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LockKind {
+    /// The screen was locked: only an unlock ends it.
+    Screen,
+    /// The computer went to sleep: waking ends it unless the screen
+    /// was locked too.
+    Sleep,
+}
+
+/// The screen locked, or the computer asleep, since `since` (ADR-0050).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Lock {
+    pub since: SystemTime,
+    pub kind: LockKind,
+    /// The end of the shift this lock belongs to, if there is one.
+    pub day_end: Option<SystemTime>,
+}
+
+impl Lock {
+    /// When a lock this long ends the day: 5 minutes after the later of
+    /// the lock and the shift's end. `None` without a shift.
+    pub fn ends_day_at(&self) -> Option<SystemTime> {
+        self.day_end
+            .map(|end| end.max(self.since) + LOCKED_END_OF_DAY)
+    }
+}
 /// How much later than a mark the last input must be to count as new
 /// use. The OS last-input time is re-derived from the wall clock each
 /// tick (Windows' tick count moves in ~16 ms steps, macOS reports
@@ -417,6 +448,19 @@ pub enum Input {
     /// Raw mic-OR-camera state from the watcher, before debounce:
     /// `Some(kind of call)` while in use, `None` when not (ADR-0012).
     MediaInUse(Option<CallType>),
+    /// The screen locked or the computer went to sleep at `at`
+    /// (ADR-0050). `day_end`: the end of the shift that lock belongs
+    /// to, worked out by the caller from the person's shift.
+    Locked {
+        at: SystemTime,
+        kind: LockKind,
+        day_end: Option<SystemTime>,
+    },
+    /// The screen unlocked (`Screen`) or the computer woke (`Sleep`).
+    Unlocked {
+        at: SystemTime,
+        kind: LockKind,
+    },
     /// Periodic (~1 Hz) tick with the time of the last keyboard or
     /// pointer input.
     Tick {
@@ -435,6 +479,9 @@ pub enum CoreEvent {
         started_at: SystemTime,
     },
     UserClockOut,
+    /// ADR-0050 §2: `USER_CLOCK_OUT` by CloudPunch, dated at the lock,
+    /// because the screen stayed locked past the shift's end.
+    LockedClockOut,
     UserStartBreak {
         kind: BreakKind,
         planned_minutes: Option<u8>,
@@ -491,7 +538,7 @@ impl CoreEvent {
     pub fn event_type(&self) -> &'static str {
         match self {
             CoreEvent::UserClockIn | CoreEvent::UserClockInFrom { .. } => "USER_CLOCK_IN",
-            CoreEvent::UserClockOut => "USER_CLOCK_OUT",
+            CoreEvent::UserClockOut | CoreEvent::LockedClockOut => "USER_CLOCK_OUT",
             CoreEvent::UserStartBreak { .. } => "USER_START_BREAK",
             CoreEvent::UserEndBreak { .. } => "USER_END_BREAK",
             CoreEvent::UserBreakExtended { .. } => "USER_BREAK_EXTENDED",
@@ -526,6 +573,7 @@ impl CoreEvent {
             CoreEvent::UserBreakExtended { extend_minutes } => {
                 json!({ "extend_minutes": extend_minutes })
             }
+            CoreEvent::LockedClockOut => json!({ "reason": "locked_after_shift" }),
             CoreEvent::MediaDeviceState {
                 in_use: true,
                 call_type: Some(t),
@@ -589,6 +637,11 @@ pub enum Effect {
     AwayCheckOpened(AwayCheck),
     /// The question went away (answered, typing stopped, or Away ended).
     AwayCheckClosed,
+    /// ADR-0050 §2: clocked out at `at`, when the screen locked after
+    /// the shift.
+    ClockedOutAtLock {
+        at: SystemTime,
+    },
 }
 
 /// Why an input was refused. The core's state is unchanged.
@@ -635,6 +688,8 @@ pub struct Core {
     back_run: Option<SystemTime>,
     away_check: Option<AwayCheck>,
     away_check_after: Duration,
+    /// ADR-0050: the screen locked or the computer asleep.
+    lock: Option<Lock>,
 }
 
 impl Core {
@@ -654,7 +709,13 @@ impl Core {
             back_run: None,
             away_check: None,
             away_check_after: AWAY_CHECK_AFTER,
+            lock: None,
         }
+    }
+
+    /// The screen lock (or sleep) in progress, if any (ADR-0050).
+    pub fn lock(&self) -> Option<Lock> {
+        self.lock
     }
 
     /// "Welcome back?" while Away, if it is open (ADR-0027).
@@ -725,7 +786,13 @@ impl Core {
         let mut fx = Vec::new();
         // Acting on the app is input: a click while idle ends the idle
         // first, so the action itself is never refused (ADR-0018 §1).
-        let user_action = !matches!(input, Input::Tick { .. } | Input::MediaInUse(_));
+        let user_action = !matches!(
+            input,
+            Input::Tick { .. }
+                | Input::MediaInUse(_)
+                | Input::Locked { .. }
+                | Input::Unlocked { .. }
+        );
         if let (true, CoreState::Idle { since }) = (user_action, self.state) {
             self.end_idle(since, now, &mut fx);
         }
@@ -738,6 +805,7 @@ impl Core {
                     event: CoreEvent::UserClockIn,
                     at: now,
                 });
+                self.lock = None;
                 self.enter_active(now, &mut fx);
             }
             Input::ClockInFrom(started_at) => {
@@ -755,6 +823,7 @@ impl Core {
                     event: CoreEvent::UserClockInFrom { started_at },
                     at: now,
                 });
+                self.lock = None;
                 self.enter_active(now, &mut fx);
             }
             Input::ClockOut => {
@@ -851,6 +920,8 @@ impl Core {
             // Acting on the app already ended the idle above.
             Input::ConfirmPresence => {}
             Input::MediaInUse(raw) => self.media_raw(raw, now, &mut fx),
+            Input::Locked { at, kind, day_end } => self.locked(at.min(now), kind, day_end, &mut fx),
+            Input::Unlocked { at, kind } => self.unlocked(at.min(now), kind, &mut fx),
             Input::Tick { last_input_at } => self.tick(last_input_at, now, &mut fx),
         }
         // A presence check lasts only while its prompt or idle does.
@@ -1077,6 +1148,11 @@ impl Core {
         if self.state != CoreState::Active {
             self.pattern.reset();
         }
+        if let Some(lock) = self.lock {
+            if self.lock_tick(lock, now, fx) {
+                return;
+            }
+        }
         match self.state {
             CoreState::Active => {
                 if self.presence_check(last_input_at, now, fx) {
@@ -1264,6 +1340,144 @@ impl Core {
             self.idle_return = Some(stretch);
             fx.push(Effect::IdleReturned(stretch));
         }
+    }
+}
+
+impl Core {
+    /// ADR-0050 §1: a lock (or sleep) while working is stepping away at
+    /// once: idle from the lock, with no prompt nobody would see. On a
+    /// call, a break or Away nothing changes.
+    fn locked(
+        &mut self,
+        at: SystemTime,
+        kind: LockKind,
+        day_end: Option<SystemTime>,
+        fx: &mut Vec<Effect>,
+    ) {
+        if self.state == CoreState::ClockedOut {
+            return;
+        }
+        if let Some(lock) = self.lock.as_mut() {
+            // Asleep, then locked (or the other way): one lock, from the first.
+            if kind == LockKind::Screen {
+                lock.kind = LockKind::Screen;
+            }
+            return;
+        }
+        self.lock = Some(Lock {
+            since: at,
+            kind,
+            day_end,
+        });
+        self.lock_idle(at, fx);
+    }
+
+    /// Idle from `at` without showing the prompt: the screen is locked.
+    /// Returns whether anything changed.
+    fn lock_idle(&mut self, at: SystemTime, fx: &mut Vec<Effect>) -> bool {
+        let from = fx.len();
+        let ok = match self.state {
+            CoreState::Active => {
+                let event = CoreEvent::InputIdle5m {
+                    trigger: IdleTrigger::InputIdle,
+                };
+                self.apply(event, at, fx).is_ok()
+                    && self
+                        .apply(CoreEvent::IdleStarted { since: at }, at, fx)
+                        .is_ok()
+            }
+            CoreState::IdlePending { idle_since, .. } => {
+                let since = idle_since.min(at);
+                self.apply(CoreEvent::IdleStarted { since }, at, fx).is_ok()
+            }
+            _ => return false,
+        };
+        // The prompt opened and closed in the same instant: never show it.
+        let mut opened = false;
+        let mut i = from;
+        while i < fx.len() {
+            match fx[i] {
+                Effect::ShowPrompt { .. } => {
+                    opened = true;
+                    fx.remove(i);
+                }
+                Effect::HidePrompt if opened => {
+                    fx.remove(i);
+                }
+                _ => i += 1,
+            }
+        }
+        ok
+    }
+
+    /// The screen unlocked or the computer woke (ADR-0050).
+    fn unlocked(&mut self, at: SystemTime, kind: LockKind, fx: &mut Vec<Effect>) {
+        let Some(lock) = self.lock else {
+            return;
+        };
+        if kind == LockKind::Sleep && lock.kind == LockKind::Screen {
+            // Woke to a locked screen: still away until it unlocks.
+            return;
+        }
+        self.lock = None;
+        // Asleep past the end of the day: no tick ran to notice.
+        if lock.ends_day_at().is_some_and(|t| at >= t) && self.ends_day(lock, fx) {
+            return;
+        }
+        // Back at the computer: ask what that was (ADR-0018 §2).
+        if let CoreState::Idle { since } = self.state {
+            self.end_idle(since, at, fx);
+        }
+    }
+
+    /// While locked: end the day once the lock outlasts the shift by
+    /// [`LOCKED_END_OF_DAY`]; keep the idle (input on a lock screen
+    /// isn't the person working); the idle cap still applies. Returns
+    /// whether the ordinary tick is skipped.
+    fn lock_tick(&mut self, lock: Lock, now: SystemTime, fx: &mut Vec<Effect>) -> bool {
+        match self.state {
+            CoreState::ClockedOut | CoreState::OnCall | CoreState::Away { .. } => return false,
+            _ => {}
+        }
+        // A call ended (or a prompt opened) while locked: idle from now,
+        // and the day, if it ends, ends here, not at the original lock.
+        let mut lock = lock;
+        if matches!(
+            self.state,
+            CoreState::Active | CoreState::IdlePending { .. }
+        ) && self.lock_idle(now, fx)
+        {
+            lock.since = lock.since.max(now);
+            self.lock = Some(lock);
+        }
+        if lock.ends_day_at().is_some_and(|t| now >= t) && self.ends_day(lock, fx) {
+            return true;
+        }
+        if let (CoreState::Idle { since }, Some(cap)) = (self.state, self.cfg.max_idle) {
+            if elapsed(since, now) >= cap {
+                let _ = self.apply(CoreEvent::IdleCapReached, since + cap, fx);
+            }
+        }
+        true
+    }
+
+    /// ADR-0050 §2: clock out, dated at the lock. Not on a call or Away
+    /// (still working, the computer just locked).
+    fn ends_day(&mut self, lock: Lock, fx: &mut Vec<Effect>) -> bool {
+        if matches!(
+            self.state,
+            CoreState::ClockedOut | CoreState::OnCall | CoreState::Away { .. }
+        ) {
+            return false;
+        }
+        if self
+            .apply(CoreEvent::LockedClockOut, lock.since, fx)
+            .is_err()
+        {
+            return false;
+        }
+        fx.push(Effect::ClockedOutAtLock { at: lock.since });
+        true
     }
 }
 

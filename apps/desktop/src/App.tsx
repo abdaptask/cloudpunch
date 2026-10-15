@@ -924,9 +924,27 @@ export function App(): JSX.Element {
                       color: t.warnText,
                     }}
                   >
-                    {view.autoClockOutReason === 'idle_cap'
-                      ? `You were clocked out at ${formatClock(view.autoClockedOutAt)} after a long idle stretch. The idle time is kept for your manager to review.`
-                      : `You were clocked out at ${formatClock(view.autoClockedOutAt)} because the idle prompt wasn't answered. Time up to when the prompt appeared is kept.`}
+                    {view.autoClockOutReason === 'locked_after_shift' ? (
+                      <>
+                        We clocked you out at {formatClock(view.autoClockedOutAt)} when you locked
+                        your computer after your shift. Still working?{' '}
+                        {canAskCorrection && (
+                          <Button
+                            variant="chip"
+                            onClick={() => {
+                              setDetailsOpen(true);
+                              setAskingCorrection(true);
+                            }}
+                          >
+                            Ask to correct today
+                          </Button>
+                        )}
+                      </>
+                    ) : view.autoClockOutReason === 'idle_cap' ? (
+                      `You were clocked out at ${formatClock(view.autoClockedOutAt)} after a long idle stretch. The idle time is kept for your manager to review.`
+                    ) : (
+                      `You were clocked out at ${formatClock(view.autoClockedOutAt)} because the idle prompt wasn't answered. Time up to when the prompt appeared is kept.`
+                    )}
                   </p>
                 )}
 

@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import type { TimeEventRecord, TimeSession } from '../db/index.js';
+import type { Employee, TimeEventRecord, TimeSession } from '../db/index.js';
+import { exceptionsIn } from '../team/service.js';
+import { DEFAULT_BREAK_RULES } from './pay.js';
 import {
   buildSession,
   isoWithOffset,
@@ -136,6 +138,33 @@ describe('buildSession', () => {
       ['rest_break', 30, 15],
     ]);
     expect(breaks[0]?.endedAt.getTime()).toBe(local('2026-09-25T10:28:00', o).getTime());
+  });
+
+  it('ADR-0050: a clock-out by CloudPunch after a locked screen is marked, and a manager sees it', () => {
+    const o = IST;
+    const start = local('2026-10-15T09:00:00', o);
+    const lockAt = local('2026-10-15T18:10:00', o);
+    const events = [
+      evt('USER_CLOCK_IN', start, o),
+      evt('INPUT_IDLE_5M', lockAt, o, { trigger: 'input_idle' }),
+      evt('IDLE_STARTED', lockAt, o, { idle_since: isoWithOffset(lockAt, o) }),
+      evt('USER_CLOCK_OUT', lockAt, o, { reason: 'locked_after_shift' }),
+    ];
+    events.forEach((e, i) => ((e as { sequenceNumber: number }).sequenceNumber = i + 1));
+    const built = buildSession(session('s1', start, lockAt), events, new Date());
+    expect(built?.lockedOut).toBe(true);
+    expect(built?.end.getTime()).toBe(lockAt.getTime());
+    const [day] = workingDays(built ? [built] : []);
+    const ex = exceptionsIn(
+      { id: 'e', givenName: 'Roshni', familyName: 'Test', displayName: 'Roshni Test' } as Employee,
+      day ? [day] : [],
+      {},
+      12,
+      DEFAULT_BREAK_RULES,
+    );
+    expect(ex.find((x) => x.kind === 'auto_clock_out')?.reason).toBe('locked_after_shift');
+    // An ordinary clock-out isn't marked.
+    expect(shift('s2', '2026-10-15T09:00:00', '2026-10-15T18:00:00', o).lockedOut).toBeUndefined();
   });
 
   it('ADR-0048: a break ended on its own (back at the computer) says so', () => {

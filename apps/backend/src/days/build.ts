@@ -68,6 +68,8 @@ export interface BuiltSession {
   open: boolean;
   /** Made only of an approved correction: no device recorded it (ADR-0030 §4). */
   corrected?: boolean;
+  /** Clocked out by CloudPunch: the screen stayed locked past the shift (ADR-0050). */
+  lockedOut?: boolean;
   segments: DaySegment[];
 }
 
@@ -268,7 +270,11 @@ export function buildSession(
     if (e.explanation === 'break') seg.kind = breakKind(e.breakKind);
   }
   const last = segments[segments.length - 1];
+  const lockedOut = ordered.some(
+    (e) => e.eventType === 'USER_CLOCK_OUT' && e.payload['reason'] === 'locked_after_shift',
+  );
   return {
+    ...(lockedOut ? { lockedOut: true } : {}),
     session,
     tzIana: clockInEvt.tzIana,
     offsetMinutes: clockInEvt.utcOffsetMinutes,

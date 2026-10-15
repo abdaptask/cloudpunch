@@ -1571,3 +1571,256 @@ fn still_on_break_keeps_it_and_asks_again_after_10_minutes_of_use() {
     using(&mut core, 664 + 9 * 60, 670 + 10 * 60);
     assert!(core.away_check().is_some());
 }
+
+// ── screen lock (ADR-0050) ────────────────────────────────────────
+
+fn lock(core: &mut Core, at: u64, day_end: Option<u64>) -> Vec<Effect> {
+    core.handle(
+        Input::Locked {
+            at: t(at),
+            kind: LockKind::Screen,
+            day_end: day_end.map(t),
+        },
+        t(at),
+    )
+    .unwrap()
+}
+
+fn unlock(core: &mut Core, at: u64) -> Vec<Effect> {
+    core.handle(
+        Input::Unlocked {
+            at: t(at),
+            kind: LockKind::Screen,
+        },
+        t(at),
+    )
+    .unwrap()
+}
+
+fn shows_prompt(fx: &[Effect]) -> bool {
+    fx.iter().any(|e| matches!(e, Effect::ShowPrompt { .. }))
+}
+
+fn ends_day(fx: &[Effect]) -> bool {
+    fx.iter()
+        .any(|e| matches!(e, Effect::ClockedOutAtLock { .. }))
+}
+
+#[test]
+fn a_lock_while_working_is_idle_from_the_lock_with_no_prompt() {
+    let mut core = clocked_in();
+    tick(&mut core, 50, 60);
+    let fx = lock(&mut core, 60, Some(10_000));
+    assert_eq!(emitted(&fx), ["INPUT_IDLE_5M", "IDLE_STARTED"]);
+    assert!(!shows_prompt(&fx));
+    assert!(!fx.contains(&Effect::HidePrompt));
+    assert_eq!(core.state(), CoreState::Idle { since: t(60) });
+    // Input on the lock screen doesn't end it.
+    assert!(emitted(&tick(&mut core, 200, 201)).is_empty());
+    assert_eq!(core.state(), CoreState::Idle { since: t(60) });
+}
+
+#[test]
+fn unlocking_asks_what_that_was() {
+    let mut core = clocked_in();
+    lock(&mut core, 60, Some(10_000));
+    let fx = unlock(&mut core, 900);
+    assert_eq!(emitted(&fx), ["IDLE_ENDED"]);
+    let stretch = IdleStretch {
+        since: t(60),
+        until: t(900),
+    };
+    assert!(fx.contains(&Effect::IdleReturned(stretch)));
+    assert_eq!(core.state(), CoreState::Active);
+    assert_eq!(core.lock(), None);
+    // "On a break" still makes it that break (ADR-0042).
+    let fx = core
+        .handle(
+            Input::ExplainIdle {
+                explanation: IdleExplanation::Break(Some(BreakKind::Bio)),
+                note: None,
+            },
+            t(905),
+        )
+        .unwrap();
+    assert_eq!(emitted(&fx), ["USER_IDLE_EXPLAINED"]);
+}
+
+#[test]
+fn a_lock_with_the_prompt_up_logs_idle_from_the_last_input_and_hides_it() {
+    let mut core = prompting();
+    let fx = lock(&mut core, 310, None);
+    assert_eq!(emitted(&fx), ["IDLE_STARTED"]);
+    assert!(fx.contains(&Effect::HidePrompt));
+    assert_eq!(core.state(), CoreState::Idle { since: t(0) });
+}
+
+#[test]
+fn a_lock_on_a_call_a_break_or_away_changes_nothing() {
+    let mut call = on_call();
+    assert!(emitted(&lock(&mut call, 10, Some(10_000))).is_empty());
+    assert_eq!(call.state(), CoreState::OnCall);
+
+    let mut brk = clocked_in();
+    brk.handle(
+        Input::StartBreak {
+            kind: BreakKind::Meal,
+            planned_minutes: None,
+        },
+        t(5),
+    )
+    .unwrap();
+    assert!(emitted(&lock(&mut brk, 10, Some(10_000))).is_empty());
+    assert_eq!(
+        brk.state(),
+        CoreState::OnBreak {
+            kind: BreakKind::Meal
+        }
+    );
+
+    let mut away = clocked_in();
+    away.handle(
+        Input::MarkAway {
+            reason: AwayReason::Meeting,
+            note: None,
+        },
+        t(5),
+    )
+    .unwrap();
+    assert!(emitted(&lock(&mut away, 10, Some(10_000))).is_empty());
+    assert_eq!(
+        away.state(),
+        CoreState::Away {
+            reason: AwayReason::Meeting
+        }
+    );
+}
+
+#[test]
+fn locked_five_minutes_past_the_shift_end_clocks_out_at_the_lock() {
+    // Shift ends at t(3_600); locked at t(4_000), after it.
+    let mut core = clocked_in();
+    lock(&mut core, 4_000, Some(3_600));
+    assert!(emitted(&tick(&mut core, 3_990, 4_299)).is_empty());
+    let fx = tick(&mut core, 3_990, 4_300);
+    assert_eq!(emitted(&fx), ["USER_CLOCK_OUT"]);
+    assert!(fx.contains(&Effect::Emit {
+        event: CoreEvent::LockedClockOut,
+        at: t(4_000)
+    }));
+    assert!(fx.contains(&Effect::ClockedOutAtLock { at: t(4_000) }));
+    assert_eq!(core.state(), CoreState::ClockedOut);
+    assert_eq!(
+        CoreEvent::LockedClockOut.transition_payload(),
+        json!({ "reason": "locked_after_shift" })
+    );
+}
+
+#[test]
+fn a_lock_during_the_shift_ends_the_day_five_minutes_after_the_shift() {
+    let mut core = Core::new(
+        CoreConfig {
+            max_idle: None,
+            ..cfg()
+        },
+        t(0),
+    );
+    core.handle(Input::ClockIn, t(0)).unwrap();
+    lock(&mut core, 1_000, Some(3_600));
+    assert!(emitted(&tick(&mut core, 990, 3_899)).is_empty());
+    let fx = tick(&mut core, 990, 3_900);
+    assert!(fx.contains(&Effect::ClockedOutAtLock { at: t(1_000) }));
+    assert_eq!(core.state(), CoreState::ClockedOut);
+}
+
+#[test]
+fn back_within_five_minutes_of_a_late_lock_nothing_happens() {
+    let mut core = clocked_in();
+    lock(&mut core, 4_000, Some(3_600));
+    tick(&mut core, 3_990, 4_200);
+    let fx = unlock(&mut core, 4_250);
+    assert_eq!(emitted(&fx), ["IDLE_ENDED"]);
+    assert_eq!(core.state(), CoreState::Active);
+    // And no clock-out later.
+    assert!(!ends_day(&tick(&mut core, 4_400, 4_401)));
+    assert_eq!(core.state(), CoreState::Active);
+}
+
+#[test]
+fn asleep_past_the_end_of_the_day_clocks_out_at_the_sleep_on_waking() {
+    let mut core = clocked_in();
+    core.handle(
+        Input::Locked {
+            at: t(4_000),
+            kind: LockKind::Sleep,
+            day_end: Some(t(3_600)),
+        },
+        t(4_000),
+    )
+    .unwrap();
+    // No ticks while asleep; it wakes long after.
+    let fx = core
+        .handle(
+            Input::Unlocked {
+                at: t(40_000),
+                kind: LockKind::Sleep,
+            },
+            t(40_000),
+        )
+        .unwrap();
+    assert_eq!(emitted(&fx), ["USER_CLOCK_OUT"]);
+    assert!(fx.contains(&Effect::ClockedOutAtLock { at: t(4_000) }));
+}
+
+#[test]
+fn waking_to_a_locked_screen_keeps_the_lock() {
+    let mut core = clocked_in();
+    core.handle(
+        Input::Locked {
+            at: t(100),
+            kind: LockKind::Sleep,
+            day_end: None,
+        },
+        t(100),
+    )
+    .unwrap();
+    lock(&mut core, 5_000, None);
+    core.handle(
+        Input::Unlocked {
+            at: t(5_000),
+            kind: LockKind::Sleep,
+        },
+        t(5_000),
+    )
+    .unwrap();
+    assert_eq!(
+        core.lock().map(|l| (l.since, l.kind)),
+        Some((t(100), LockKind::Screen))
+    );
+    assert_eq!(emitted(&unlock(&mut core, 5_100)), ["IDLE_ENDED"]);
+}
+
+#[test]
+fn without_a_shift_the_idle_cap_still_ends_it() {
+    let mut core = clocked_in();
+    lock(&mut core, 100, None);
+    let cap = 120 * 60;
+    assert!(emitted(&tick(&mut core, 90, 100 + cap - 1)).is_empty());
+    let fx = tick(&mut core, 90, 100 + cap);
+    assert_eq!(emitted(&fx), ["IDLE_CAP_REACHED"]);
+    assert!(!ends_day(&fx));
+}
+
+#[test]
+fn locked_on_a_call_past_the_end_waits_for_the_call() {
+    let mut core = on_call();
+    lock(&mut core, 4_000, Some(3_600));
+    assert!(emitted(&tick(&mut core, 3_990, 4_400)).is_empty());
+    assert_eq!(core.state(), CoreState::OnCall);
+    // The call ends while still locked: idle from then; the day ends there.
+    core.handle(Input::MediaInUse(None), t(5_000)).unwrap();
+    tick(&mut core, 3_990, 5_010);
+    assert!(matches!(core.state(), CoreState::Idle { .. }));
+    let fx = tick(&mut core, 3_990, 5_400);
+    assert!(fx.contains(&Effect::ClockedOutAtLock { at: t(5_010) }));
+}

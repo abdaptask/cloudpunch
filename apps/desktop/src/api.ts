@@ -508,6 +508,8 @@ export interface TeamException {
   answered?: boolean;
   /** Long Away (ADR-0027): how it ended, if on its own. */
   ended_by?: 'input' | 'call';
+  /** Auto clock-out: the screen stayed locked past the shift (ADR-0050). */
+  reason?: 'locked_after_shift';
 }
 
 /** People: an employee and their manager (ADR-0025 §1). */
@@ -587,8 +589,11 @@ export interface StateView {
   idleSince: number | null;
   /** Just back from idle: ask what they were doing. */
   idleReturn: IdleReturn | null;
-  /** Why `autoClockedOutAt`: `idle_cap` (ADR-0018) or `prompt` (older). */
-  autoClockOutReason: 'idle_cap' | 'prompt' | null;
+  /**
+   * Why `autoClockedOutAt`: `idle_cap` (ADR-0018), `prompt` (older), or
+   * `locked_after_shift`: the screen stayed locked past the shift (ADR-0050).
+   */
+  autoClockOutReason: 'idle_cap' | 'prompt' | 'locked_after_shift' | null;
   /** Computer sign-in time a clock-in may start from (ADR-0018 §4). */
   signedInAt: number | null;
   /** The daily clock-in popup is showing (8:00 New York by default). */
