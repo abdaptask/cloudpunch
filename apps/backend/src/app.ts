@@ -175,7 +175,9 @@ export async function buildApp(opts: BuildAppOptions) {
         if (reply.statusCode < 500) return;
         const body = (req.body ?? {}) as { device_id?: unknown };
         const query = (req.query ?? {}) as { device_id?: unknown };
-        const deviceId = [body.device_id, query.device_id].find((x): x is string => typeof x === 'string');
+        const deviceId = [body.device_id, query.device_id].find(
+          (x): x is string => typeof x === 'string',
+        );
         monitor.serverError({
           route: `${req.method} ${req.routeOptions.url ?? req.url.split('?')[0]}`,
           error: failed.get(req) ?? null,
