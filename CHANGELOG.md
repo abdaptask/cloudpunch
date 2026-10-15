@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Desktop 0.1.46
+
+- Version bump for the release carrying screen-lock handling (ADR-0050).
+
 ### Desktop (next release): locking the screen (ADR-0050)
 
 - **Lock during the shift = stepping away, at once.** Idle starts at the
