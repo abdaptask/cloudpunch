@@ -42,6 +42,7 @@ import { sendShiftMail, type ShiftMail } from './alerts/mail.js';
 import { TeamsNotices } from './alerts/teams.js';
 import { OpsMonitor } from './ops/monitor.js';
 import { postTeams } from './ops/teams.js';
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export interface BuildAppOptions {
   /** Tests inject a fake Graph; otherwise built from the OBO certificate. */
@@ -155,11 +156,34 @@ export async function buildApp(opts: BuildAppOptions) {
                 }
               : null,
             teams: alertHook ? (p) => postTeams(alertHook, p) : null,
+            // Name the person and computer in server-error alerts.
+            device: async (id) => {
+              const d = UUID_RE.test(id) ? await db.devices.findById(id) : null;
+              if (!d) return null;
+              const u = await db.users.findById(d.userId);
+              return { name: u?.displayName ?? null, os: d.os, appVersion: d.appVersion };
+            },
           })
         : undefined;
     if (monitor) {
-      app.addHook('onResponse', async (_req, reply) => {
-        if (reply.statusCode >= 500) monitor.serverError();
+      // What went wrong, kept on the request for the alert below.
+      const failed = new WeakMap<object, string>();
+      app.addHook('onError', async (req, _reply, err) => {
+        failed.set(req, err.message);
+      });
+      app.addHook('onResponse', async (req, reply) => {
+        if (reply.statusCode < 500) return;
+        const body = (req.body ?? {}) as { device_id?: unknown };
+        const query = (req.query ?? {}) as { device_id?: unknown };
+        const deviceId = [body.device_id, query.device_id].find(
+          (x): x is string => typeof x === 'string',
+        );
+        monitor.serverError({
+          route: `${req.method} ${req.routeOptions.url ?? req.url.split('?')[0]}`,
+          error: failed.get(req) ?? null,
+          account: req.auth?.preferredUsername ?? null,
+          deviceId: deviceId ?? null,
+        });
       });
     }
     const teams = noticeHook
