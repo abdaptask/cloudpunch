@@ -264,6 +264,8 @@ export interface TeamException {
   answered?: boolean;
   /** Long Away (ADR-0027): how it ended, if on its own. */
   ended_by?: 'input' | 'call';
+  /** Auto clock-out: the screen stayed locked past the shift (ADR-0050). */
+  reason?: 'locked_after_shift';
 }
 
 /** Idle this long or longer is an exception (ADR-0025 §3). */
@@ -289,7 +291,8 @@ export function exceptionsIn(
     for (const s of day.sessions) {
       if (
         s.session.closedReason === 'idle_cap' ||
-        s.session.closedReason === 'idle_auto_clock_out'
+        s.session.closedReason === 'idle_auto_clock_out' ||
+        s.lockedOut
       ) {
         out.push({
           ...base,
@@ -300,6 +303,7 @@ export function exceptionsIn(
           over_minutes: null,
           segment: null,
           explanation: null,
+          ...(s.lockedOut ? { reason: 'locked_after_shift' as const } : {}),
         });
       }
       if (s.session.reconstructed) {

@@ -94,7 +94,12 @@ export function exceptionText(e: TeamException): { text: string; said: string | 
     case 'long_shift':
       return { text: `Worked ${hm(len)} (${hm(over)} over the long-shift mark)`, said: null };
     case 'auto_clock_out':
-      return { text: `Clocked out automatically after long idle at ${clock(e.at)}`, said: null };
+      return e.reason === 'locked_after_shift'
+        ? {
+            text: `Clocked out automatically at ${clock(e.at)}: computer locked after the shift`,
+            said: null,
+          }
+        : { text: `Clocked out automatically after long idle at ${clock(e.at)}`, said: null };
     case 'presence_check': {
       const what =
         e.pattern === 'periodic' ? 'input in a fixed rhythm' : 'non-stop input with no pauses';

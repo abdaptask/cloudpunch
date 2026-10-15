@@ -88,6 +88,27 @@ pub fn active_window(shift: &Shift, now: SystemTime) -> Option<ShiftWindow> {
         .find(|w| w.start <= now && now < w.end)
 }
 
+/// How long before a shift's start a lock still belongs to that day.
+const DAY_BEFORE: Duration = Duration::from_secs(4 * 3600);
+/// How long after a shift's end a lock still belongs to that day.
+const DAY_AFTER: Duration = Duration::from_secs(12 * 3600);
+
+/// The end of the shift a lock at `at` belongs to (ADR-0050): the
+/// shift starting yesterday, today or tomorrow whose day spans `at`
+/// (from 4 hours before its start to 12 hours after its end), the
+/// latest-starting one if two do. `None` off shift days (a weekend,
+/// say): then a lock is only idle.
+pub fn day_end(shift: &Shift, at: SystemTime) -> Option<SystemTime> {
+    let tz: Tz = shift.tz_iana.parse().ok()?;
+    let today = DateTime::<Utc>::from(at).with_timezone(&tz).date_naive();
+    [today.pred_opt()?, today, today.succ_opt()?]
+        .into_iter()
+        .filter_map(|d| window_on(shift, d))
+        .filter(|w| w.start <= at + DAY_BEFORE && at < w.end + DAY_AFTER)
+        .max_by_key(|w| w.start)
+        .map(|w| w.end)
+}
+
 /// `GET /v1/me/shift`.
 pub fn fetch(http: &Client, base: &str, token: &str) -> Result<ShiftInfo, DayError> {
     let body = get(http, base, token)?;
@@ -195,6 +216,27 @@ mod tests {
         assert!(active_window(&s, utc("2026-12-07T13:00:00Z")).is_some());
         // Saturday.
         assert_eq!(active_window(&s, utc("2026-10-10T14:00:00Z")), None);
+    }
+
+    #[test]
+    fn a_lock_belongs_to_the_shift_day_around_it() {
+        // 09:00–18:00 IST, Monday 5 Oct 2026 (03:30–12:30 UTC).
+        let s = shift("09:00", "18:00", "Asia/Kolkata");
+        let end = utc("2026-10-05T12:30:00Z");
+        // During the shift, in the evening, and before an early start.
+        assert_eq!(day_end(&s, utc("2026-10-05T08:30:00Z")), Some(end));
+        assert_eq!(day_end(&s, utc("2026-10-05T14:30:00Z")), Some(end));
+        assert_eq!(day_end(&s, utc("2026-10-05T01:30:00Z")), Some(end));
+        // Saturday morning: no shift day around it.
+        assert_eq!(day_end(&s, utc("2026-10-10T05:30:00Z")), None);
+        // Overnight 22:00–06:00 Eastern: 02:00 belongs to the night before.
+        let night = shift("22:00", "06:00", "America/New_York");
+        assert_eq!(
+            day_end(&night, utc("2026-10-06T06:00:00Z")),
+            Some(utc("2026-10-06T10:00:00Z"))
+        );
+        // A bad zone: no shift.
+        assert_eq!(day_end(&shift("09:00", "18:00", "Nowhere/Zone"), end), None);
     }
 
     #[test]

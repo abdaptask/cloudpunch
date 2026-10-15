@@ -1657,6 +1657,29 @@ describe('logged idle (ADR-0018)', () => {
       /after a long idle stretch\. The idle time is kept for your manager to review/,
     );
   });
+
+  it('a lock after the shift explains the clock-out and offers to correct today (ADR-0050)', async () => {
+    const at = Date.now() - 20 * 60_000;
+    mocks.myCapabilities.mockResolvedValue(['self.correction.request']);
+    mocks.getDay.mockResolvedValue({
+      day: { date: localDateOf(Date.now()), sessions: [], corrections: [] },
+      thisDevice: 'this-pc',
+      stale: false,
+    } as unknown as DayResult);
+    mocks.getState.mockResolvedValue(
+      view({
+        autoClockedOutAt: at,
+        autoClockOutReason: 'locked_after_shift',
+        timeline: [{ kind: 'working', startedAt: at - 3_600_000, endedAt: at, session: 1 }],
+      }),
+    );
+    const user = userEvent.setup();
+    render(<App />);
+    const note = await screen.findByText(/when you locked your computer after your shift/);
+    expect(note).toHaveTextContent(/Still working\?/);
+    await user.click(await screen.findByRole('button', { name: 'Ask to correct today' }));
+    expect(await screen.findByRole('button', { name: 'Ask to correct' })).toBeInTheDocument();
+  });
 });
 
 describe('daily clock-in popup (ADR-0018 §4)', () => {

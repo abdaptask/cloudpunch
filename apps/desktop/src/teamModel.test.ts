@@ -91,6 +91,10 @@ describe('exceptions wording', () => {
       exceptionText({ ...base, kind: 'long_shift', minutes: 612, over_minutes: 72, segment: null })
         .text,
     ).toBe('Worked 10h 12m (1h 12m over the long-shift mark)');
+    expect(
+      exceptionText({ ...base, kind: 'auto_clock_out', reason: 'locked_after_shift' }).text,
+    ).toMatch(/^Clocked out automatically at .+: computer locked after the shift$/);
+    expect(exceptionText({ ...base, kind: 'auto_clock_out' }).text).toMatch(/after long idle/);
   });
 });
 

@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Desktop (next release): locking the screen (ADR-0050)
+
+- **Lock during the shift = stepping away, at once.** Idle starts at the
+  lock (no 2-minute wait, no idle prompt behind the lock screen); on
+  unlock the app asks "What were you doing?" as usual, so "On a break"
+  still makes it that break. On a call, a break or Away, a lock changes
+  nothing. The 2-hour idle cap stays as the fallback.
+- **Lock after the shift = end of day.** Locked (or asleep) 5 minutes
+  past the later of the lock and the shift's end: clocked out, dated at
+  the lock, not 2 hours later. The app says "We clocked you out at 6:10
+  pm when you locked your computer after your shift. Still working?"
+  with **Ask to correct today**; Team shows "Clocked out automatically:
+  computer locked after the shift". No shift that day: unchanged.
+- `USER_CLOCK_OUT` carries `reason: "locked_after_shift"` (no migration).
+  macOS reports a lock before the wake when a Mac wakes to a locked
+  screen.
+
 ### Desktop 0.1.45: correct today, not just past days (ADR-0030)
 
 - **Ask to correct today** under Details: forgot to end a break, or

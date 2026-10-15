@@ -955,6 +955,26 @@ impl<U: Ui> Agent<U> {
         }
     }
 
+    /// The screen locked or the computer went to sleep at `at`
+    /// (ADR-0050): idle at once, and the end of the shift it belongs to
+    /// for the end-of-day clock-out.
+    pub fn screen_locked(&self, at: SystemTime, kind: crate::machine::LockKind) {
+        let day_end = {
+            let inner = self.lock();
+            inner
+                .shift
+                .shift
+                .as_ref()
+                .and_then(|s| crate::shift::day_end(s, at))
+        };
+        let _ = self.handle(Input::Locked { at, kind, day_end });
+    }
+
+    /// The screen unlocked or the computer woke at `at` (ADR-0050).
+    pub fn screen_unlocked(&self, at: SystemTime, kind: crate::machine::LockKind) {
+        let _ = self.handle(Input::Unlocked { at, kind });
+    }
+
     /// The person signed in to, unlocked or woke the computer at `at`.
     pub fn note_signed_in(&self, at: SystemTime) {
         let mut inner = self.lock();
@@ -1188,6 +1208,14 @@ impl<U: Ui> Agent<U> {
                 } else if matches!(before, CoreState::IdlePending { .. }) {
                     inner.auto_clocked_out_at = Some(now);
                     inner.auto_clock_out_reason = Some("prompt");
+                    plan.show_main = true;
+                }
+            }
+            // ADR-0050 §2: the screen stayed locked past the shift's end.
+            for effect in &outcome.effects {
+                if let Effect::ClockedOutAtLock { at } = effect {
+                    inner.auto_clocked_out_at = Some(*at);
+                    inner.auto_clock_out_reason = Some("locked_after_shift");
                     plan.show_main = true;
                 }
             }

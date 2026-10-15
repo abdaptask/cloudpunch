@@ -47,10 +47,11 @@ impl PollState {
     /// The signals `s` implies, given the previous samples.
     pub fn step(&mut self, s: Sample) -> Vec<OsSignal> {
         let mut out = Vec::new();
+        let mut resumed = None;
         if let Some(prev) = self.last_at {
             if s.at.duration_since(prev).is_ok_and(|gap| gap > SLEEP_GAP) {
                 out.push(OsSignal::Suspending { at: prev });
-                out.push(OsSignal::Resumed { at: s.at });
+                resumed = Some(OsSignal::Resumed { at: s.at });
             }
         }
         self.last_at = Some(s.at);
@@ -66,6 +67,9 @@ impl PollState {
             }
             self.locked = Some(locked);
         }
+        // Woken to a locked screen: the lock comes first, so the sleep and
+        // the lock are one time away (ADR-0050).
+        out.extend(resumed);
         if let Some(reachable) = s.reachable {
             if self.reachable != Some(reachable) {
                 out.push(OsSignal::NetworkReachabilityChanged {
@@ -176,6 +180,20 @@ mod tests {
         );
         // A slow sample (under the gap) is not a sleep.
         assert!(p.step(sample(3_615, None, None)).is_empty());
+    }
+
+    #[test]
+    fn waking_to_a_locked_screen_reports_the_lock_before_the_wake() {
+        let mut p = PollState::default();
+        p.step(sample(0, Some(false), None));
+        assert_eq!(
+            p.step(sample(3_600, Some(true), None)),
+            [
+                OsSignal::Suspending { at: t(0) },
+                OsSignal::SessionLocked { at: t(3_600) },
+                OsSignal::Resumed { at: t(3_600) }
+            ]
+        );
     }
 
     #[test]
