@@ -1,6 +1,6 @@
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { formatClock } from '../timelineModel.js';
 import { PeopleTable } from './PeopleTable.js';
 
@@ -28,6 +28,10 @@ const mocks = vi.hoisted(() => ({
   adminBulkOffice: vi.fn(),
   adminDeactivate: vi.fn(),
   adminBulkDeactivate: vi.fn(),
+  adminDeactivatedPeople: vi.fn(),
+  adminReactivate: vi.fn(),
+  adminPersonDays: vi.fn(),
+  adminPersonDay: vi.fn(),
 }));
 vi.mock('../api.js', () => ({ api: mocks }));
 
@@ -718,5 +722,107 @@ describe('Deactivate (ADR-0052)', () => {
     expect(notice).toHaveTextContent(
       "Not deactivated: Roshni Sahani (you can't deactivate yourself).",
     );
+  });
+});
+
+describe('Deactivated people (ADR-0053)', () => {
+  const GLORIA = {
+    employee_id: 'e-gloria',
+    oid: 'o-gloria',
+    name: 'Gloria Joseph',
+    email: 'gloria@aptask.com',
+    deactivated_at: '2026-11-05T10:00:00.000Z',
+    deactivated_by: 'Abdulla Sheikh',
+    reason: 'Left ApTask',
+    roles_before: ['Employee', 'Manager'],
+  };
+
+  // The history window starts from the day they left: pin today.
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-11-10T06:00:00Z'));
+    mocks.adminDeactivatedPeople.mockResolvedValue({ people: [GLORIA] });
+    mocks.adminPersonHistory.mockResolvedValue({ entries: [] });
+    mocks.adminPersonDays.mockResolvedValue({
+      name: 'Gloria Joseph',
+      days: [
+        { date: '2026-11-04', sessions: 1, worked_ms: 8 * 3_600_000 },
+        { date: '2026-11-03', sessions: 0, worked_ms: 0 },
+      ],
+    });
+  });
+
+  it('lists them with when, by whom and why; shows their time history', async () => {
+    const user = userEvent.setup();
+    render(<PeopleTable canAssignAll onClose={() => undefined} />);
+    await user.click(await screen.findByRole('tab', { name: 'Deactivated' }));
+    const list = await screen.findByRole('list', { name: 'deactivated-people' });
+    expect(list).toHaveTextContent('Gloria Joseph');
+    expect(list).toHaveTextContent('by Abdulla Sheikh');
+    await user.click(within(list).getByRole('button', { name: /Gloria Joseph/ }));
+    const panel = screen.getByRole('complementary', { name: 'deactivated Gloria Joseph' });
+    expect(within(panel).getByLabelText('deactivation')).toHaveTextContent(
+      'Reason: Left ApTask. Roles then: Employee, Manager.',
+    );
+    // 31 days ending the day they left.
+    const [, from, to] = mocks.adminPersonDays.mock.calls[0] as [string, string, string];
+    expect(to).toBe('2026-11-05');
+    expect(from).toBe('2026-10-06');
+    const days = await within(panel).findByRole('list', { name: 'history-days' });
+    // Only days with time on them.
+    expect(within(days).getAllByRole('button')).toHaveLength(1);
+    await user.click(within(panel).getByRole('button', { name: '← Earlier' }));
+    expect(mocks.adminPersonDays).toHaveBeenLastCalledWith('e-gloria', '2026-09-05', '2026-10-05');
+  });
+
+  it('Reactivate: roles they had, a reason, then back in People', async () => {
+    mocks.adminReactivate.mockResolvedValue({
+      employee_id: 'e-gloria',
+      oid: 'o-gloria',
+      roles: ['Employee', 'Manager'],
+      changed: true,
+    });
+    const user = userEvent.setup();
+    render(<PeopleTable canAssignAll onClose={() => undefined} />);
+    await user.click(await screen.findByRole('tab', { name: 'Deactivated' }));
+    await user.click(await screen.findByRole('button', { name: /Gloria Joseph/ }));
+    const panel = screen.getByRole('complementary', { name: 'deactivated Gloria Joseph' });
+    await user.click(within(panel).getByRole('button', { name: 'Reactivate…' }));
+    expect(within(panel).getByRole('checkbox', { name: 'reactivate-role-Manager' })).toBeChecked();
+    const go = within(panel).getByRole('button', { name: 'Reactivate Gloria Joseph' });
+    expect(go).toBeDisabled();
+    await user.type(within(panel).getByLabelText('reactivate-reason'), 'Rejoined');
+    mocks.adminDeactivatedPeople.mockResolvedValue({ people: [] });
+    await user.click(go);
+    expect(mocks.adminReactivate).toHaveBeenCalledWith(
+      'e-gloria',
+      ['Employee', 'Manager'],
+      'Rejoined',
+    );
+    expect(await screen.findByRole('status', { name: 'reactivated' })).toHaveTextContent(
+      'Gloria Joseph is active again with Employee, Manager.',
+    );
+    expect(await screen.findByText('No one is deactivated.')).toBeInTheDocument();
+    // People reloads too.
+    expect(mocks.adminPeople).toHaveBeenCalledTimes(2);
+  });
+
+  it('HR can give Employee and Manager only', async () => {
+    mocks.adminDeactivatedPeople.mockResolvedValue({
+      people: [{ ...GLORIA, roles_before: ['HR'] }],
+    });
+    const user = userEvent.setup();
+    render(<PeopleTable canAssignAll={false} onClose={() => undefined} />);
+    await user.click(await screen.findByRole('tab', { name: 'Deactivated' }));
+    await user.click(await screen.findByRole('button', { name: /Gloria Joseph/ }));
+    const panel = screen.getByRole('complementary', { name: 'deactivated Gloria Joseph' });
+    await user.click(within(panel).getByRole('button', { name: 'Reactivate…' }));
+    expect(within(panel).getByRole('checkbox', { name: 'reactivate-role-HR' })).toBeDisabled();
+    // HR wasn't theirs to give, so Employee is offered instead.
+    expect(within(panel).getByRole('checkbox', { name: 'reactivate-role-Employee' })).toBeChecked();
   });
 });

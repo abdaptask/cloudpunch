@@ -40,6 +40,8 @@ export interface TeamRoutesOptions {
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_RANGE_DAYS = 31;
+/** How far back a person's history goes (ADR-0053 §4), as Trends. */
+const HISTORY_DAYS = 366;
 const MAX_CHAIN = 50;
 
 const managerBody = z
@@ -190,6 +192,76 @@ const teamRoutesImpl: FastifyPluginAsync<TeamRoutesOptions> = async (app, opts) 
     return reply
       .code(200)
       .send({ name: nameOf(e), days: await daySummaries(db, e.id, r.from, r.to, now) });
+  });
+
+  // A person's history (ADR-0053 §4): HR and Administrators, anyone,
+  // active or not, back a year (Trends' limit), 31 days a request.
+  // Read-only and audited like the Team views.
+  const history = { preHandler: [requireCapability([Capability.HrEmployeeRead])] };
+  async function historySubject(
+    req: FastifyRequest,
+    reply: FastifyReply,
+  ): Promise<{ user: AppUser; e: Employee } | null> {
+    const user = req.auth ? await db.users.findByEntraObjectId(req.auth.oid) : null;
+    if (!user) {
+      await problem(reply, 403, 'no_user_for_oid', 'your account has no CloudPunch user');
+      return null;
+    }
+    const { employeeId } = req.params as { employeeId: string };
+    const e = UUID.test(employeeId) ? await db.employees.findById(employeeId) : null;
+    if (!e) {
+      await problem(reply, 404, 'not_found', 'no such person');
+      return null;
+    }
+    return { user, e };
+  }
+  const inHistory = (date: string, now: Date): boolean => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return false;
+    const today = now.toISOString().slice(0, 10);
+    return spanDays(date, today) <= HISTORY_DAYS && spanDays(date, today) >= 0;
+  };
+
+  app.get('/v1/admin/employees/:employeeId/days', history, async (req, reply) => {
+    const who = await historySubject(req, reply);
+    if (!who) return reply;
+    const now = new Date();
+    const q = req.query as { from?: string; to?: string };
+    const from = q.from ?? '';
+    const to = q.to ?? '';
+    if (!inHistory(from, now) || !inHistory(to, now) || from > to) {
+      return problem(
+        reply,
+        400,
+        'date_out_of_range',
+        `from and to must be YYYY-MM-DD within the last ${HISTORY_DAYS} days`,
+      );
+    }
+    if (spanDays(from, to) > MAX_RANGE_DAYS) {
+      return problem(reply, 400, 'range_too_long', `at most ${MAX_RANGE_DAYS} days`);
+    }
+    await audit(who.user, who.e.id, 'day_viewed', { from, to });
+    return reply
+      .code(200)
+      .send({ name: nameOf(who.e), days: await daySummaries(db, who.e.id, from, to, now) });
+  });
+
+  app.get('/v1/admin/employees/:employeeId/days/:date', history, async (req, reply) => {
+    const who = await historySubject(req, reply);
+    if (!who) return reply;
+    const now = new Date();
+    const { date } = req.params as { date: string };
+    if (!inHistory(date, now)) {
+      return problem(
+        reply,
+        400,
+        'date_out_of_range',
+        `date must be YYYY-MM-DD within the last ${HISTORY_DAYS} days`,
+      );
+    }
+    await audit(who.user, who.e.id, 'day_viewed', { date });
+    return reply
+      .code(200)
+      .send({ name: nameOf(who.e), ...(await dayView(db, who.e.id, date, now)) });
   });
 
   // Reporting lines (ADR-0025 §1): HR and Administrators.

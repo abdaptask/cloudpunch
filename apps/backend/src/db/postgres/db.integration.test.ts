@@ -709,6 +709,51 @@ describe('PostgresDb — employees + users', () => {
     expect(await count()).toBe(before + 1);
   });
 
+  it('ADR-0053: listInactive says when, by whom, why and the roles before; reactivate', async () => {
+    const gone = await seedEmployee();
+    const { oid } = await seedUser({ employeeId: gone });
+    const { userId: actor } = await seedUser();
+    await sql`UPDATE app_user SET display_name = 'Owner' WHERE id = ${actor}`;
+    const at = new Date('2026-11-04T23:00:00Z');
+    await db.people.deactivate({
+      employeeId: gone,
+      oid,
+      session: null,
+      entra: { outcome: 'removed', roles: ['Employee', 'Manager'] },
+      actorUserId: actor,
+      reason: 'Left ApTask',
+      correlationId: randomUUID(),
+      at,
+    });
+    const [row] = await db.employees.listInactive();
+    expect(row).toMatchObject({
+      id: gone,
+      entraObjectId: oid,
+      deactivatedAt: at,
+      deactivatedBy: 'Owner',
+      reason: 'Left ApTask',
+      rolesBefore: ['Employee', 'Manager'],
+      lastActiveDate: '2026-11-05',
+    });
+
+    const input = {
+      employeeId: gone,
+      oid,
+      roles: ['Employee'],
+      actorUserId: actor,
+      reason: 'Rejoined',
+      correlationId: randomUUID(),
+      at: new Date(),
+    };
+    expect(await db.people.reactivate(input)).toBe(true);
+    expect((await db.employees.findById(gone))?.status).toBe('active');
+    expect(await db.employees.listInactive()).toEqual([]);
+    expect(await db.people.reactivate(input)).toBe(false);
+    const rows = await sql<{ action: string }[]>`
+      SELECT action FROM audit_log WHERE action = 'employee_reactivated'`;
+    expect(rows).toHaveLength(1);
+  });
+
   it('a terminated record is left alone', async () => {
     const gone = await seedEmployee({ status: 'terminated' });
     const { userId } = await seedUser({ employeeId: gone });

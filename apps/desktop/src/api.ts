@@ -52,6 +52,18 @@ export interface BulkOutcome {
   unassigned_reports?: { id: string; name: string }[];
 }
 
+/** A deactivated person (ADR-0053): who, when, by whom and why. */
+export interface DeactivatedPerson {
+  employee_id: string;
+  oid: string | null;
+  name: string;
+  email: string | null;
+  deactivated_at: string | null;
+  deactivated_by: string | null;
+  reason: string | null;
+  roles_before: string[];
+}
+
 /** Who to deactivate (ADR-0052): their Entra id, record, or both. */
 export interface DeactivateTarget {
   oid?: string;
@@ -888,6 +900,26 @@ export const api = {
       employeeId: who.employee_id ?? null,
       reason,
     }),
+  /** Deactivated people (ADR-0053). */
+  adminDeactivatedPeople: (): Promise<{ people: DeactivatedPerson[] }> =>
+    invoke('admin_deactivated_people'),
+  /** Reactivate (ADR-0053 §2): these roles back in Entra, the record on. */
+  adminReactivate: (
+    employeeId: string,
+    roles: string[],
+    reason: string,
+  ): Promise<{ employee_id: string; oid: string; roles: string[]; changed: boolean }> =>
+    invoke('admin_reactivate', { employeeId, roles, reason }),
+  /** Anyone's day totals, a year back (ADR-0053 §4; HR and Administrators). */
+  adminPersonDays: (
+    employeeId: string,
+    from: string,
+    to: string,
+  ): Promise<{ name: string; days: DaySummary[] }> =>
+    invoke('admin_person_days', { employeeId, from, to }),
+  /** Anyone's day, a year back (ADR-0053 §4). */
+  adminPersonDay: (employeeId: string, date: string): Promise<TeamDay> =>
+    invoke<TeamDay>('admin_person_day', { employeeId, date }),
   /** Deactivate selected (ADR-0052 §5): each person answered. */
   adminBulkDeactivate: (
     key: string,

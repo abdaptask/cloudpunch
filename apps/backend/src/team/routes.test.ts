@@ -527,3 +527,66 @@ describe('bulk manager (ADR-0038 §5)', () => {
     expect((await call(manager, MANAGER, 'PUT', URL, body([stranger], null))).statusCode).toBe(403);
   });
 });
+
+describe("a person's history (ADR-0053 §4)", () => {
+  const ADMIN = [AppRole.Administrator];
+  const off = async (id: string) => {
+    await db.people.deactivate({
+      employeeId: id,
+      oid: oidOf[id] ?? null,
+      session: null,
+      entra: { outcome: 'removed', roles: ['Employee'] },
+      actorUserId: randomUUID(),
+      reason: 'Left ApTask',
+      correlationId: randomUUID(),
+      at: new Date(),
+    });
+  };
+
+  it('HR and Administrators see a deactivated person’s days, back past the 30-day look-back', async () => {
+    const ago = 60 * 24 * 60; // 60 days
+    await seedOpen(report, ago + 120, [], { minutesAgo: ago, reason: 'user_clock_out' });
+    await off(report);
+    const date = dateOf(ago);
+    // Team still won't show them…
+    expect((await call(hr, HR, 'GET', `/v1/team/${report}/days/${today()}`)).statusCode).toBe(404);
+    // …their history does.
+    const day = await call(hr, HR, 'GET', `/v1/admin/employees/${report}/days/${date}`);
+    expect(day.statusCode).toBe(200);
+    expect(day.json<{ name: string; totals: { worked_ms: number } }>()).toMatchObject({
+      name: 'Farheen Test',
+      totals: { worked_ms: 120 * MIN },
+    });
+    const from = new Date(Date.now() - 70 * 86_400_000).toISOString().slice(0, 10);
+    const to = new Date(Date.now() - 40 * 86_400_000).toISOString().slice(0, 10);
+    const days = await call(
+      stranger,
+      ADMIN,
+      'GET',
+      `/v1/admin/employees/${report}/days?from=${from}&to=${to}`,
+    );
+    expect(days.statusCode).toBe(200);
+    expect(
+      days.json<{ days: { date: string; worked_ms: number }[] }>().days.find((d) => d.date === date)
+        ?.worked_ms,
+    ).toBe(120 * MIN);
+    expect(db.viewAudit.filter((v) => v.employeeId === report)).toHaveLength(2);
+  });
+
+  it('a Manager can’t; a year back at most; 31 days a request', async () => {
+    await off(report);
+    expect(
+      (await call(manager, MANAGER, 'GET', `/v1/admin/employees/${report}/days/${today()}`))
+        .statusCode,
+    ).toBe(403);
+    const old = new Date(Date.now() - 400 * 86_400_000).toISOString().slice(0, 10);
+    expect(
+      (await call(hr, HR, 'GET', `/v1/admin/employees/${report}/days/${old}`)).statusCode,
+    ).toBe(400);
+    const from = new Date(Date.now() - 40 * 86_400_000).toISOString().slice(0, 10);
+    expect(
+      (await call(hr, HR, 'GET', `/v1/admin/employees/${report}/days?from=${from}&to=${today()}`))
+        .statusCode,
+    ).toBe(400);
+  });
+});

@@ -323,6 +323,22 @@ export class PostgresDb implements DbRepositories {
           }
           return { changed, closedAt, devices: devices.length, unassigned };
         }),
+      reactivate: (i) =>
+        this.sql.begin(async (tx) => {
+          const [row] = await tx<{ status: string }[]>`
+            SELECT status FROM employee WHERE id = ${i.employeeId} FOR UPDATE`;
+          if (row?.status !== 'inactive') return false;
+          await tx`UPDATE employee SET status = 'active', updated_at = now()
+                   WHERE id = ${i.employeeId}`;
+          await tx`
+            INSERT INTO audit_log (actor_type, actor_user_id, entity_type, entity_id, action,
+                                   previous_value, new_value, reason, correlation_id, occurred_at)
+            VALUES ('user', ${i.actorUserId}, 'employee', ${i.employeeId}, 'employee_reactivated',
+                    ${tx.json({ status: 'inactive' })},
+                    ${tx.json({ status: 'active', oid: i.oid, roles: [...i.roles] })},
+                    ${i.reason}, ${i.correlationId}, ${i.at})`;
+          return true;
+        }),
       auditRoleChange: async (e) => {
         await this.sql`
           INSERT INTO audit_log (actor_type, actor_user_id, entity_type, entity_id, action,
@@ -879,6 +895,46 @@ export class PostgresDb implements DbRepositories {
           ORDER BY coalesce(e.display_name, e.given_name || ' ' || e.family_name)
         `;
         return rows.map(map);
+      },
+      listInactive: async () => {
+        const rows = await this.sql<
+          (EmployeeRow & {
+            deactivatedAt: Date | null;
+            deactivatedBy: string | null;
+            reason: string | null;
+            before: { roles?: string[] } | null;
+          })[]
+        >`
+          SELECT
+            e.id, e.source, e.greythr_employee_id, e.employee_number,
+            e.given_name, e.family_name, e.display_name, e.status,
+            e.department_id, e.reporting_manager_id, u.work_email, u.entra_object_id,
+            a.occurred_at AS deactivated_at, a.reason,
+            a.previous_value AS before,
+            coalesce(nullif(au.display_name, ''), au.work_email) AS deactivated_by
+          FROM employee e
+          LEFT JOIN app_user u ON u.employee_id = e.id
+          LEFT JOIN LATERAL (
+            SELECT occurred_at, reason, previous_value, actor_user_id
+            FROM audit_log
+            WHERE entity_type = 'employee' AND entity_id = e.id
+              AND (action = 'employee_deactivated'
+                   OR (action = 'status_set' AND new_value->>'status' = 'inactive'))
+            ORDER BY occurred_at DESC
+            LIMIT 1
+          ) a ON true
+          LEFT JOIN app_user au ON au.id = a.actor_user_id
+          WHERE e.status = 'inactive'
+          ORDER BY coalesce(e.display_name, e.given_name || ' ' || e.family_name)
+        `;
+        return rows.map((r) => ({
+          ...map(r),
+          ...(r.deactivatedAt ? { lastActiveDate: indiaDate(r.deactivatedAt) } : {}),
+          deactivatedAt: r.deactivatedAt,
+          deactivatedBy: r.deactivatedBy,
+          reason: r.reason,
+          rolesBefore: Array.isArray(r.before?.roles) ? r.before.roles : [],
+        }));
       },
       listActive: async () => {
         const rows = await this.sql<EmployeeRow[]>`
@@ -1589,6 +1645,11 @@ interface PolicyOverrideRow {
   reason: string | null;
   updatedByUserId: string;
   updatedAt: Date;
+}
+
+/** The India date of `at` (ADR-0053 §3; the workforce is India-only). */
+function indiaDate(at: Date): string {
+  return new Date(at.getTime() + 330 * 60_000).toISOString().slice(0, 10);
 }
 
 interface EmployeeRow {

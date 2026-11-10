@@ -348,6 +348,7 @@ function Person({
 function useTeamDay(
   id: string,
   date: string,
+  load: (id: string, date: string) => Promise<TeamDay> = api.teamDay,
 ): { day: TeamDay | null; error: string | null; reload: () => void } {
   const [day, setDay] = useState<TeamDay | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -356,7 +357,7 @@ function useTeamDay(
     let current = true;
     setDay(null);
     setError(null);
-    api.teamDay(id, date).then(
+    load(id, date).then(
       (d) => {
         if (current) setDay(d);
       },
@@ -367,7 +368,7 @@ function useTeamDay(
     return () => {
       current = false;
     };
-  }, [id, date, n]);
+  }, [id, date, n, load]);
   return { day, error, reload: () => setN((x) => x + 1) };
 }
 
@@ -580,13 +581,16 @@ export function EarlierDay({
   id,
   date,
   canCorrect,
+  load,
 }: {
   id: string;
   date: string;
   canCorrect: boolean;
+  /** Where the day comes from; Team's by default (ADR-0053: a person's history). */
+  load?: (id: string, date: string) => Promise<TeamDay>;
 }): JSX.Element {
   const t = useTheme();
-  const { day, error, reload } = useTeamDay(id, date);
+  const { day, error, reload } = useTeamDay(id, date, load);
   return (
     <div style={{ padding: '4px 2px 12px' }}>
       {error && <Note t={t} alert text={errorText(error)} />}

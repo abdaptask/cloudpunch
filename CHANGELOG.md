@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Deactivated people: history, past reports, Reactivate (ADR-0053)
+
+- **Settings → People → Deactivated** lists everyone deactivated with
+  when, by whom and why. Opening one shows their **time history** (31
+  days at a time, Earlier/Later, back a year; each day opens to the
+  same timeline as Team), their **changes**, and **Reactivate**.
+- **Reactivate** gives back the roles they had (HR: Employee/Manager),
+  needs a reason, turns the record on with one audit row
+  (`employee_reactivated`). Entra failing changes nothing; a deleted
+  Microsoft account can't be reactivated. Manager and shift are set
+  again in People.
+- **Past reports keep who worked them:** Day summary, Trends and the
+  CSV include deactivated people for the days up to the day they left.
+- `GET /v1/admin/people/deactivated`, `POST /v1/admin/people/reactivate`,
+  `GET /v1/admin/employees/:id/days[/:date]` (HR and Administrators,
+  366 days, audited). No migration. Console needs desktop 0.1.49.
+
 ### Release scripts use Windows OpenSSH on Windows
 
 - `publish-installer.sh` and `deploy-pilot.sh` put Windows OpenSSH first when it's there: Git Bash's ssh/scp can't use the Windows ssh-agent, so `build-windows.ps1 -Publish` failed at the upload (`scp: Connection closed`).

@@ -36,7 +36,12 @@ class FakeGraph implements Graph {
     this.assignments.push({ id: randomUUID(), oid, name: oid, role });
   }
   searchUsers = async (): Promise<DirectoryUser[]> => [];
-  getUser = async (): Promise<DirectoryUser | null> => null;
+  /** Accounts deleted from Entra. */
+  gone = new Set<string>();
+  getUser = async (oid: string): Promise<DirectoryUser | null> =>
+    this.gone.has(oid)
+      ? null
+      : { oid, name: oid, email: `${oid}@aptask.com`, givenName: null, surname: null };
   listAssignments = async (): Promise<RoleAssignment[]> => {
     if (this.failList) throw this.failList;
     return [...this.assignments];
@@ -154,10 +159,10 @@ async function call(
   });
   await app.register(peopleRoutes, { db, graphFor });
   const res = await app.inject({
-    method: 'POST',
+    method: payload === undefined ? 'GET' : 'POST',
     url,
     headers: { authorization: `Bearer ${token}` },
-    payload: payload as Record<string, unknown>,
+    ...(payload === undefined ? {} : { payload: payload as Record<string, unknown> }),
   });
   await app.close();
   return res;
@@ -391,5 +396,87 @@ describe('Deactivate (ADR-0052)', () => {
       ['ok', 'cannot_deactivate_self'],
     );
     expect(rolesOf(callerOid)).toEqual([AppRole.Administrator]);
+  });
+});
+
+describe('Deactivated people and Reactivate (ADR-0053)', () => {
+  const LIST = '/v1/admin/people/deactivated';
+  const BACK = '/v1/admin/people/reactivate';
+
+  it('lists who, when, by whom, why and their roles before', async () => {
+    const p = seedPerson('Gloria');
+    graph.add(p.oid, AppRole.Employee);
+    graph.add(p.oid, AppRole.Manager);
+    await call(ADMIN, ONE, { oid: p.oid, reason: 'Left ApTask on 7 Nov' });
+    const res = await call(HR, LIST, undefined);
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({
+      people: [
+        {
+          employee_id: p.employeeId,
+          oid: p.oid,
+          name: 'Gloria Test',
+          email: 'gloria@aptask.com',
+          deactivated_at: expect.any(String) as string,
+          deactivated_by: 'Owner',
+          reason: 'Left ApTask on 7 Nov',
+          roles_before: ['Employee', 'Manager'],
+        },
+      ],
+    });
+  });
+
+  it('reactivates: roles back in Entra, record on, one audit row', async () => {
+    const p = seedPerson('Sohail');
+    graph.add(p.oid, AppRole.Employee);
+    await call(ADMIN, ONE, { oid: p.oid, reason: 'Left' });
+    const res = await call(HR, BACK, {
+      employee_id: p.employeeId,
+      roles: ['Employee'],
+      reason: 'Rejoined',
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({
+      employee_id: p.employeeId,
+      oid: p.oid,
+      roles: ['Employee'],
+      changed: true,
+    });
+    expect(rolesOf(p.oid)).toEqual([AppRole.Employee]);
+    expect((await db.employees.findById(p.employeeId))?.status).toBe('active');
+    expect(db.reactivateAudit).toMatchObject([{ employeeId: p.employeeId, reason: 'Rejoined' }]);
+    expect((await call(HR, LIST, undefined)).json()).toEqual({ people: [] });
+    // Already active.
+    const again = await call(HR, BACK, {
+      employee_id: p.employeeId,
+      roles: ['Employee'],
+      reason: 'Rejoined',
+    });
+    expect(again.statusCode).toBe(409);
+  });
+
+  it('refuses: no record role, HR giving HR, account deleted, Entra down (nothing changes)', async () => {
+    const p = seedPerson('Kanchan');
+    graph.add(p.oid, AppRole.Employee);
+    await call(ADMIN, ONE, { oid: p.oid, reason: 'Left' });
+    const body = { employee_id: p.employeeId, reason: 'Rejoined' };
+    expect((await call(ADMIN, BACK, { ...body, roles: ['Auditor'] })).json()).toMatchObject({
+      code: 'needs_record_role',
+    });
+    expect((await call(HR, BACK, { ...body, roles: ['HR'] })).json()).toMatchObject({
+      code: 'not_allowed_for_role',
+    });
+    expect((await call(ADMIN, BACK, { ...body, roles: ['Employee'], reason: '' })).statusCode).toBe(
+      400,
+    );
+    graph.gone.add(p.oid);
+    expect((await call(ADMIN, BACK, { ...body, roles: ['Employee'] })).json()).toMatchObject({
+      code: 'account_gone',
+    });
+    graph.gone.clear();
+    graph.failList = new GraphError(503, 'serviceUnavailable', 'down');
+    expect((await call(ADMIN, BACK, { ...body, roles: ['Employee'] })).statusCode).toBe(502);
+    expect((await db.employees.findById(p.employeeId))?.status).toBe('inactive');
+    expect(db.reactivateAudit).toHaveLength(0);
   });
 });

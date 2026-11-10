@@ -1,7 +1,7 @@
 import type { DbRepositories, Employee } from '../db/index.js';
 import { isoWeekday, shiftDate } from '../shifts/model.js';
 import { nameOf } from '../team/service.js';
-import { rangeRows, type DayRow } from './day.js';
+import { peopleOverRange, rangeRows, type DayRow } from './day.js';
 
 /**
  * ADR-0040 §3: the overall report for a range. Pure sums over the day
@@ -257,9 +257,11 @@ export async function overview(
   to: string,
   now: Date,
 ): Promise<Overview> {
-  const people = await db.employees.listActive();
+  // Past weeks keep who worked them (ADR-0053 §3); health is about now.
+  const people = await peopleOverRange(db, from);
   const s = summarise(await rangeRows(db, people, from, to, now));
-  return { from, to, ...s, health: await health(db, people, s.people, now, { from, to }) };
+  const active = people.filter((p) => p.status === 'active');
+  return { from, to, ...s, health: await health(db, active, s.people, now, { from, to }) };
 }
 
 // CSV (ADR-0040 §3): one row per person, the columns of one section.

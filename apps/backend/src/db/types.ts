@@ -41,6 +41,34 @@ export interface Employee {
   reportingManagerId?: string | null;
   /** The linked user's Entra object id, where a list includes it. */
   entraObjectId?: string | null;
+  /**
+   * An inactive record's last active day, India time (ADR-0053 §3): the
+   * day it was turned off. Reports count them up to and including it.
+   */
+  lastActiveDate?: string;
+}
+
+/** An inactive record with how it was turned off (ADR-0053 §1). */
+export interface DeactivatedEmployee extends Employee {
+  /** When it was turned off; null when no audit row says (older data). */
+  deactivatedAt: Date | null;
+  /** Who turned it off (their name), or null. */
+  deactivatedBy: string | null;
+  reason: string | null;
+  /** CloudPunch roles they had when deactivated (ADR-0052), else []. */
+  rolesBefore: string[];
+}
+
+/** Reactivate (ADR-0053 §2): the record back on, one audit row. */
+export interface ReactivateInput {
+  employeeId: string;
+  oid: string;
+  /** The roles they now have in Entra. */
+  roles: readonly string[];
+  actorUserId: string;
+  reason: string;
+  correlationId: string;
+  at: Date;
 }
 
 /** Setting someone's manager (ADR-0025 §1), audited. */
@@ -256,6 +284,8 @@ export interface EmployeeRepo {
   listReports(managerId: string): Promise<Employee[]>;
   /** Every active employee, by name (HR's scope). */
   listActive(): Promise<Employee[]>;
+  /** Every inactive record, by name, with how it was turned off (ADR-0053). */
+  listInactive(): Promise<DeactivatedEmployee[]>;
   /** Set or clear `employeeId`'s manager and write the audit row. */
   setReportingManager(input: SetManagerInput): Promise<void>;
   /**
@@ -498,6 +528,11 @@ export interface PeopleRepo {
    * untouched. Repeating it is harmless.
    */
   deactivate(input: DeactivateInput): Promise<DeactivateResult>;
+  /**
+   * ADR-0053: an inactive record back to active with ONE audit_log row
+   * (`employee_reactivated`). False when it wasn't inactive.
+   */
+  reactivate(input: ReactivateInput): Promise<boolean>;
   /** Write the audit_log row (action `roles_set`). */
   auditRoleChange(entry: RoleChangeAudit): Promise<void>;
   /** Write the audit_log row (action `welcome_sent`). */

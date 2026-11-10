@@ -65,6 +65,8 @@ import type {
   TimeSession,
   TimeSessionRepo,
   RecordStatusInput,
+  ReactivateInput,
+  DeactivatedEmployee,
   DeactivateInput,
   SetManagerInput,
   ViewAudit,
@@ -168,6 +170,8 @@ export class InMemoryDb implements DbRepositories {
   /** Reporting-line changes (ADR-0025 §1), for tests. */
   readonly managerAudit: SetManagerInput[] = [];
   readonly statusAudit: RecordStatusInput[] = [];
+  /** ADR-0053: one row per reactivation, for tests. */
+  readonly reactivateAudit: ReactivateInput[] = [];
   /** ADR-0052: one row per deactivation, for tests. */
   readonly deactivateAudit: (DeactivateInput & {
     closed: Date | null;
@@ -845,6 +849,13 @@ export class InMemoryDb implements DbRepositories {
         }
         return { changed, closedAt, devices, unassigned };
       },
+      reactivate: async (i) => {
+        const e = this.employeeById.get(i.employeeId);
+        if (e?.status !== 'inactive') return false;
+        this.employeeById.set(e.id, { ...e, status: 'active' });
+        this.reactivateAudit.push(i);
+        return true;
+      },
       auditRoleChange: async (entry) => {
         this.roleAudit.push(entry);
       },
@@ -871,6 +882,51 @@ export class InMemoryDb implements DbRepositories {
       },
       listReports: async (managerId) =>
         this.activeByName().filter((e) => e.reportingManagerId === managerId),
+      listInactive: async (): Promise<DeactivatedEmployee[]> =>
+        [...this.employeeById.values()]
+          .filter((e) => e.status === 'inactive')
+          .sort((a, b) =>
+            (a.displayName ?? `${a.givenName} ${a.familyName}`).localeCompare(
+              b.displayName ?? `${b.givenName} ${b.familyName}`,
+            ),
+          )
+          .map((e) => {
+            const how = [
+              ...this.deactivateAudit
+                .filter((d) => d.employeeId === e.id)
+                .map((d) => ({
+                  at: d.at,
+                  by: d.actorUserId,
+                  reason: d.reason,
+                  roles: [...d.entra.roles],
+                })),
+              ...this.statusAudit
+                .filter((d) => d.employeeId === e.id && !d.active)
+                .map((d) => ({
+                  at: d.at,
+                  by: d.actorUserId,
+                  reason: d.reason,
+                  roles: [] as string[],
+                })),
+            ].sort((a, b) => b.at.getTime() - a.at.getTime())[0];
+            const by = how ? this.userById.get(how.by) : undefined;
+            return {
+              ...e,
+              entraObjectId:
+                [...this.employeeByOid.entries()].find(([, id]) => id === e.id)?.[0] ?? null,
+              ...(how
+                ? {
+                    lastActiveDate: new Date(how.at.getTime() + 330 * 60_000)
+                      .toISOString()
+                      .slice(0, 10),
+                  }
+                : {}),
+              deactivatedAt: how?.at ?? null,
+              deactivatedBy: by ? by.displayName || by.workEmail : null,
+              reason: how?.reason ?? null,
+              rolesBefore: how?.roles ?? [],
+            };
+          }),
       listActive: async () =>
         this.activeByName().map((e) => ({
           ...e,

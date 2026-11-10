@@ -1665,6 +1665,62 @@ pub async fn admin_people_deactivate(
     answer(fetched)
 }
 
+/// Deactivated people (ADR-0053).
+#[tauri::command]
+pub async fn admin_deactivated_people(
+    auth: State<'_, Arc<Auth>>,
+) -> Result<serde_json::Value, String> {
+    let (_, fetched) = fetch_as_user(&auth, move |http, base, token| {
+        admin::deactivated_people(http, base, token)
+    })
+    .await?;
+    answer(fetched)
+}
+
+/// Reactivate (ADR-0053 §2). Audited server-side.
+#[tauri::command]
+pub async fn admin_reactivate(
+    auth: State<'_, Arc<Auth>>,
+    employee_id: String,
+    roles: Vec<String>,
+    reason: String,
+) -> Result<serde_json::Value, String> {
+    let (_, fetched) = fetch_as_user(&auth, move |http, base, token| {
+        admin::reactivate(http, base, token, &employee_id, &roles, &reason)
+    })
+    .await?;
+    answer(fetched)
+}
+
+/// Anyone's day totals, a year back (ADR-0053 §4). Audited server-side.
+#[tauri::command]
+pub async fn admin_person_days(
+    auth: State<'_, Arc<Auth>>,
+    employee_id: String,
+    from: String,
+    to: String,
+) -> Result<serde_json::Value, String> {
+    let (_, fetched) = fetch_as_user(&auth, move |http, base, token| {
+        admin::person_days(http, base, token, &employee_id, &from, &to)
+    })
+    .await?;
+    answer(fetched)
+}
+
+/// Anyone's day, a year back (ADR-0053 §4). Audited server-side.
+#[tauri::command]
+pub async fn admin_person_day(
+    auth: State<'_, Arc<Auth>>,
+    employee_id: String,
+    date: String,
+) -> Result<serde_json::Value, String> {
+    let (_, fetched) = fetch_as_user(&auth, move |http, base, token| {
+        admin::person_day(http, base, token, &employee_id, &date)
+    })
+    .await?;
+    answer(fetched)
+}
+
 /// Deactivate selected (ADR-0052 §5): per person.
 #[tauri::command]
 pub async fn admin_bulk_deactivate(
