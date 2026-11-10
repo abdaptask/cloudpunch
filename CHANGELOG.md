@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Release notes keep their characters on Windows
+
+- `publish-installer.sh` sends the "what's new" notes as ASCII JSON (`→` for →): Windows OpenSSH re-encoded non-ASCII in the command line, so arrows arrived garbled on the download page.
+
 ### Desktop 0.1.49
 
 - Version bump: the console's Settings → People → Deactivated (history, Reactivate; ADR-0053).
