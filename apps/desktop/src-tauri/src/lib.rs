@@ -375,6 +375,8 @@ pub fn run() {
             commands::admin_set_manager,
             commands::admin_bulk_manager,
             commands::admin_bulk_roles,
+            commands::admin_bulk_deactivate,
+            commands::admin_people_deactivate,
             commands::admin_bulk_welcome,
             commands::admin_set_named_shift,
             commands::admin_shift_templates,

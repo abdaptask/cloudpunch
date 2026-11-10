@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Deactivate a person (ADR-0052)
+
+- **Deactivate…** on the person panel (Settings → People) asks for a
+  confirmation and a required reason, then in one step: signs out their
+  computers and closes any open session at its last activity, removes
+  their CloudPunch roles in Microsoft Entra (an account or role that's
+  already gone is fine), turns their record off (no more emails; they
+  leave Team and Reporting lines), clears them as manager for anyone
+  who reported to them, and writes **one** audit row
+  (`employee_deactivated`). Time history is kept.
+- A notice above the table says what happened and lists **who needs a
+  new manager**, each a link to their panel. If Entra couldn't be
+  reached, it says the roles are still there, with **Retry**; the
+  person is deactivated in CloudPunch either way.
+- **Deactivate selected** in the bulk bar (up to 200, idempotency key,
+  per-person answer).
+- Administrators can deactivate anyone except themselves and the last
+  Administrator; HR can deactivate people whose roles are Employee
+  and/or Manager only.
+- `POST /v1/admin/people/deactivate`, `POST /v1/admin/people/bulk/deactivate`.
+  **Migration 0023** (bulk kind `deactivate`). Console needs desktop
+  0.1.48; the web dashboard has it after deploy.
+
 ### Desktop 0.1.47
 
 - Version bump: the console's Reports → Habits (ADR-0051) and Computers → Export CSV / Email to update.

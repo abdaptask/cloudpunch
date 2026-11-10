@@ -63,6 +63,8 @@ export type WebApi = Pick<
   | 'adminBulkManager'
   | 'adminBulkRoles'
   | 'adminBulkWelcome'
+  | 'adminDeactivate'
+  | 'adminBulkDeactivate'
   | 'adminShiftTemplates'
   | 'adminCreateShiftTemplate'
   | 'adminSaveShiftTemplate'
@@ -422,4 +424,16 @@ export const api: WebApi = {
       '/v1/admin/people/bulk/welcome',
       withText({ idempotency_key: key, oids }, 'note', note),
     ),
+  // Deactivate (ADR-0052): the same requests as the Rust core.
+  adminDeactivate: async (who, reason) => {
+    check(who.oid === undefined || UUID.test(who.oid));
+    check(who.employee_id === undefined || UUID.test(who.employee_id));
+    return send('POST', '/v1/admin/people/deactivate', { ...who, reason: reason.trim() });
+  },
+  adminBulkDeactivate: async (key, people, reason) =>
+    send('POST', '/v1/admin/people/bulk/deactivate', {
+      idempotency_key: key,
+      people,
+      reason: reason.trim(),
+    }),
 };

@@ -4,7 +4,7 @@ import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from 'fastify';
 import fp from 'fastify-plugin';
 import { z } from 'zod';
 import { requireCapability } from '../auth/require.js';
-import type { DbRepositories } from '../db/index.js';
+import type { DbRepositories, DeactivateEntra } from '../db/index.js';
 import { activeDeviceOf, lastEventAt } from '../devices/active.js';
 import { MAX_BULK, inTurn, replay, requestHash } from './bulk.js';
 import { GraphError, type Graph, type RoleAssignment } from './graph.js';
@@ -25,6 +25,14 @@ import { welcomeMessage, type WelcomeMessage, type WelcomeSettings } from './wel
  *
  *   POST /v1/admin/people/bulk/roles    {idempotency_key, oids, add, remove, reason?}
  *   POST /v1/admin/people/bulk/welcome  {idempotency_key, oids, note?}
+ *
+ * Deactivate (ADR-0052): sign out, remove CloudPunch roles in Entra, turn
+ * the record off and clear them as manager, in one step with one audit row.
+ * A person is `{oid?, employee_id?}`: a record may have no Entra link, and
+ * someone with roles only has no record.
+ *
+ *   POST /v1/admin/people/deactivate        {oid?, employee_id?, reason}
+ *   POST /v1/admin/people/bulk/deactivate   {idempotency_key, people, reason}
  *
  * One machine at a time (ADR-0028 §4), Administrators only, by employee id:
  *
@@ -87,6 +95,43 @@ const bulkWelcomeBody = z
     note: z.string().trim().max(500).optional().nullable(),
   })
   .strict();
+
+const target = z
+  .object({ oid: z.string().uuid().optional(), employee_id: z.string().uuid().optional() })
+  .strict()
+  .refine((t) => t.oid !== undefined || t.employee_id !== undefined);
+const reasonText = z.string().trim().min(3).max(500);
+const deactivateBody = z
+  .object({
+    oid: z.string().uuid().optional(),
+    employee_id: z.string().uuid().optional(),
+    reason: reasonText,
+  })
+  .strict()
+  .refine((t) => t.oid !== undefined || t.employee_id !== undefined);
+const bulkDeactivateBody = z
+  .object({
+    idempotency_key: z.string().uuid(),
+    people: z.array(target).min(1).max(MAX_BULK),
+    reason: reasonText,
+  })
+  .strict();
+
+/** One person's deactivation, as the console shows it (ADR-0052). */
+interface DeactivateOutcome {
+  oid: string | null;
+  employee_id: string | null;
+  outcome: 'done' | 'already' | 'refused' | 'failed';
+  code?: string;
+  /** removed / none / gone / failed (roles still in Entra: Retry). */
+  entra?: DeactivateEntra['outcome'];
+  entra_code?: string;
+  closed_at?: string | null;
+  devices_signed_out?: number;
+  unassigned_reports?: { id: string; name: string }[];
+}
+
+type Entra = { g: Graph; all: RoleAssignment[] } | { code: string };
 
 /** Graph calls at once in a bulk request: quick enough, gentle on Graph. */
 const BULK_PARALLEL = 4;
@@ -642,6 +687,238 @@ const peopleRoutesImpl: FastifyPluginAsync<PeopleRoutesOptions> = async (app, op
         req.log.info({ people: oids.length, correlationId }, 'people: bulk welcome (ADR-0038)');
         return reply.code(200).send(result);
       });
+    },
+  );
+
+  // ---------------------------------------------------------------
+  // Deactivate (ADR-0052)
+  // ---------------------------------------------------------------
+
+  /**
+   * Entra as the caller: every CloudPunch role assignment, or why it
+   * couldn't be read. Deactivation goes on without Entra (ADR-0052 §2):
+   * an inactive record can't upload or clock in, so the person is cut
+   * off either way, and the console offers Retry for the roles.
+   */
+  async function entraFor(req: FastifyRequest): Promise<Entra> {
+    if (!graphFor) return { code: 'directory_not_configured' };
+    try {
+      const g = await graphFor(bearer(req));
+      return { g, all: [...(await g.listAssignments())] };
+    } catch (err) {
+      if (err instanceof OboError) return { code: err.code };
+      if (err instanceof GraphError) return { code: graphCode(err) };
+      throw err;
+    }
+  }
+
+  async function deactivateOne(
+    req: FastifyRequest,
+    entra: Entra,
+    who: { oid?: string | undefined; employee_id?: string | undefined },
+    ctx: {
+      callerOid: string;
+      /** The caller's own record, if they have one. */
+      callerEmployeeId: string | null;
+      callerRoles: readonly AppRole[];
+      actorUserId: string;
+      reason: string;
+      correlationId: string;
+      at: Date;
+    },
+  ): Promise<DeactivateOutcome> {
+    let oid = who.oid?.toLowerCase() ?? null;
+    const askedId = who.employee_id?.toLowerCase() ?? null;
+    const base = { oid, employee_id: askedId };
+    const byOid = oid ? await db.employees.findByEntraObjectId(oid) : null;
+    const record = askedId ? await db.employees.findById(askedId) : byOid;
+    if (askedId && !record) return { ...base, outcome: 'failed', code: 'unknown_person' };
+    if (askedId && oid && byOid?.id !== askedId) {
+      return { ...base, outcome: 'refused', code: 'person_mismatch' };
+    }
+    if (!oid && record?.entraObjectId) oid = record.entraObjectId.toLowerCase();
+    const employeeId = record?.id ?? null;
+    const out = { oid, employee_id: employeeId };
+    if (!oid && !employeeId) return { ...out, outcome: 'failed', code: 'unknown_person' };
+
+    // Who may (ADR-0052 §4). Never yourself; never the last Administrator.
+    if ((oid && oid === ctx.callerOid) || (employeeId && employeeId === ctx.callerEmployeeId)) {
+      return { ...out, outcome: 'refused', code: 'cannot_deactivate_self' };
+    }
+    const isAdmin = hasCapability(ctx.callerRoles, Capability.AdminEmployeeAssignRole);
+    const mine = 'all' in entra && oid ? entra.all.filter((a) => a.oid === oid) : [];
+    const roles = ALL_APP_ROLES.filter((r) => mine.some((a) => a.role === r));
+    if (!isAdmin) {
+      // HR must see the roles to know they may: no Entra, no deactivation.
+      if ('code' in entra && oid) return { ...out, outcome: 'failed', code: entra.code };
+      if (roles.some((r) => !HR_ASSIGNABLE.includes(r))) {
+        return { ...out, outcome: 'refused', code: 'not_allowed_for_role' };
+      }
+    }
+    if ('all' in entra && roles.includes(AppRole.Administrator)) {
+      const others = entra.all.filter((a) => a.role === AppRole.Administrator && a.oid !== oid);
+      if (others.length === 0) return { ...out, outcome: 'refused', code: 'last_administrator' };
+    }
+
+    // 2. Entra first (it can't join the transaction); keep going if gone.
+    let result: DeactivateEntra;
+    if (!oid) result = { outcome: 'none', roles: [] };
+    else if ('code' in entra) result = { outcome: 'failed', roles: [], code: entra.code };
+    else if (mine.length === 0) result = { outcome: 'none', roles: [] };
+    else {
+      result = { outcome: 'removed', roles };
+      let gone = 0;
+      for (const a of mine) {
+        try {
+          await entra.g.unassign(a.id);
+        } catch (err) {
+          if (err instanceof GraphError && err.status === 404) {
+            gone += 1;
+            continue;
+          }
+          if (!(err instanceof GraphError)) throw err;
+          const code = graphCode(err);
+          req.log.warn({ oid, graph: code }, 'people: deactivate could not remove a role');
+          result = { outcome: 'failed', roles, code };
+          break;
+        }
+      }
+      if (result.outcome === 'removed' && gone === mine.length) {
+        result = { outcome: 'gone', roles };
+      }
+      // Alert recipients follow at once (ADR-0037).
+      if (result.outcome !== 'failed') await db.roles.note(oid, [], 'people', ctx.at);
+    }
+
+    // 1, 3, 4, 5: one transaction, one audit row; time history untouched.
+    const open = employeeId ? await db.timeSessions.findOpenByEmployeeId(employeeId) : null;
+    const done = await db.people.deactivate({
+      employeeId,
+      oid,
+      session: open ? { id: open.id, closedAt: await lastEventAt(db, open, ctx.at) } : null,
+      entra: result,
+      actorUserId: ctx.actorUserId,
+      reason: ctx.reason,
+      correlationId: ctx.correlationId,
+      at: ctx.at,
+    });
+    req.log.info(
+      {
+        employeeId,
+        oid,
+        entra: result.outcome,
+        closed: done.closedAt !== null,
+        devices: done.devices,
+      },
+      'people: deactivated (ADR-0052)',
+    );
+    return {
+      ...out,
+      outcome: done.changed ? 'done' : 'already',
+      entra: result.outcome,
+      ...(result.code ? { entra_code: result.code } : {}),
+      closed_at: done.closedAt ? done.closedAt.toISOString() : null,
+      devices_signed_out: done.devices,
+      ...(done.unassigned.length > 0 ? { unassigned_reports: done.unassigned } : {}),
+    };
+  }
+
+  const DEACTIVATE_REFUSALS: Record<string, [number, string]> = {
+    unknown_person: [404, 'no such person'],
+    person_mismatch: [400, 'oid and employee_id are different people'],
+    cannot_deactivate_self: [403, "you can't deactivate yourself"],
+    not_allowed_for_role: [403, 'HR can deactivate people with Employee or Manager roles only'],
+    last_administrator: [403, 'CloudPunch needs at least one Administrator'],
+  };
+
+  app.post(
+    '/v1/admin/people/deactivate',
+    { preHandler: [requireCapability(READ)] },
+    async (req, reply) => {
+      const body = deactivateBody.safeParse(req.body);
+      if (!body.success) {
+        return problem(
+          reply,
+          400,
+          'validation',
+          'body must be {oid?, employee_id?, reason} (reason 3–500 characters)',
+        );
+      }
+      const who = await actorOf(req, reply);
+      if (!who) return reply;
+      const r = await deactivateOne(req, await entraFor(req), body.data, {
+        callerOid: who.auth.oid.toLowerCase(),
+        callerEmployeeId: who.actor.employeeId,
+        callerRoles: who.auth.roles,
+        actorUserId: who.actor.id,
+        reason: body.data.reason,
+        correlationId: randomUUID(),
+        at: new Date(),
+      });
+      if (r.outcome === 'refused' || r.outcome === 'failed') {
+        const code = r.code ?? 'failed';
+        const [status, message] = DEACTIVATE_REFUSALS[code] ?? [
+          503,
+          'Microsoft Entra could not be reached to check their roles',
+        ];
+        return problem(reply, status, code, message);
+      }
+      return reply.code(200).send(r);
+    },
+  );
+
+  // Deactivate selected (ADR-0052 §5): each person answered on their own.
+  app.post(
+    '/v1/admin/people/bulk/deactivate',
+    { preHandler: [requireCapability(READ)] },
+    async (req, reply) => {
+      const body = bulkDeactivateBody.safeParse(req.body);
+      if (!body.success) {
+        return problem(
+          reply,
+          400,
+          'validation',
+          `body must be {idempotency_key, people (1–${MAX_BULK}) of {oid?, employee_id?}, reason}`,
+        );
+      }
+      const who = await actorOf(req, reply);
+      if (!who) return reply;
+      const { auth, actor } = who;
+      const key = body.data.idempotency_key.toLowerCase();
+      const hash = requestHash('deactivate', body.data);
+      if (await replay(db, reply, actor.id, key, 'deactivate', hash)) return reply;
+
+      const entra = await entraFor(req);
+      const ctx = {
+        callerOid: auth.oid.toLowerCase(),
+        callerEmployeeId: actor.employeeId,
+        callerRoles: auth.roles,
+        actorUserId: actor.id,
+        reason: body.data.reason,
+        correlationId: randomUUID(),
+        at: new Date(),
+      };
+      // One at a time, so the last-Administrator check sees earlier ones gone.
+      const results: DeactivateOutcome[] = [];
+      for (const p of body.data.people) {
+        const r = await deactivateOne(req, entra, p, ctx);
+        results.push(r);
+        if ('all' in entra && r.oid && r.entra !== 'failed' && r.outcome !== 'refused') {
+          entra.all = entra.all.filter((a) => a.oid !== r.oid);
+        }
+      }
+      const result = { results };
+      await db.bulkRequests.save({
+        actorUserId: actor.id,
+        key,
+        kind: 'deactivate',
+        requestHash: hash,
+        result,
+        correlationId: ctx.correlationId,
+        at: ctx.at,
+      });
+      req.log.info({ people: results.length }, 'people: bulk deactivate (ADR-0052)');
+      return reply.code(200).send(result);
     },
   );
 

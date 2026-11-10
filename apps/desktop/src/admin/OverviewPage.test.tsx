@@ -1,6 +1,6 @@
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Overview, OverviewPerson } from '../api.js';
 import { csvName, csvOf, hrs, rangeIssue, rangeOf, refusalText } from './overviewModel.js';
 import { Reports } from './ReportsPage.js';
@@ -147,6 +147,15 @@ describe('overview model (ADR-0040 §3)', () => {
 });
 
 describe('Reports → Trends (ADR-0040 §3, ADR-0047 §4)', () => {
+  // "Last week" depends on today: pin it to the week the expectations use.
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-14T06:00:00Z'));
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('last week by default: totals against the week before, teams, a table per area, health; CSV saved', async () => {
     const user = userEvent.setup();
     render(<Reports canOpenDays />);

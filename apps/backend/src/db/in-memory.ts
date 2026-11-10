@@ -65,6 +65,7 @@ import type {
   TimeSession,
   TimeSessionRepo,
   RecordStatusInput,
+  DeactivateInput,
   SetManagerInput,
   ViewAudit,
 } from './types.js';
@@ -167,6 +168,12 @@ export class InMemoryDb implements DbRepositories {
   /** Reporting-line changes (ADR-0025 §1), for tests. */
   readonly managerAudit: SetManagerInput[] = [];
   readonly statusAudit: RecordStatusInput[] = [];
+  /** ADR-0052: one row per deactivation, for tests. */
+  readonly deactivateAudit: (DeactivateInput & {
+    closed: Date | null;
+    devices: number;
+    unassigned: string[];
+  })[] = [];
   /** Read-audit rows (ADR-0025 §4), for tests. */
   readonly viewAudit: ViewAudit[] = [];
   /** Admin machine sign-outs (ADR-0028 §4) and when each closed, for tests. */
@@ -789,6 +796,54 @@ export class InMemoryDb implements DbRepositories {
             return { id: r.id, name: r.displayName ?? `${r.givenName} ${r.familyName}` };
           });
         return { changed: true, unassigned };
+      },
+      deactivate: async (i) => {
+        let closedAt: Date | null = null;
+        const s = i.session ? this.sessionById.get(i.session.id) : undefined;
+        if (s && s.closedAt === null && i.session) {
+          closedAt = (await this.closeSession(s.id, i.session.closedAt, 'remote_takeover', true))
+            .closedAt;
+        }
+        let devices = 0;
+        let wasActive = false;
+        let unassigned: { id: string; name: string }[] = [];
+        const e = i.employeeId ? this.employeeById.get(i.employeeId) : undefined;
+        if (e) {
+          const users = new Set(
+            [...this.userById.values()].filter((u) => u.employeeId === e.id).map((u) => u.id),
+          );
+          for (const d of this.deviceById.values()) {
+            if (users.has(d.userId) && d.revokedAt === null && d.signoutRequestedAt === null) {
+              this.deviceById.set(d.id, {
+                ...d,
+                signoutRequestedAt: i.at,
+                signoutRequestedBy: i.actorUserId,
+              });
+              devices += 1;
+            }
+          }
+          wasActive = e.status === 'active';
+          if (wasActive) {
+            this.employeeById.set(e.id, { ...e, status: 'inactive' });
+            unassigned = this.activeByName()
+              .filter((r) => r.reportingManagerId === e.id)
+              .map((r) => {
+                this.employeeById.set(r.id, { ...r, reportingManagerId: null });
+                return { id: r.id, name: r.displayName ?? `${r.givenName} ${r.familyName}` };
+              });
+          }
+        }
+        const changed =
+          closedAt !== null || devices > 0 || wasActive || i.entra.outcome === 'removed';
+        if (changed) {
+          this.deactivateAudit.push({
+            ...i,
+            closed: closedAt,
+            devices,
+            unassigned: unassigned.map((u) => u.id),
+          });
+        }
+        return { changed, closedAt, devices, unassigned };
       },
       auditRoleChange: async (entry) => {
         this.roleAudit.push(entry);

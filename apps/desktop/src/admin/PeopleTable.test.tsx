@@ -26,6 +26,8 @@ const mocks = vi.hoisted(() => ({
   adminSetOfficePattern: vi.fn(),
   adminSetOfficeDay: vi.fn(),
   adminBulkOffice: vi.fn(),
+  adminDeactivate: vi.fn(),
+  adminBulkDeactivate: vi.fn(),
 }));
 vi.mock('../api.js', () => ({ api: mocks }));
 
@@ -596,5 +598,125 @@ describe('change history in the panel (ADR-0038 §8)', () => {
     expect(items[0]).toHaveTextContent('Manager: none → Priya Shah');
     expect(items[0]).toHaveTextContent('Abdulla Sheikh · “new team”');
     expect(items[1]).toHaveTextContent('CloudPunch');
+  });
+});
+
+describe('Deactivate (ADR-0052)', () => {
+  const open = async (user: ReturnType<typeof userEvent.setup>, name: string) => {
+    await user.click(await screen.findByRole('button', { name }));
+    return screen.getByRole('complementary', { name: `person ${name}` });
+  };
+
+  it('asks for a reason, then shows what happened and who needs a new manager', async () => {
+    mocks.adminDeactivate.mockResolvedValue({
+      oid: 'o-priya',
+      employee_id: 'e-priya',
+      outcome: 'done',
+      entra: 'removed',
+      closed_at: '2026-11-10T08:00:00.000Z',
+      devices_signed_out: 1,
+      unassigned_reports: [{ id: 'e-hr', name: 'Hema R' }],
+    });
+    const user = userEvent.setup();
+    render(<PeopleTable canAssignAll onClose={() => undefined} />);
+    const panel = await open(user, 'Priya Shah');
+    await user.click(within(panel).getByRole('button', { name: 'Deactivate…' }));
+    const go = within(panel).getByRole('button', { name: 'Deactivate Priya Shah' });
+    expect(go).toBeDisabled();
+    await user.type(within(panel).getByLabelText('deactivate-reason'), 'Left ApTask');
+    await user.click(go);
+    expect(mocks.adminDeactivate).toHaveBeenCalledWith(
+      { oid: 'o-priya', employee_id: 'e-priya' },
+      'Left ApTask',
+    );
+    const notice = await screen.findByRole('status', { name: 'deactivated' });
+    expect(notice).toHaveTextContent('Deactivated: Priya Shah.');
+    expect(notice).toHaveTextContent('Signed out of 1 computer; 1 open session closed');
+    expect(notice).toHaveTextContent('Needs a new manager: Hema R');
+    // The panel closes; the name opens the report's panel to set a manager.
+    expect(screen.queryByRole('complementary', { name: 'person Priya Shah' })).toBeNull();
+    await user.click(within(notice).getByRole('button', { name: 'Hema R' }));
+    expect(screen.getByRole('complementary', { name: 'person Hema R' })).toBeInTheDocument();
+  });
+
+  it('roles still in Entra: says so and Retry removes them', async () => {
+    mocks.adminDeactivate
+      .mockResolvedValueOnce({
+        oid: 'o-roshni',
+        employee_id: 'e-roshni',
+        outcome: 'done',
+        entra: 'failed',
+        entra_code: 'directory_error',
+        closed_at: null,
+        devices_signed_out: 0,
+      })
+      .mockResolvedValueOnce({
+        oid: 'o-roshni',
+        employee_id: 'e-roshni',
+        outcome: 'done',
+        entra: 'removed',
+        closed_at: null,
+        devices_signed_out: 0,
+      });
+    const user = userEvent.setup();
+    render(<PeopleTable canAssignAll onClose={() => undefined} />);
+    const panel = await open(user, 'Roshni Sahani');
+    await user.click(within(panel).getByRole('button', { name: 'Deactivate…' }));
+    await user.type(within(panel).getByLabelText('deactivate-reason'), 'Left');
+    await user.click(within(panel).getByRole('button', { name: 'Deactivate Roshni Sahani' }));
+    const notice = await screen.findByRole('status', { name: 'deactivated' });
+    expect(notice).toHaveTextContent('roles are still in Microsoft Entra for Roshni Sahani');
+    await user.click(within(notice).getByRole('button', { name: 'Retry removing roles' }));
+    expect(mocks.adminDeactivate).toHaveBeenLastCalledWith(
+      { oid: 'o-roshni', employee_id: 'e-roshni' },
+      'Left',
+    );
+    expect(await screen.findByRole('status', { name: 'deactivated' })).not.toHaveTextContent(
+      'still in Microsoft Entra',
+    );
+  });
+
+  it('HR: no Deactivate for someone with the HR role', async () => {
+    const user = userEvent.setup();
+    render(<PeopleTable canAssignAll={false} onClose={() => undefined} />);
+    const hr = await open(user, 'Hema R');
+    expect(within(hr).queryByRole('button', { name: 'Deactivate…' })).toBeNull();
+    const emp = await open(user, 'Roshni Sahani');
+    expect(within(emp).getByRole('button', { name: 'Deactivate…' })).toBeInTheDocument();
+  });
+
+  it('Deactivate selected: leaves out who HR can’t, one key, per-person answer', async () => {
+    mocks.adminBulkDeactivate.mockResolvedValue({
+      results: [
+        { oid: 'o-priya', employee_id: 'e-priya', outcome: 'done', entra: 'removed' },
+        {
+          oid: 'o-roshni',
+          employee_id: 'e-roshni',
+          outcome: 'refused',
+          code: 'cannot_deactivate_self',
+        },
+      ],
+    });
+    const user = userEvent.setup();
+    render(<PeopleTable canAssignAll={false} onClose={() => undefined} />);
+    await user.click(await screen.findByRole('checkbox', { name: 'select this page' }));
+    await user.click(screen.getByRole('button', { name: 'Deactivate selected' }));
+    const panel = screen.getByRole('complementary', { name: 'bulk Deactivate' });
+    expect(panel).toHaveTextContent('Left out: Hema R (only an Administrator can)');
+    await user.type(within(panel).getByLabelText('deactivate-reason'), 'Project ended');
+    await user.click(within(panel).getByRole('button', { name: 'Deactivate selected' }));
+    expect(mocks.adminBulkDeactivate).toHaveBeenCalledWith(
+      expect.any(String),
+      [
+        { oid: 'o-priya', employee_id: 'e-priya' },
+        { oid: 'o-roshni', employee_id: 'e-roshni' },
+      ],
+      'Project ended',
+    );
+    const notice = await screen.findByRole('status', { name: 'deactivated' });
+    expect(notice).toHaveTextContent('Deactivated: Priya Shah.');
+    expect(notice).toHaveTextContent(
+      "Not deactivated: Roshni Sahani (you can't deactivate yourself).",
+    );
   });
 });

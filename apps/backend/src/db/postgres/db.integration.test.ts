@@ -632,6 +632,83 @@ describe('PostgresDb — employees + users', () => {
     );
   });
 
+  it('ADR-0052: deactivate closes, signs out, turns off, frees reports — one audit row', async () => {
+    const mgr = await seedEmployee();
+    const a = await seedEmployee();
+    const { userId: mgrUser, oid } = await seedUser({ employeeId: mgr });
+    const { userId: actor } = await seedUser();
+    await db.employees.setReportingManager({
+      employeeId: a,
+      managerId: mgr,
+      actorUserId: actor,
+      reason: null,
+      correlationId: randomUUID(),
+      at: new Date(),
+    });
+    const device = await db.devices.enroll({
+      id: randomUUID(),
+      userId: mgrUser,
+      os: 'windows',
+      hostnameHash: 'sha256-' + '0'.repeat(64),
+      publicKeyEd25519: new Uint8Array(32),
+      appVersion: '0.1.47',
+    });
+    const openedAt = new Date(Date.now() - 3600_000);
+    const s = await db.timeSessions.open({
+      id: randomUUID(),
+      employeeId: mgr,
+      deviceId: device.id,
+      openedAt,
+    });
+    const count = async () =>
+      (await sql<{ n: number }[]>`SELECT count(*)::int AS n FROM audit_log`)[0]!.n;
+    const before = await count();
+
+    const input = {
+      employeeId: mgr,
+      oid,
+      session: { id: s.id, closedAt: openedAt },
+      entra: { outcome: 'removed' as const, roles: ['Employee', 'Manager'] },
+      actorUserId: actor,
+      reason: 'Left ApTask',
+      correlationId: randomUUID(),
+      at: new Date(),
+    };
+    const done = await db.people.deactivate(input);
+    expect(done).toEqual({
+      changed: true,
+      closedAt: openedAt,
+      devices: 1,
+      unassigned: [{ id: a, name: 'Alice Test' }],
+    });
+    expect((await db.timeSessions.findById(s.id))?.closedReason).toBe('remote_takeover');
+    expect((await db.devices.findById(device.id))?.signoutRequestedAt).not.toBeNull();
+    expect((await db.employees.findById(mgr))?.status).toBe('inactive');
+    expect((await db.employees.findById(a))?.reportingManagerId).toBeNull();
+
+    expect(await count()).toBe(before + 1);
+    const [row] = await sql<{ action: string; reason: string; after: Record<string, unknown> }[]>`
+      SELECT action, reason, new_value AS after FROM audit_log
+      WHERE action = 'employee_deactivated'`;
+    expect(row).toMatchObject({
+      action: 'employee_deactivated',
+      reason: 'Left ApTask',
+      after: {
+        status: 'inactive',
+        entra: 'removed',
+        session_id: s.id,
+        devices_signed_out: [device.id],
+        reports_unassigned: [a],
+      },
+    });
+
+    // Again: nothing left to do, no new row.
+    expect(
+      await db.people.deactivate({ ...input, entra: { outcome: 'none', roles: [] } }),
+    ).toMatchObject({ changed: false, devices: 0, unassigned: [] });
+    expect(await count()).toBe(before + 1);
+  });
+
   it('a terminated record is left alone', async () => {
     const gone = await seedEmployee({ status: 'terminated' });
     const { userId } = await seedUser({ employeeId: gone });

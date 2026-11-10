@@ -52,6 +52,25 @@ export interface BulkOutcome {
   unassigned_reports?: { id: string; name: string }[];
 }
 
+/** Who to deactivate (ADR-0052): their Entra id, record, or both. */
+export interface DeactivateTarget {
+  oid?: string;
+  employee_id?: string;
+}
+
+/** One person's deactivation. `entra: 'failed'` means roles are still in Entra. */
+export interface DeactivateOutcome {
+  oid: string | null;
+  employee_id: string | null;
+  outcome: 'done' | 'already' | 'refused' | 'failed';
+  code?: string;
+  entra?: 'removed' | 'none' | 'gone' | 'failed';
+  entra_code?: string;
+  closed_at?: string | null;
+  devices_signed_out?: number;
+  unassigned_reports?: { id: string; name: string }[];
+}
+
 /** Welcome email preview (ADR-0021). */
 export interface WelcomePreview {
   from: string;
@@ -862,6 +881,20 @@ export const api = {
     note: string,
   ): Promise<{ results: BulkOutcome[] }> =>
     invoke('admin_bulk_welcome', { key, oids, note: note || null }),
+  /** Deactivate one person (ADR-0052): sign out, roles off, record off. */
+  adminDeactivate: (who: DeactivateTarget, reason: string): Promise<DeactivateOutcome> =>
+    invoke('admin_people_deactivate', {
+      oid: who.oid ?? null,
+      employeeId: who.employee_id ?? null,
+      reason,
+    }),
+  /** Deactivate selected (ADR-0052 §5): each person answered. */
+  adminBulkDeactivate: (
+    key: string,
+    people: DeactivateTarget[],
+    reason: string,
+  ): Promise<{ results: DeactivateOutcome[] }> =>
+    invoke('admin_bulk_deactivate', { key, people, reason }),
   /** Where people connect from (ADR-0029); the server checks who sees whom. */
   myConnections: (): Promise<ConnectionHistory> => invoke('my_connections'),
   /** My week (ADR-0047 §5): my own last 14 days and findings. */

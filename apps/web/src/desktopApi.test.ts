@@ -284,3 +284,29 @@ describe('the browser api for the desktop screens (ADR-0033 §5)', () => {
     );
   });
 });
+
+describe('Deactivate (ADR-0052)', () => {
+  it('sends the same requests as the Rust core', async () => {
+    const f = connect(json(200, {}));
+    const KEY = '33333333-3333-4333-8333-333333333333';
+    await api.adminDeactivate({ oid: ID }, ' Left ApTask ');
+    await api.adminBulkDeactivate(KEY, [{ employee_id: ID }], 'Project ended');
+    expect(
+      (f.mock.calls as [string, RequestInit][]).map(([u, init]) => [init.method, u, init.body]),
+    ).toEqual([
+      ['POST', '/v1/admin/people/deactivate', JSON.stringify({ oid: ID, reason: 'Left ApTask' })],
+      [
+        'POST',
+        '/v1/admin/people/bulk/deactivate',
+        JSON.stringify({
+          idempotency_key: KEY,
+          people: [{ employee_id: ID }],
+          reason: 'Project ended',
+        }),
+      ],
+    ]);
+    await expect(api.adminDeactivate({ oid: '../x' }, 'Left')).rejects.toThrow(
+      code('invalid_argument'),
+    );
+  });
+});

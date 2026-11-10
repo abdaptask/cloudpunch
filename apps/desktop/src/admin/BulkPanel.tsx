@@ -16,7 +16,8 @@ import {
   type PersonRow,
 } from './peopleModel.js';
 
-export type BulkAction = 'manager' | 'shift' | 'office' | 'addRole' | 'removeRole' | 'welcome';
+export type BulkAction =
+  'manager' | 'shift' | 'office' | 'addRole' | 'removeRole' | 'welcome' | 'deactivate';
 
 export const BULK_LABEL: Record<BulkAction, string> = {
   manager: 'Set manager',
@@ -25,6 +26,8 @@ export const BULK_LABEL: Record<BulkAction, string> = {
   addRole: 'Add role',
   removeRole: 'Remove role',
   welcome: 'Send welcome email',
+  // Its own panel (ADR-0052 §5): DeactivateBulkPanel.
+  deactivate: 'Deactivate selected',
 };
 
 const MORE_ERRORS: Record<string, string> = {

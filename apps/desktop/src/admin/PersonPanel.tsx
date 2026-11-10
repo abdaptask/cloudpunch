@@ -10,6 +10,7 @@ import { MANAGING_ROLES, managerChoices, type PersonRow } from './peopleModel.js
 import { ManagerPicker } from './ManagerPicker.js';
 import { OfficeDaysPart } from './OfficeDaysPart.js';
 import { ShiftChooser } from './ShiftChooser.js';
+import { DeactivatePart, canDeactivate, type Deactivated } from './DeactivateParts.js';
 
 const MORE_ERRORS: Record<string, string> = {
   manager_loop: 'That would make a reporting loop.',
@@ -34,6 +35,7 @@ export function PersonPanel({
   canSignOutMachines,
   templates = null,
   onChanged,
+  onDeactivated,
   onClose,
 }: {
   row: PersonRow;
@@ -45,6 +47,8 @@ export function PersonPanel({
   templates?: readonly ShiftTemplate[] | null;
   /** Something was saved: reload the table. */
   onChanged: () => void;
+  /** Deactivated (ADR-0052): show the answer above the table, close this. */
+  onDeactivated?: (d: Deactivated) => void;
   onClose: () => void;
 }): JSX.Element {
   const t = useTheme();
@@ -293,6 +297,12 @@ export function PersonPanel({
         >
           {status.text}
         </p>
+      )}
+
+      {onDeactivated && canDeactivate(row, canAssignAll) && (
+        <Part title="Leaving ApTask" t={t}>
+          <DeactivatePart row={row} onDone={onDeactivated} />
+        </Part>
       )}
 
       {employeeId !== null && (
