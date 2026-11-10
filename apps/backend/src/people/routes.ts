@@ -34,6 +34,11 @@ import { welcomeMessage, type WelcomeMessage, type WelcomeSettings } from './wel
  *   POST /v1/admin/people/deactivate        {oid?, employee_id?, reason}
  *   POST /v1/admin/people/bulk/deactivate   {idempotency_key, people, reason}
  *
+ * Deactivated people (ADR-0053): who, when, by whom and why; and back.
+ *
+ *   GET  /v1/admin/people/deactivated
+ *   POST /v1/admin/people/reactivate        {employee_id, roles, reason}
+ *
  * One machine at a time (ADR-0028 §4), Administrators only, by employee id:
  *
  *   GET  /v1/people/:employeeId/active-device            the open session's machine, or 204
@@ -113,6 +118,14 @@ const bulkDeactivateBody = z
   .object({
     idempotency_key: z.string().uuid(),
     people: z.array(target).min(1).max(MAX_BULK),
+    reason: reasonText,
+  })
+  .strict();
+
+const reactivateBody = z
+  .object({
+    employee_id: z.string().uuid(),
+    roles: z.array(z.string()).min(1).max(ALL_APP_ROLES.length),
     reason: reasonText,
   })
   .strict();
@@ -919,6 +932,118 @@ const peopleRoutesImpl: FastifyPluginAsync<PeopleRoutesOptions> = async (app, op
       });
       req.log.info({ people: results.length }, 'people: bulk deactivate (ADR-0052)');
       return reply.code(200).send(result);
+    },
+  );
+
+  // ---------------------------------------------------------------
+  // Deactivated people and Reactivate (ADR-0053)
+  // ---------------------------------------------------------------
+
+  app.get(
+    '/v1/admin/people/deactivated',
+    { preHandler: [requireCapability(READ)] },
+    async (_req, reply) => {
+      const people = await db.employees.listInactive();
+      return reply.code(200).send({
+        people: people.map((e) => ({
+          employee_id: e.id,
+          oid: e.entraObjectId ?? null,
+          name: e.displayName ?? `${e.givenName} ${e.familyName}`.trim(),
+          email: e.workEmail || null,
+          deactivated_at: e.deactivatedAt ? e.deactivatedAt.toISOString() : null,
+          deactivated_by: e.deactivatedBy,
+          reason: e.reason,
+          roles_before: e.rolesBefore.filter(isAppRole),
+        })),
+      });
+    },
+  );
+
+  /**
+   * Reactivate (ADR-0053 §2): give the roles in Entra first, then turn
+   * the record on with one audit row. Entra failing changes nothing in
+   * CloudPunch (withGraph answers 502/503), so Retry is the same request.
+   * Their manager isn't restored: the console asks for one.
+   */
+  app.post(
+    '/v1/admin/people/reactivate',
+    { preHandler: [requireCapability(READ)] },
+    async (req, reply) => {
+      const body = reactivateBody.safeParse(req.body);
+      if (!body.success || !body.data.roles.every(isAppRole)) {
+        return problem(
+          reply,
+          400,
+          'validation',
+          'body must be {employee_id, roles: AppRole[] (1+), reason} (reason 3–500 characters)',
+        );
+      }
+      const wanted = ALL_APP_ROLES.filter((r) => body.data.roles.includes(r));
+      if (!wanted.some((r) => RECORD_ROLES.includes(r))) {
+        return problem(
+          reply,
+          400,
+          'needs_record_role',
+          'give them Employee, Manager or HR, or the record turns off again',
+        );
+      }
+      const who = await actorOf(req, reply);
+      if (!who) return reply;
+      const isAdmin = hasCapability(who.auth.roles, Capability.AdminEmployeeAssignRole);
+      if (!isAdmin && wanted.some((r) => !HR_ASSIGNABLE.includes(r))) {
+        return problem(
+          reply,
+          403,
+          'not_allowed_for_role',
+          'HR can give or remove Employee and Manager only',
+        );
+      }
+      const id = body.data.employee_id.toLowerCase();
+      const record = (await db.employees.listInactive()).find((e) => e.id === id);
+      if (!record) {
+        const e = await db.employees.findById(id);
+        return e
+          ? problem(reply, 409, 'not_deactivated', 'this person is not deactivated')
+          : problem(reply, 404, 'unknown_person', 'no such person');
+      }
+      const oid = record.entraObjectId?.toLowerCase() ?? null;
+      if (!oid) {
+        return problem(
+          reply,
+          400,
+          'no_microsoft_account',
+          'this record is not linked to a Microsoft account',
+        );
+      }
+
+      return withGraph(req, reply, async (g) => {
+        if (!(await g.getUser(oid))) {
+          return problem(
+            reply,
+            404,
+            'account_gone',
+            'their Microsoft account no longer exists, so they cannot sign in',
+          );
+        }
+        const all = await g.listAssignments();
+        const current = ALL_APP_ROLES.filter((r) => all.some((a) => a.oid === oid && a.role === r));
+        for (const role of wanted.filter((r) => !current.includes(r))) await g.assign(oid, role);
+        const roles = ALL_APP_ROLES.filter((r) => current.includes(r) || wanted.includes(r));
+        const at = new Date();
+        const changed = await db.people.reactivate({
+          employeeId: id,
+          oid,
+          roles,
+          actorUserId: who.actor.id,
+          reason: body.data.reason,
+          correlationId: randomUUID(),
+          at,
+        });
+        // Alert recipients follow at once (ADR-0037).
+        await db.roles.note(oid, [...roles], 'people', at);
+        req.log.info({ employeeId: id, roles }, 'people: reactivated (ADR-0053)');
+        return reply.code(200).send({ employee_id: id, oid, roles, changed });
+      });
     },
   );
 

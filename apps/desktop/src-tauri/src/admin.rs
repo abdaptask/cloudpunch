@@ -1050,6 +1050,76 @@ pub fn people_deactivate(
     )
 }
 
+/// Deactivated people (ADR-0053): who, when, by whom and why.
+pub fn deactivated_people(http: &Client, base: &str, token: &str) -> Result<Value, DayError> {
+    send(
+        http,
+        base,
+        token,
+        reqwest::Method::GET,
+        "/v1/admin/people/deactivated",
+        None,
+    )
+}
+
+/// Reactivate (ADR-0053 §2): these roles back, the record on.
+pub fn reactivate(
+    http: &Client,
+    base: &str,
+    token: &str,
+    employee_id: &str,
+    roles: &[String],
+    reason: &str,
+) -> Result<Value, DayError> {
+    if !is_uuid(employee_id) {
+        return Err(DayError::Refused("invalid_argument".into()));
+    }
+    let body = serde_json::json!({
+        "employee_id": employee_id,
+        "roles": roles,
+        "reason": reason.trim(),
+    });
+    send(
+        http,
+        base,
+        token,
+        reqwest::Method::POST,
+        "/v1/admin/people/reactivate",
+        Some(&body),
+    )
+}
+
+/// Anyone's day totals over `[from, to]`, a year back (ADR-0053 §4).
+pub fn person_days(
+    http: &Client,
+    base: &str,
+    token: &str,
+    employee_id: &str,
+    from: &str,
+    to: &str,
+) -> Result<Value, DayError> {
+    if !is_uuid(employee_id) || !is_date(from) || !is_date(to) {
+        return Err(DayError::Refused("invalid_argument".into()));
+    }
+    let path = format!("/v1/admin/employees/{employee_id}/days?from={from}&to={to}");
+    send(http, base, token, reqwest::Method::GET, &path, None)
+}
+
+/// Anyone's day, a year back (ADR-0053 §4).
+pub fn person_day(
+    http: &Client,
+    base: &str,
+    token: &str,
+    employee_id: &str,
+    date: &str,
+) -> Result<Value, DayError> {
+    if !is_uuid(employee_id) || !is_date(date) {
+        return Err(DayError::Refused("invalid_argument".into()));
+    }
+    let path = format!("/v1/admin/employees/{employee_id}/days/{date}");
+    send(http, base, token, reqwest::Method::GET, &path, None)
+}
+
 /// Deactivate selected (ADR-0052 §5); each person is answered.
 pub fn bulk_deactivate(
     http: &Client,

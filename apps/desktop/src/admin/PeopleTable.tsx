@@ -31,6 +31,7 @@ import {
   type SortKey,
 } from './peopleModel.js';
 import { PersonPanel } from './PersonPanel.js';
+import { DeactivatedPeople } from './DeactivatedPeople.js';
 import { DeactivateBulkPanel, DeactivatedNotice, type Deactivated } from './DeactivateParts.js';
 
 const errorText = (code: string): string => ERROR_TEXT[code] ?? `Something went wrong (${code}).`;
@@ -70,6 +71,8 @@ export function PeopleTable({
   // Ticked for a bulk change (ADR-0038 §5), by row key; kept across pages.
   const [ticked, setTicked] = useState<ReadonlySet<string>>(new Set());
   const [bulk, setBulk] = useState<BulkAction | null>(null);
+  // People or Deactivated people (ADR-0053).
+  const [view, setView] = useState<'people' | 'deactivated'>('people');
   // The last deactivation's answer (ADR-0052), kept while the list reloads.
   const [deactivated, setDeactivated] = useState<Deactivated | null>(null);
   const onDeactivated = (d: Deactivated): void => {
@@ -182,6 +185,47 @@ export function PeopleTable({
     { key: 'status', label: 'Status' },
   ];
 
+  const views = (
+    <div role="tablist" aria-label="people-view" style={{ display: 'flex', gap: 6 }}>
+      {(
+        [
+          ['people', 'People'],
+          ['deactivated', 'Deactivated'],
+        ] as const
+      ).map(([v, label]) => (
+        <button
+          key={v}
+          type="button"
+          role="tab"
+          aria-selected={view === v}
+          onClick={() => {
+            setSelected(null);
+            setBulk(null);
+            setView(v);
+          }}
+          style={chip(t, view === v)}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+
+  if (view === 'deactivated') {
+    return (
+      <section aria-label="people" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <h2 style={{ margin: 0, fontSize: 16, fontWeight: 650, flex: 1 }}>People</h2>
+          <button type="button" onClick={onClose} style={link(t)}>
+            Done
+          </button>
+        </div>
+        {views}
+        <DeactivatedPeople canAssignAll={canAssignAll} onReactivated={load} />
+      </section>
+    );
+  }
+
   return (
     <section aria-label="people" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -193,6 +237,7 @@ export function PeopleTable({
           Done
         </button>
       </div>
+      {views}
 
       {adding && <DirectorySearch onPick={pickFromDirectory} onError={setError} t={t} />}
 

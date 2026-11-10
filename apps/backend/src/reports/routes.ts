@@ -6,7 +6,7 @@ import { requireCapability } from '../auth/require.js';
 import type { DbRepositories } from '../db/index.js';
 import { LOOKBACK_DAYS, inLookback, spanDays } from '../days/service.js';
 import { peopleIn, scopeFor, type TeamScope } from '../team/service.js';
-import { countsOf, dayRows, problemsFirst } from './day.js';
+import { countsOf, dayRows, peopleOverRange, problemsFirst } from './day.js';
 import { CSV_SECTIONS, overview, overviewCsv, type CsvSection } from './overview.js';
 import { habitsReport, HABITS_FROM, HABITS_TO } from '../habits/load.js';
 import { shiftDate } from '../shifts/model.js';
@@ -81,7 +81,10 @@ const reportRoutesImpl: FastifyPluginAsync<ReportRoutesOptions> = async (app, op
       const scope: TeamScope = caps.has(Capability.HrEmployeeRead)
         ? { kind: 'all' }
         : scopeFor(caps, user.employeeId);
-      const rows = await dayRows(db, await peopleIn(db, scope), date, now);
+      // Everyone sees the day as it was (ADR-0053 §3): who left since is kept.
+      const people =
+        scope.kind === 'all' ? await peopleOverRange(db, date) : await peopleIn(db, scope);
+      const rows = await dayRows(db, people, date, now);
       await db.reports.auditView({
         actorUserId: user.id,
         report: 'day',

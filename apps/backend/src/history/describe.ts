@@ -71,6 +71,15 @@ export function describePerson(e: AuditEntry, names: Names): string {
       return `${after['in_office'] === true ? 'In the office' : 'Not in the office'} on ${str(after['date']) ?? '?'}`;
     case 'status_set':
       return `Record: ${str(before['status']) ?? '?'} → ${str(after['status']) ?? '?'}`;
+    case 'employee_deactivated': {
+      const gone = Array.isArray(after['reports_unassigned'])
+        ? after['reports_unassigned'].length
+        : 0;
+      const entra = str(after['entra']) === 'failed' ? '; roles still in Entra' : '';
+      return `Deactivated (roles were ${roles(e.before)})${gone > 0 ? `; ${gone} lost their manager` : ''}${entra}`;
+    }
+    case 'employee_reactivated':
+      return `Reactivated with ${roles(e.after)}`;
     case 'welcome_sent':
       return 'Welcome email sent';
     case 'device_signed_out':

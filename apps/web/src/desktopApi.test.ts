@@ -310,3 +310,25 @@ describe('Deactivate (ADR-0052)', () => {
     );
   });
 });
+
+describe('Deactivated people (ADR-0053)', () => {
+  it('sends the same requests as the Rust core', async () => {
+    const f = connect(json(200, {}));
+    await api.adminDeactivatedPeople();
+    await api.adminReactivate(ID, ['Employee'], ' Rejoined ');
+    await api.adminPersonDays(ID, '2026-10-01', '2026-10-31');
+    await api.adminPersonDay(ID, '2026-10-05');
+    expect(
+      (f.mock.calls as [string, RequestInit][]).map(([u, init]) => [init.method, u, init.body]),
+    ).toEqual([
+      [undefined, '/v1/admin/people/deactivated', undefined],
+      [
+        'POST',
+        '/v1/admin/people/reactivate',
+        JSON.stringify({ employee_id: ID, roles: ['Employee'], reason: 'Rejoined' }),
+      ],
+      [undefined, `/v1/admin/employees/${ID}/days?from=2026-10-01&to=2026-10-31`, undefined],
+      [undefined, `/v1/admin/employees/${ID}/days/2026-10-05`, undefined],
+    ]);
+  });
+});

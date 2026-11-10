@@ -181,6 +181,20 @@ export async function dayRows(
   );
 }
 
+/**
+ * Everyone a report from `from` covers (ADR-0053 §3): the active, and
+ * the deactivated whose last active day is on or after `from`, so past
+ * weeks keep the people who worked them. By name.
+ */
+export async function peopleOverRange(db: DbRepositories, from: string): Promise<Employee[]> {
+  const [active, inactive] = await Promise.all([
+    db.employees.listActive(),
+    db.employees.listInactive(),
+  ]);
+  const left = inactive.filter((e) => e.lastActiveDate !== undefined && e.lastActiveDate >= from);
+  return [...active, ...left].sort((a, b) => nameOf(a).localeCompare(nameOf(b)));
+}
+
 /** Every date from `from` to `to`, inclusive. */
 export function datesBetween(from: string, to: string): string[] {
   const out: string[] = [];
@@ -225,6 +239,8 @@ export async function rangeRows(
       (c) => ['requested', 'endorsed'].includes(correctionStatus(c)),
     );
     for (const date of dates) {
+      // Not after the day they were deactivated (ADR-0053 §3).
+      if (employee.lastActiveDate !== undefined && date > employee.lastActiveDate) continue;
       const key = `${employee.id}:${date}`;
       out.push(
         dayRow({

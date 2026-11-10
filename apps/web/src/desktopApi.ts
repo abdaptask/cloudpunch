@@ -65,6 +65,10 @@ export type WebApi = Pick<
   | 'adminBulkWelcome'
   | 'adminDeactivate'
   | 'adminBulkDeactivate'
+  | 'adminDeactivatedPeople'
+  | 'adminReactivate'
+  | 'adminPersonDays'
+  | 'adminPersonDay'
   | 'adminShiftTemplates'
   | 'adminCreateShiftTemplate'
   | 'adminSaveShiftTemplate'
@@ -429,6 +433,24 @@ export const api: WebApi = {
     check(who.oid === undefined || UUID.test(who.oid));
     check(who.employee_id === undefined || UUID.test(who.employee_id));
     return send('POST', '/v1/admin/people/deactivate', { ...who, reason: reason.trim() });
+  },
+  // Deactivated people (ADR-0053).
+  adminDeactivatedPeople: () => get('/v1/admin/people/deactivated'),
+  adminReactivate: async (employeeId, roles, reason) => {
+    check(UUID.test(employeeId));
+    return send('POST', '/v1/admin/people/reactivate', {
+      employee_id: employeeId,
+      roles,
+      reason: reason.trim(),
+    });
+  },
+  adminPersonDays: async (employeeId, from, to) => {
+    check(UUID.test(employeeId) && DATE.test(from) && DATE.test(to));
+    return get(`/v1/admin/employees/${employeeId}/days?from=${from}&to=${to}`);
+  },
+  adminPersonDay: async (employeeId, date) => {
+    check(UUID.test(employeeId) && DATE.test(date));
+    return get(`/v1/admin/employees/${employeeId}/days/${date}`);
   },
   adminBulkDeactivate: async (key, people, reason) =>
     send('POST', '/v1/admin/people/bulk/deactivate', {
