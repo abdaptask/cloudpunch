@@ -10,6 +10,12 @@
 # cloudpunch-api and checks it answers. Run migrations separately.
 set -euo pipefail
 
+# On Windows, Git Bash's own ssh/scp can't use the Windows ssh-agent that
+# holds the key the VM trusts; use Windows OpenSSH when it's there.
+if [ -x /c/Windows/System32/OpenSSH/ssh.exe ]; then
+  PATH="/c/Windows/System32/OpenSSH:$PATH"
+fi
+
 HOST="${PILOT_HOST:-aptask@172.16.46.54}"
 
 if [ -n "$(git status --porcelain)" ]; then
