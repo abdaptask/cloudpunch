@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Desktop 0.1.50
+
+- Version bump: the console's redesigned People table (ADR-0054).
+
 ### People table redesign (ADR-0054)
 
 - Settings → People now matches ApTask's Team Members screen: a search
