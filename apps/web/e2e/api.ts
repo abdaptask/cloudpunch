@@ -259,10 +259,11 @@ function answer(path: string, capabilities: readonly string[]): unknown {
   if (p === '/v1/corrections/queue') return { to_endorse: [], to_approve: [] };
   if (p === '/v1/admin/people') {
     return {
-      people: PEOPLE.map((x) => ({
+      // Mixed roles, so the People badges show (ADR-0054).
+      people: PEOPLE.map((x, i) => ({
         oid: x.oid,
         name: x.name,
-        roles: ['Employee'],
+        roles: [['Employee'], ['Employee', 'Manager'], ['Administrator', 'Employee']][i] ?? [],
         has_employee_record: true,
       })),
     };
@@ -273,7 +274,8 @@ function answer(path: string, capabilities: readonly string[]): unknown {
         id: x.id,
         name: x.name,
         email: `${x.id}@aptask.com`,
-        reporting_manager_id: null,
+        // Roshni reports to Farheen.
+        reporting_manager_id: x.id === 'e-roshni' ? 'e-farheen' : null,
         oid: x.oid,
       })),
     };
@@ -319,6 +321,24 @@ function answer(path: string, capabilities: readonly string[]): unknown {
   }
   if (p === '/v1/admin/office-days')
     return { people: PEOPLE.map((x) => ({ employee_id: x.id, weekdays: [], days: [] })) };
+  if (p === '/v1/admin/people/deactivated') {
+    return {
+      people: [
+        {
+          employee_id: 'e-gloria',
+          oid: 'o-gloria',
+          name: 'Gloria Joseph',
+          email: 'gloria@aptask.com',
+          deactivated_at: ago(5 * 24 * 60),
+          deactivated_by: 'Abdulla Sheikh',
+          reason: 'Left ApTask',
+          roles_before: ['Employee'],
+        },
+      ],
+    };
+  }
+  if (p.startsWith('/v1/admin/employees/') && p.endsWith('/history')) return { entries: [] };
+  if (p.startsWith('/v1/admin/employees/') && p.endsWith('/days')) return { name: '', days: [] };
   if (p === '/v1/admin/departments') return { departments: [] };
   if (p === '/v1/admin/policy/global') return { override: null, effective: { policy: {} } };
   if (p === '/v1/admin/devices') return { devices: [] };

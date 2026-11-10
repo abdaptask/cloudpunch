@@ -11,6 +11,9 @@ import { ManagerPicker } from './ManagerPicker.js';
 import { OfficeDaysPart } from './OfficeDaysPart.js';
 import { ShiftChooser } from './ShiftChooser.js';
 import { DeactivatePart, canDeactivate, type Deactivated } from './DeactivateParts.js';
+import { TimeHistory } from './DeactivatedPeople.js';
+
+import { useFocusPart, type PanelFocus } from './panelFocus.js';
 
 const MORE_ERRORS: Record<string, string> = {
   manager_loop: 'That would make a reporting loop.',
@@ -37,6 +40,7 @@ export function PersonPanel({
   onChanged,
   onDeactivated,
   onClose,
+  focus = null,
 }: {
   row: PersonRow;
   /** Everyone, to offer managers and to name them. */
@@ -50,8 +54,11 @@ export function PersonPanel({
   /** Deactivated (ADR-0052): show the answer above the table, close this. */
   onDeactivated?: (d: Deactivated) => void;
   onClose: () => void;
+  /** Open at this part (the table's action icons). */
+  focus?: PanelFocus | null;
 }): JSX.Element {
   const t = useTheme();
+  const ref = useFocusPart(focus);
   // Someone new from the directory starts with Employee ticked, as today.
   const [roles, setRoles] = useState<string[]>(
     row.roles.length === 0 && row.employeeId === null ? ['Employee'] : row.roles,
@@ -60,7 +67,7 @@ export function PersonPanel({
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<Status>(null);
   const [editingShift, setEditingShift] = useState(false);
-  const [welcome, setWelcome] = useState(false);
+  const [welcome, setWelcome] = useState(focus === 'welcome');
 
   const rolesChanged = [...roles].sort().join() !== [...row.roles].sort().join();
   const fail = (e: unknown): void => {
@@ -127,7 +134,7 @@ export function PersonPanel({
 
   const employeeId = row.employeeId;
   return (
-    <aside aria-label={`person ${row.name}`} style={panel(t)}>
+    <aside ref={ref} aria-label={`person ${row.name}`} style={panel(t)}>
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 15, fontWeight: 650 }}>{row.name}</div>
@@ -299,9 +306,15 @@ export function PersonPanel({
         </p>
       )}
 
+      {employeeId !== null && (
+        <Part title="Time history" t={t}>
+          <TimeHistory employeeId={employeeId} end={null} />
+        </Part>
+      )}
+
       {onDeactivated && canDeactivate(row, canAssignAll) && (
         <Part title="Leaving ApTask" t={t}>
-          <DeactivatePart row={row} onDone={onDeactivated} />
+          <DeactivatePart row={row} onDone={onDeactivated} startAsking={focus === 'deactivate'} />
         </Part>
       )}
 

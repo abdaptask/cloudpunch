@@ -10,6 +10,7 @@ import {
   applyFilter,
   attention,
   buildRows,
+  checkCounts,
   managerChoices,
   pageOf,
   sortRows,
@@ -98,8 +99,44 @@ describe('People table model (ADR-0038 §3)', () => {
     expect(names({ q: 'ROSHNI@' })).toEqual(['Roshni Sahani']);
     expect(names({ role: 'Manager' })).toEqual(['Priya Shah']);
     expect(names({ managerId: 'e-priya' })).toEqual(['Old Hand', 'Roshni Sahani']);
-    expect(names({ flag: 'managerNoRole' })).toEqual(['Roshni Sahani']);
-    expect(names({ flag: 'noRole', q: 'old' })).toEqual(['Old Hand']);
+    expect(names({ checks: ['noRole'], q: 'old' })).toEqual(['Old Hand']);
+    expect(names({ checks: ['noManager'] })).toEqual(['Priya Shah']);
+    // Managers only: the Manager role, or someone reports to them.
+    expect(names({ checks: ['managersOnly'] })).toEqual(['Priya Shah', 'Roshni Sahani']);
+    expect(names({ checks: ['managersOnly', 'noShift'] })).toEqual(['Roshni Sahani']);
+  });
+
+  it('deactivated people are Inactive rows, hidden by default (ADR-0054)', () => {
+    const off = {
+      employee_id: 'e-gone',
+      oid: 'o-gone',
+      name: 'Gone Person',
+      email: 'gone@aptask.com',
+      deactivated_at: '2026-11-05T10:00:00.000Z',
+      deactivated_by: 'Owner',
+      reason: 'Left',
+      roles_before: ['Employee'],
+    };
+    // Roles still in Entra (Entra failed): one row, Inactive.
+    const stuck = { ...off, employee_id: 'e-stuck', oid: 'o-new', name: 'New Person' };
+    const rows = buildRows(people, employees, shifts, null, [off, stuck]);
+    const gone = rows.find((r) => r.name === 'Gone Person');
+    expect(gone).toMatchObject({ active: false, employeeId: 'e-gone', roles: [] });
+    expect(rows.filter((r) => r.name === 'New Person')).toMatchObject([
+      { active: false, employeeId: 'e-stuck', roles: ['Employee'] },
+    ]);
+    expect(statusOf(gone!, rows)).toEqual([]);
+    const names = (f: Partial<typeof NO_FILTER>): string[] =>
+      applyFilter(rows, { ...NO_FILTER, ...f }).map((r) => r.name);
+    expect(names({})).not.toContain('Gone Person');
+    expect(names({ status: 'inactive' })).toEqual(['Gone Person', 'New Person']);
+    expect(names({ status: 'all' })).toHaveLength(rows.length);
+    expect(checkCounts(rows, 'active')).toEqual({
+      managersOnly: 2,
+      noManager: 1,
+      noShift: 1,
+      noRole: 1,
+    });
   });
 
   it('sorts with blanks last either way', () => {

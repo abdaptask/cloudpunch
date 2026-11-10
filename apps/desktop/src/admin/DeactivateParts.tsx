@@ -15,6 +15,7 @@ import { namesText, type PersonRow } from './peopleModel.js';
 
 /** Administrators: anyone. HR: people with Employee/Manager roles only. */
 export function canDeactivate(row: PersonRow, canAssignAll: boolean): boolean {
+  if (!row.active) return false;
   if (row.employeeId === null && row.roles.length === 0) return false;
   return canAssignAll || row.roles.every((r) => HR_ASSIGNABLE.includes(r));
 }
@@ -128,18 +129,21 @@ function Confirm({
 export function DeactivatePart({
   row,
   onDone,
+  startAsking = false,
 }: {
   row: PersonRow;
   onDone: (d: Deactivated) => void;
+  /** Opened from the table's Deactivate icon: straight to the confirmation. */
+  startAsking?: boolean;
 }): JSX.Element {
   const t = useTheme();
-  const [asking, setAsking] = useState(false);
+  const [asking, setAsking] = useState(startAsking);
   if (!asking) {
     return (
       <Button
         variant="stopOutline"
         onClick={() => setAsking(true)}
-        style={{ alignSelf: 'flex-start' }}
+        style={{ alignSelf: 'flex-start', width: 'auto' }}
       >
         Deactivate…
       </Button>
