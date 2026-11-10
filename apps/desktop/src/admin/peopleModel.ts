@@ -1,4 +1,11 @@
-import type { EmployeeRow, OfficeDays, Person, Shift, ShiftRow } from '../api.js';
+import type {
+  DeactivatedPerson,
+  EmployeeRow,
+  OfficeDays,
+  Person,
+  Shift,
+  ShiftRow,
+} from '../api.js';
 
 /**
  * The People table (ADR-0038 §3): one row per person, joined from the
@@ -24,6 +31,10 @@ export interface PersonRow {
   template: { id: string; name: string } | null;
   /** Their in-office days (ADR-0039); undefined when not loaded. */
   office?: { weekdays: number[]; days: { date: string; in_office: boolean }[] };
+  /** False for a deactivated record (ADR-0054: one table, a Status filter). */
+  active: boolean;
+  /** How they were deactivated; null when active. */
+  deactivated: DeactivatedPerson | null;
 }
 
 /** Roles that can see others' time, so can be someone's manager (ADR-0025). */
@@ -34,6 +45,8 @@ export function buildRows(
   employees: readonly EmployeeRow[],
   shifts: readonly ShiftRow[] | null,
   office: readonly OfficeDays[] | null = null,
+  /** Deactivated records (ADR-0053), listed as Inactive (ADR-0054). */
+  inactive: readonly DeactivatedPerson[] = [],
 ): PersonRow[] {
   const byId = new Map(employees.map((e) => [e.id, e]));
   const shiftOf = (employeeId: string | null): Shift | null | undefined => {
@@ -62,12 +75,44 @@ export function buildRows(
       shift: shiftOf(e?.id ?? null),
       template: templateOf(e?.id ?? null),
       ...officeOf(e?.id ?? null),
+      active: true,
+      deactivated: null,
     };
   };
-  const rows = people.map((p) => row(p, employees.find((e) => e.oid === p.oid) ?? null));
+  // Off, but still holding roles in Entra (Entra failed): one Inactive row.
+  const offByOid = new Map(inactive.filter((d) => d.oid).map((d) => [d.oid, d]));
+  const rows = people.map((p) => {
+    const off = offByOid.get(p.oid);
+    return off
+      ? {
+          ...row(p, null),
+          employeeId: off.employee_id,
+          email: off.email,
+          active: false,
+          deactivated: off,
+        }
+      : row(p, employees.find((e) => e.oid === p.oid) ?? null);
+  });
   // Records whose roles are gone (ADR-0020 §4): still listed, as "No role".
   for (const e of employees) {
     if (!e.oid || !people.some((p) => p.oid === e.oid)) rows.push(row(null, e));
+  }
+  for (const d of inactive) {
+    if (d.oid && people.some((p) => p.oid === d.oid)) continue;
+    rows.push({
+      key: d.oid ?? d.employee_id,
+      oid: d.oid,
+      employeeId: d.employee_id,
+      name: d.name,
+      email: d.email,
+      roles: [],
+      managerId: null,
+      managerName: null,
+      shift: undefined,
+      template: null,
+      active: false,
+      deactivated: d,
+    });
   }
   return rows.sort((a, b) => a.name.localeCompare(b.name));
 }
@@ -119,8 +164,9 @@ export function attention(rows: readonly PersonRow[]): Record<Flag, number> {
   return out;
 }
 
-/** Short words for the Status column; empty when nothing needs doing. */
+/** What needs doing, in short words; empty when nothing does (or inactive). */
 export function statusOf(r: PersonRow, all: readonly PersonRow[]): string[] {
+  if (!r.active) return [];
   if (r.employeeId === null) return ['No record'];
   const out: string[] = [];
   if (hasFlag(r, 'noRole', all)) out.push('No role');
@@ -130,6 +176,28 @@ export function statusOf(r: PersonRow, all: readonly PersonRow[]): string[] {
   return out;
 }
 
+/** The tick-box filters (ADR-0054): each one narrows the list. */
+export type Check = 'managersOnly' | 'noManager' | 'noShift' | 'noRole';
+export const CHECKS: readonly Check[] = ['managersOnly', 'noManager', 'noShift', 'noRole'];
+export const CHECK_LABEL: Record<Check, string> = {
+  managersOnly: 'Managers only',
+  noManager: 'No manager',
+  noShift: 'No shift',
+  noRole: 'No role',
+};
+
+export function hasCheck(r: PersonRow, c: Check, all: readonly PersonRow[]): boolean {
+  if (c === 'managersOnly') {
+    return (
+      r.roles.includes('Manager') ||
+      all.some((x) => x.active && x.managerId === r.employeeId && r.employeeId !== null)
+    );
+  }
+  return r.active && hasFlag(r, c, all);
+}
+
+export type StatusFilter = 'active' | 'inactive' | 'all';
+
 export interface Filter {
   /** Name or email. */
   q: string;
@@ -137,23 +205,39 @@ export interface Filter {
   role: string;
   /** Reports to this employee id, or '' for anyone. */
   managerId: string;
-  flag: Flag | null;
+  /** Active by default (ADR-0054). */
+  status: StatusFilter;
+  checks: readonly Check[];
 }
 
-export const NO_FILTER: Filter = { q: '', role: '', managerId: '', flag: null };
+export const NO_FILTER: Filter = { q: '', role: '', managerId: '', status: 'active', checks: [] };
 
 export function applyFilter(rows: readonly PersonRow[], f: Filter): PersonRow[] {
   const q = f.q.trim().toLowerCase();
   return rows.filter(
     (r) =>
+      (f.status === 'all' || r.active === (f.status === 'active')) &&
       (!q || r.name.toLowerCase().includes(q) || (r.email ?? '').toLowerCase().includes(q)) &&
       (!f.role || r.roles.includes(f.role)) &&
       (!f.managerId || r.managerId === f.managerId) &&
-      (!f.flag || hasFlag(r, f.flag, rows)),
+      f.checks.every((c) => hasCheck(r, c, rows)),
   );
 }
 
-export type SortKey = 'name' | 'roles' | 'manager' | 'shift' | 'office' | 'status';
+/** How many rows each tick-box would leave, within the status shown. */
+export function checkCounts(
+  rows: readonly PersonRow[],
+  status: StatusFilter,
+): Record<Check, number> {
+  const out: Record<Check, number> = { managersOnly: 0, noManager: 0, noShift: 0, noRole: 0 };
+  for (const r of rows) {
+    if (status !== 'all' && r.active !== (status === 'active')) continue;
+    for (const c of CHECKS) if (hasCheck(r, c, rows)) out[c] += 1;
+  }
+  return out;
+}
+
+export type SortKey = 'name' | 'email' | 'roles' | 'manager' | 'shift' | 'office' | 'status';
 export interface Sort {
   key: SortKey;
   dir: 'asc' | 'desc';

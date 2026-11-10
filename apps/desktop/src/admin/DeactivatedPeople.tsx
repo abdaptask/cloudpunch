@@ -1,4 +1,5 @@
 import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
+import { useFocusPart, type PanelFocus } from './panelFocus.js';
 import { api, type DeactivatedPerson } from '../api.js';
 import { dayLabel, localDateOf, shiftDate } from '../dayHistory.js';
 import type { DaySummary } from '../dayPickerModel.js';
@@ -10,10 +11,10 @@ import { HistoryList } from './HistoryList.js';
 import { ERROR_TEXT, HR_ASSIGNABLE, ROLES } from './peopleParts.js';
 
 /**
- * Deactivated people (ADR-0053): everyone whose record is off, with
- * when, by whom and why; their time history, back a year; their
- * changes; and Reactivate, which gives roles back and turns the record
- * on. Nothing else here edits them.
+ * A deactivated person's panel (ADR-0053, opened from People's Inactive
+ * rows since ADR-0054): when, by whom and why; Reactivate, which gives
+ * roles back and turns the record on; their time history, back a year;
+ * their changes. Nothing else here edits them.
  */
 
 /** How far back a history goes, and how many days a page shows. */
@@ -45,140 +46,24 @@ function when(iso: string | null): string {
   });
 }
 
-export function DeactivatedPeople({
-  canAssignAll,
-  onReactivated,
-}: {
-  canAssignAll: boolean;
-  /** Someone was reactivated: the People list should reload. */
-  onReactivated: () => void;
-}): JSX.Element {
-  const t = useTheme();
-  const [people, setPeople] = useState<DeactivatedPerson[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [q, setQ] = useState('');
-  const [open, setOpen] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
-  const load = (): void => {
-    api.adminDeactivatedPeople().then(
-      (r) => setPeople(r.people),
-      (e: unknown) => setError(errorText(String(e))),
-    );
-  };
-  useEffect(load, []);
-
-  const needle = q.trim().toLowerCase();
-  const shown = (people ?? []).filter(
-    (p) =>
-      needle === '' ||
-      p.name.toLowerCase().includes(needle) ||
-      (p.email ?? '').toLowerCase().includes(needle),
-  );
-  const person = people?.find((p) => p.employee_id === open);
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-      {notice && (
-        <p role="status" aria-label="reactivated" style={{ margin: 0, fontSize: 13 }}>
-          {notice}
-        </p>
-      )}
-      {error && (
-        <p role="alert" style={{ margin: 0, fontSize: 13, color: t.danger }}>
-          {error}
-        </p>
-      )}
-      {!people && !error && <p style={{ margin: 0, fontSize: 13, color: t.muted }}>Loading…</p>}
-      {people && people.length === 0 && (
-        <p style={{ margin: 0, fontSize: 13, color: t.muted }}>No one is deactivated.</p>
-      )}
-      {people && people.length > 0 && (
-        <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap' }}>
-          <div
-            style={{
-              flex: '1 1 380px',
-              minWidth: 0,
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 8,
-            }}
-          >
-            <input
-              aria-label="deactivated-find"
-              placeholder="Find by name or email"
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              style={input(t)}
-            />
-            <ul
-              aria-label="deactivated-people"
-              style={{ listStyle: 'none', margin: 0, padding: 0 }}
-            >
-              {shown.map((p) => (
-                <li key={p.employee_id} style={{ borderBottom: `1px solid ${t.border}` }}>
-                  <button
-                    type="button"
-                    aria-pressed={open === p.employee_id}
-                    onClick={() => setOpen(p.employee_id)}
-                    style={{
-                      width: '100%',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: 2,
-                      padding: '8px 4px',
-                      border: 'none',
-                      background: open === p.employee_id ? t.surfaceAlt : 'none',
-                      color: t.text,
-                      font: 'inherit',
-                      textAlign: 'left',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    <span style={{ fontSize: 13.5, fontWeight: 600 }}>{p.name}</span>
-                    <span style={{ fontSize: 12, color: t.muted }}>
-                      Deactivated {when(p.deactivated_at)}
-                      {p.deactivated_by ? ` by ${p.deactivated_by}` : ''}
-                      {p.email ? ` · ${p.email}` : ''}
-                    </span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </div>
-          {person && (
-            <DeactivatedPanel
-              key={person.employee_id}
-              person={person}
-              canAssignAll={canAssignAll}
-              onClose={() => setOpen(null)}
-              onReactivated={(text) => {
-                setOpen(null);
-                setNotice(text);
-                load();
-                onReactivated();
-              }}
-            />
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function DeactivatedPanel({
+export function DeactivatedPanel({
   person,
   canAssignAll,
   onClose,
   onReactivated,
+  focus = null,
 }: {
   person: DeactivatedPerson;
   canAssignAll: boolean;
   onClose: () => void;
   onReactivated: (text: string) => void;
+  /** Open at this part (the table's action icons). */
+  focus?: PanelFocus | null;
 }): JSX.Element {
   const t = useTheme();
+  const ref = useFocusPart(focus);
   return (
-    <aside aria-label={`deactivated ${person.name}`} style={panel(t)}>
+    <aside ref={ref} aria-label={`deactivated ${person.name}`} style={panel(t)}>
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 15, fontWeight: 650 }}>{person.name}</div>
@@ -199,11 +84,16 @@ function DeactivatedPanel({
       </Part>
 
       <Part title="Reactivate" t={t}>
-        <Reactivate person={person} canAssignAll={canAssignAll} onDone={onReactivated} />
+        <Reactivate
+          person={person}
+          canAssignAll={canAssignAll}
+          onDone={onReactivated}
+          startAsking={focus === 'reactivate'}
+        />
       </Part>
 
       <Part title="Time history" t={t}>
-        <TimeHistory person={person} />
+        <TimeHistory employeeId={person.employee_id} end={person.deactivated_at} />
       </Part>
 
       <Part title="Changes" t={t}>
@@ -222,15 +112,17 @@ function Reactivate({
   person,
   canAssignAll,
   onDone,
+  startAsking = false,
 }: {
   person: DeactivatedPerson;
   canAssignAll: boolean;
   onDone: (text: string) => void;
+  startAsking?: boolean;
 }): JSX.Element {
   const t = useTheme();
   const allowed = (r: string): boolean => canAssignAll || HR_ASSIGNABLE.includes(r);
   const before = person.roles_before.filter(allowed);
-  const [asking, setAsking] = useState(false);
+  const [asking, setAsking] = useState(startAsking);
   const [roles, setRoles] = useState<string[]>(before.length > 0 ? before : ['Employee']);
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
@@ -248,7 +140,7 @@ function Reactivate({
       <Button
         variant="secondary"
         onClick={() => setAsking(true)}
-        style={{ alignSelf: 'flex-start' }}
+        style={{ alignSelf: 'flex-start', width: 'auto' }}
       >
         Reactivate…
       </Button>
@@ -326,11 +218,18 @@ function Reactivate({
  * Their days, 31 at a time, starting from the day they left; Earlier
  * and Later step through the last year (ADR-0053 §4). Read-only.
  */
-function TimeHistory({ person }: { person: DeactivatedPerson }): JSX.Element {
+export function TimeHistory({
+  employeeId,
+  end,
+}: {
+  employeeId: string;
+  /** The last day to show first (ISO time they left); null: today. */
+  end: string | null;
+}): JSX.Element {
   const t = useTheme();
   const today = localDateOf(Date.now());
   const oldest = shiftDate(today, -(HISTORY_DAYS - 1));
-  const left = person.deactivated_at ? localDateOf(Date.parse(person.deactivated_at)) : today;
+  const left = end ? localDateOf(Date.parse(end)) : today;
   const [to, setTo] = useState(left < oldest ? oldest : left > today ? today : left);
   const fromRaw = shiftDate(to, -(PAGE_DAYS - 1));
   const from = fromRaw < oldest ? oldest : fromRaw;
@@ -341,7 +240,7 @@ function TimeHistory({ person }: { person: DeactivatedPerson }): JSX.Element {
     let current = true;
     setDays(null);
     setError(null);
-    api.adminPersonDays(person.employee_id, from, to).then(
+    api.adminPersonDays(employeeId, from, to).then(
       (r) => {
         if (!current) return;
         setDays(
@@ -357,7 +256,7 @@ function TimeHistory({ person }: { person: DeactivatedPerson }): JSX.Element {
     return () => {
       current = false;
     };
-  }, [person.employee_id, from, to]);
+  }, [employeeId, from, to]);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -424,7 +323,7 @@ function TimeHistory({ person }: { person: DeactivatedPerson }): JSX.Element {
               </button>
               {open === d.date && (
                 <EarlierDay
-                  id={person.employee_id}
+                  id={employeeId}
                   date={d.date}
                   canCorrect={false}
                   load={api.adminPersonDay}

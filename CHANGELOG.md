@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### People table redesign (ADR-0054)
+
+- Settings → People now matches ApTask's Team Members screen: a search
+  box with Reset and Reload, dropdowns for role, status (Active by
+  default) and manager, and tick-box filters (Managers only, No
+  manager, No shift, No role) with counts.
+- Columns: Name (blue), Email, Manager, Roles (coloured badges),
+  Shift, Office, Status (green Active / red Inactive, with a ⚠ for what
+  needs doing), and Actions: Edit, Roles, History, Welcome email,
+  Deactivate (or Reactivate for inactive people), each with a tooltip,
+  each opening the panel at that part.
+- Deactivated people are in the same table (Status → Inactive); the
+  separate Deactivated view is gone. Active people's panels gain Time
+  history too.
+- No server change. Console needs desktop 0.1.50.
+
 ### Release notes keep their characters on Windows
 
 - `publish-installer.sh` sends the "what's new" notes as ASCII JSON (`→` for →): Windows OpenSSH re-encoded non-ASCII in the command line, so arrows arrived garbled on the download page.

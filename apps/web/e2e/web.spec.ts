@@ -59,6 +59,24 @@ test('the admin console moves between sections', async ({ page }) => {
   }
 });
 
+test('People: badges and actions; Status → Inactive shows the deactivated (ADR-0054)', async ({
+  page,
+}) => {
+  await page.goto('/app/admin/');
+  await page
+    .getByRole('navigation', { name: 'admin-sections' })
+    .getByRole('button', { name: 'People', exact: true })
+    .click();
+  const table = page.getByRole('table', { name: 'people-table' });
+  await expect(table.getByRole('button', { name: 'Roshni Sahani', exact: true })).toBeVisible();
+  await expect(table.getByRole('button', { name: 'Gloria Joseph', exact: true })).toHaveCount(0);
+  await expect(table.getByRole('button', { name: 'Deactivate Roshni Sahani' })).toBeAttached();
+  await page.getByLabel('filter-status').selectOption('inactive');
+  await expect(table.getByRole('button', { name: 'Gloria Joseph', exact: true })).toBeVisible();
+  await expect(table.getByRole('button', { name: 'Reactivate Gloria Joseph' })).toBeAttached();
+  expect(await scrollsSideways(page), 'People scrolls sideways').toBe(false);
+});
+
 test('Shifts fits the window, wide or a phone', async ({ page }) => {
   await page.goto('/app/admin/');
   await page

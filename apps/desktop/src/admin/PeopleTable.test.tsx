@@ -114,6 +114,8 @@ beforeEach(() => {
       { employee_id: 'e-roshni', weekdays: [], days: [] },
     ],
   });
+  mocks.adminDeactivatedPeople.mockResolvedValue({ people: [] });
+  mocks.adminPersonDays.mockResolvedValue({ name: '', days: [] });
   mocks.adminSetManager.mockResolvedValue({ id: 'e-roshni', reporting_manager_id: 'e-priya' });
   mocks.adminActiveDevice.mockResolvedValue(null);
   mocks.adminWelcomePreview.mockResolvedValue({
@@ -131,29 +133,56 @@ const bodyRows = (): string[] =>
     .map((r) => within(r).getAllByRole('button')[0]?.textContent ?? '');
 
 describe('People table (ADR-0038 §3)', () => {
-  it('lists everyone with roles, manager, shift and status', async () => {
+  it('lists everyone: email, manager, role badges, status, what needs doing, actions (ADR-0054)', async () => {
     render(<PeopleTable canAssignAll onClose={() => undefined} />);
     await screen.findByRole('table', { name: 'people-table' });
     expect(bodyRows()).toEqual(['Hema R', 'Priya Shah', 'Roshni Sahani']);
+    expect(screen.getByLabelText('people-count')).toHaveTextContent('3 of 3 people');
+    const hema = screen.getByRole('button', { name: 'Hema R' }).closest('tr')!;
+    expect(hema).toHaveTextContent('Priya Shah');
     const roshni = screen.getByRole('button', { name: 'Roshni Sahani' }).closest('tr')!;
     expect(roshni).toHaveTextContent('roshni@aptask.com');
     expect(roshni).toHaveTextContent('Employee');
-    expect(within(roshni).getByText('No manager')).toBeInTheDocument();
-    expect(within(roshni).getByText('No shift')).toBeInTheDocument();
+    expect(roshni).toHaveTextContent('Active');
+    expect(
+      within(roshni).getByRole('img', { name: 'needs: No manager, No shift' }),
+    ).toBeInTheDocument();
+    const actions = within(roshni).getByRole('group', { name: 'actions for Roshni Sahani' });
+    expect(
+      within(actions)
+        .getAllByRole('button')
+        .map((b) => b.getAttribute('aria-label') ?? b.textContent),
+    ).toEqual([
+      'Edit',
+      'Roles of Roshni Sahani',
+      'History of Roshni Sahani',
+      'Welcome email to Roshni Sahani',
+      'Deactivate Roshni Sahani',
+    ]);
     expect(screen.getByLabelText('people-pages')).toHaveTextContent('1–3 of 3');
   });
 
-  it('needs-attention counts filter the table', async () => {
+  it('tick-box filters narrow the table; Reset clears them', async () => {
     const user = userEvent.setup();
     render(<PeopleTable canAssignAll onClose={() => undefined} />);
-    const attention = await screen.findByRole('group', { name: 'needs-attention' });
-    const noManager = within(attention).getByRole('button', { name: '2 without a manager' });
-    await user.click(noManager);
-    expect(noManager).toHaveAttribute('aria-pressed', 'true');
+    await screen.findByRole('table', { name: 'people-table' });
+    await user.click(screen.getByRole('checkbox', { name: 'only-noManager' }));
     expect(bodyRows()).toEqual(['Priya Shah', 'Roshni Sahani']);
-    await user.click(within(attention).getByRole('button', { name: '1 without a shift' }));
+    await user.click(screen.getByRole('checkbox', { name: 'only-noShift' }));
     expect(bodyRows()).toEqual(['Roshni Sahani']);
     expect(screen.getByLabelText('people-pages')).toHaveTextContent('1–1 of 1 (3 in all)');
+    await user.click(screen.getByRole('button', { name: 'Reset filters' }));
+    expect(bodyRows()).toEqual(['Hema R', 'Priya Shah', 'Roshni Sahani']);
+    await user.click(screen.getByRole('checkbox', { name: 'only-managersOnly' }));
+    expect(bodyRows()).toEqual(['Priya Shah']);
+  });
+
+  it('the Deactivate icon opens the panel at the confirmation', async () => {
+    const user = userEvent.setup();
+    render(<PeopleTable canAssignAll onClose={() => undefined} />);
+    await user.click(await screen.findByRole('button', { name: 'Deactivate Roshni Sahani' }));
+    const panel = screen.getByRole('complementary', { name: 'person Roshni Sahani' });
+    expect(within(panel).getByLabelText('deactivate-reason')).toBeInTheDocument();
   });
 
   it('search, role filter and sorting', async () => {
@@ -725,7 +754,7 @@ describe('Deactivate (ADR-0052)', () => {
   });
 });
 
-describe('Deactivated people (ADR-0053)', () => {
+describe('Deactivated people in the same table (ADR-0053, ADR-0054)', () => {
   const GLORIA = {
     employee_id: 'e-gloria',
     oid: 'o-gloria',
@@ -756,30 +785,31 @@ describe('Deactivated people (ADR-0053)', () => {
     });
   });
 
-  it('lists them with when, by whom and why; shows their time history', async () => {
+  it('hidden until Status is Inactive; shows when, by whom, why and their time history', async () => {
     const user = userEvent.setup();
     render(<PeopleTable canAssignAll onClose={() => undefined} />);
-    await user.click(await screen.findByRole('tab', { name: 'Deactivated' }));
-    const list = await screen.findByRole('list', { name: 'deactivated-people' });
-    expect(list).toHaveTextContent('Gloria Joseph');
-    expect(list).toHaveTextContent('by Abdulla Sheikh');
-    await user.click(within(list).getByRole('button', { name: /Gloria Joseph/ }));
+    await screen.findByRole('table', { name: 'people-table' });
+    expect(bodyRows()).not.toContain('Gloria Joseph');
+    await user.selectOptions(screen.getByLabelText('filter-status'), 'inactive');
+    expect(bodyRows()).toEqual(['Gloria Joseph']);
+    const row = screen.getByRole('button', { name: 'Gloria Joseph' }).closest('tr')!;
+    expect(row).toHaveTextContent('Inactive');
+    expect(within(row).getByRole('checkbox', { name: 'select Gloria Joseph' })).toBeDisabled();
+    expect(within(row).queryByRole('button', { name: 'Deactivate Gloria Joseph' })).toBeNull();
+    await user.click(within(row).getByRole('button', { name: 'Gloria Joseph' }));
     const panel = screen.getByRole('complementary', { name: 'deactivated Gloria Joseph' });
     expect(within(panel).getByLabelText('deactivation')).toHaveTextContent(
       'Reason: Left ApTask. Roles then: Employee, Manager.',
     );
     // 31 days ending the day they left.
-    const [, from, to] = mocks.adminPersonDays.mock.calls[0] as [string, string, string];
-    expect(to).toBe('2026-11-05');
-    expect(from).toBe('2026-10-06');
+    expect(mocks.adminPersonDays).toHaveBeenLastCalledWith('e-gloria', '2026-10-06', '2026-11-05');
     const days = await within(panel).findByRole('list', { name: 'history-days' });
-    // Only days with time on them.
     expect(within(days).getAllByRole('button')).toHaveLength(1);
     await user.click(within(panel).getByRole('button', { name: '← Earlier' }));
     expect(mocks.adminPersonDays).toHaveBeenLastCalledWith('e-gloria', '2026-09-05', '2026-10-05');
   });
 
-  it('Reactivate: roles they had, a reason, then back in People', async () => {
+  it('the Reactivate icon: roles they had, a reason, then Active again', async () => {
     mocks.adminReactivate.mockResolvedValue({
       employee_id: 'e-gloria',
       oid: 'o-gloria',
@@ -788,10 +818,10 @@ describe('Deactivated people (ADR-0053)', () => {
     });
     const user = userEvent.setup();
     render(<PeopleTable canAssignAll onClose={() => undefined} />);
-    await user.click(await screen.findByRole('tab', { name: 'Deactivated' }));
-    await user.click(await screen.findByRole('button', { name: /Gloria Joseph/ }));
+    await screen.findByRole('table', { name: 'people-table' });
+    await user.selectOptions(screen.getByLabelText('filter-status'), 'inactive');
+    await user.click(screen.getByRole('button', { name: 'Reactivate Gloria Joseph' }));
     const panel = screen.getByRole('complementary', { name: 'deactivated Gloria Joseph' });
-    await user.click(within(panel).getByRole('button', { name: 'Reactivate…' }));
     expect(within(panel).getByRole('checkbox', { name: 'reactivate-role-Manager' })).toBeChecked();
     const go = within(panel).getByRole('button', { name: 'Reactivate Gloria Joseph' });
     expect(go).toBeDisabled();
@@ -806,8 +836,6 @@ describe('Deactivated people (ADR-0053)', () => {
     expect(await screen.findByRole('status', { name: 'reactivated' })).toHaveTextContent(
       'Gloria Joseph is active again with Employee, Manager.',
     );
-    expect(await screen.findByText('No one is deactivated.')).toBeInTheDocument();
-    // People reloads too.
     expect(mocks.adminPeople).toHaveBeenCalledTimes(2);
   });
 
@@ -817,12 +845,11 @@ describe('Deactivated people (ADR-0053)', () => {
     });
     const user = userEvent.setup();
     render(<PeopleTable canAssignAll={false} onClose={() => undefined} />);
-    await user.click(await screen.findByRole('tab', { name: 'Deactivated' }));
-    await user.click(await screen.findByRole('button', { name: /Gloria Joseph/ }));
+    await screen.findByRole('table', { name: 'people-table' });
+    await user.selectOptions(screen.getByLabelText('filter-status'), 'inactive');
+    await user.click(screen.getByRole('button', { name: 'Reactivate Gloria Joseph' }));
     const panel = screen.getByRole('complementary', { name: 'deactivated Gloria Joseph' });
-    await user.click(within(panel).getByRole('button', { name: 'Reactivate…' }));
     expect(within(panel).getByRole('checkbox', { name: 'reactivate-role-HR' })).toBeDisabled();
-    // HR wasn't theirs to give, so Employee is offered instead.
     expect(within(panel).getByRole('checkbox', { name: 'reactivate-role-Employee' })).toBeChecked();
   });
 });
