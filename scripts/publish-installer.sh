@@ -100,7 +100,18 @@ if [ -n "$UPDATE_FILE" ]; then
   UPDATE_SHA="$(sha256 "$UPDATE")"
   UPDATE_SIZE="$(size_of "$UPDATE")"
 fi
-NOTES_JSON="$(node -e 'console.log(JSON.stringify(process.argv.slice(1)))' -- "$@")"
+# ASCII only: anything else as a JSON \uXXXX escape. Windows OpenSSH
+# re-encodes non-ASCII in the command line (an arrow arrived garbled);
+# the VM's json.loads reads the escapes back as the same characters.
+NOTES_JSON="$(node -e '
+  const s = JSON.stringify(process.argv.slice(1));
+  let out = "";
+  for (let i = 0; i < s.length; i++) {
+    const n = s.charCodeAt(i);
+    out += n > 126 ? "\\u" + n.toString(16).padStart(4, "0") : s[i];
+  }
+  console.log(out);
+' -- "$@")"
 echo "publish-installer: $PLATFORM $FILE ($SIZE bytes, sha256 $SHA)"
 
 scp -q -o BatchMode=yes "$INSTALLER" "$HOST:/tmp/$FILE"
