@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Desktop 0.1.49
+
+- Version bump: the console's Settings → People → Deactivated (history, Reactivate; ADR-0053).
+
 ### Deactivated people: history, past reports, Reactivate (ADR-0053)
 
 - **Settings → People → Deactivated** lists everyone deactivated with
