@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Release scripts use Windows OpenSSH on Windows
+
+- `publish-installer.sh` and `deploy-pilot.sh` put Windows OpenSSH first when it's there: Git Bash's ssh/scp can't use the Windows ssh-agent, so `build-windows.ps1 -Publish` failed at the upload (`scp: Connection closed`).
+
 ### Desktop 0.1.48
 
 - Version bump: the console's Deactivate and Deactivate selected (ADR-0052).
