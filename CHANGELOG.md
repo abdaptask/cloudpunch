@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Desktop 0.1.48
+
+- Version bump: the console's Deactivate and Deactivate selected (ADR-0052).
+
 ### Deactivate a person (ADR-0052)
 
 - **Deactivate…** on the person panel (Settings → People) asks for a
