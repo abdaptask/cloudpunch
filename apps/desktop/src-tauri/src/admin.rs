@@ -1018,6 +1018,62 @@ pub fn bulk_roles(
     )
 }
 
+/// Deactivate one person (ADR-0052): by Entra id, record, or both.
+pub fn people_deactivate(
+    http: &Client,
+    base: &str,
+    token: &str,
+    oid: Option<&str>,
+    employee_id: Option<&str>,
+    reason: &str,
+) -> Result<Value, DayError> {
+    if oid.is_none() && employee_id.is_none()
+        || oid.is_some_and(|o| !is_uuid(o))
+        || employee_id.is_some_and(|e| !is_uuid(e))
+    {
+        return Err(DayError::Refused("invalid_argument".into()));
+    }
+    let mut body = serde_json::json!({ "reason": reason.trim() });
+    if let Some(o) = oid {
+        body["oid"] = Value::String(o.to_string());
+    }
+    if let Some(e) = employee_id {
+        body["employee_id"] = Value::String(e.to_string());
+    }
+    send(
+        http,
+        base,
+        token,
+        reqwest::Method::POST,
+        "/v1/admin/people/deactivate",
+        Some(&body),
+    )
+}
+
+/// Deactivate selected (ADR-0052 §5); each person is answered.
+pub fn bulk_deactivate(
+    http: &Client,
+    base: &str,
+    token: &str,
+    key: &str,
+    people: &[Value],
+    reason: &str,
+) -> Result<Value, DayError> {
+    let body = serde_json::json!({
+        "idempotency_key": key,
+        "people": people,
+        "reason": reason.trim(),
+    });
+    send(
+        http,
+        base,
+        token,
+        reqwest::Method::POST,
+        "/v1/admin/people/bulk/deactivate",
+        Some(&body),
+    )
+}
+
 /// Welcome emails for many people; each person is answered.
 pub fn bulk_welcome(
     http: &Client,

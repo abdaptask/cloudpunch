@@ -31,6 +31,7 @@ import {
   type SortKey,
 } from './peopleModel.js';
 import { PersonPanel } from './PersonPanel.js';
+import { DeactivateBulkPanel, DeactivatedNotice, type Deactivated } from './DeactivateParts.js';
 
 const errorText = (code: string): string => ERROR_TEXT[code] ?? `Something went wrong (${code}).`;
 
@@ -69,6 +70,15 @@ export function PeopleTable({
   // Ticked for a bulk change (ADR-0038 §5), by row key; kept across pages.
   const [ticked, setTicked] = useState<ReadonlySet<string>>(new Set());
   const [bulk, setBulk] = useState<BulkAction | null>(null);
+  // The last deactivation's answer (ADR-0052), kept while the list reloads.
+  const [deactivated, setDeactivated] = useState<Deactivated | null>(null);
+  const onDeactivated = (d: Deactivated): void => {
+    setSelected(null);
+    setBulk(null);
+    setTicked(new Set());
+    setDeactivated(d);
+    load();
+  };
 
   const load = (): void => {
     api.adminPeople().then(
@@ -248,6 +258,18 @@ export function PeopleTable({
         </p>
       )}
       {!rows && !error && <p style={{ margin: 0, fontSize: 13, color: t.muted }}>Loading…</p>}
+      {deactivated && rows && (
+        <DeactivatedNotice
+          value={deactivated}
+          rows={rows}
+          onOpen={select}
+          onChange={(d) => {
+            setDeactivated(d);
+            load();
+          }}
+          onClose={() => setDeactivated(null)}
+        />
+      )}
 
       {rows && (
         <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start', flexWrap: 'wrap' }}>
@@ -483,7 +505,15 @@ export function PeopleTable({
               )}
             </div>
           </div>
-          {bulk && picked.length > 0 ? (
+          {bulk === 'deactivate' && picked.length > 0 ? (
+            <DeactivateBulkPanel
+              key={[...ticked].sort().join()}
+              picked={picked}
+              canAssignAll={canAssignAll}
+              onDone={onDeactivated}
+              onClose={() => setBulk(null)}
+            />
+          ) : bulk && picked.length > 0 ? (
             <BulkPanel
               templates={templates}
               key={`${bulk}:${[...ticked].sort().join()}`}
@@ -504,6 +534,7 @@ export function PeopleTable({
                 canAssignAll={canAssignAll}
                 canSignOutMachines={canSignOutMachines}
                 onChanged={load}
+                onDeactivated={onDeactivated}
                 onClose={() => setSelected(null)}
               />
             )

@@ -253,6 +253,76 @@ export class PostgresDb implements DbRepositories {
               .sort((a, b) => a.name.localeCompare(b.name)),
           };
         }),
+      deactivate: (i) =>
+        this.sql.begin(async (tx) => {
+          let closedAt: Date | null = null;
+          if (i.session) {
+            // Only the session row closes (invariant 2: time_event untouched).
+            const [closed] = await tx<{ closedAt: Date }[]>`
+              UPDATE time_session
+              SET closed_at = ${i.session.closedAt}, closed_reason = 'remote_takeover',
+                  reconstructed = true
+              WHERE id = ${i.session.id} AND employee_id = ${i.employeeId} AND closed_at IS NULL
+              RETURNING closed_at`;
+            closedAt = closed?.closedAt ?? null;
+          }
+          let devices: { id: string }[] = [];
+          let wasActive = false;
+          let reports: { id: string; name: string }[] = [];
+          if (i.employeeId) {
+            devices = [
+              ...(await tx<{ id: string }[]>`
+                UPDATE device
+                SET signout_requested_at = ${i.at}, signout_requested_by = ${i.actorUserId}
+                WHERE user_id IN (SELECT id FROM app_user WHERE employee_id = ${i.employeeId})
+                  AND revoked_at IS NULL AND signout_requested_at IS NULL
+                RETURNING id`),
+            ];
+            const [row] = await tx<{ status: string }[]>`
+              SELECT status FROM employee WHERE id = ${i.employeeId} FOR UPDATE`;
+            wasActive = row?.status === 'active';
+            if (wasActive) {
+              await tx`UPDATE employee SET status = 'inactive', updated_at = now()
+                       WHERE id = ${i.employeeId}`;
+              reports = [
+                ...(await tx<{ id: string; name: string }[]>`
+                  UPDATE employee SET reporting_manager_id = NULL, updated_at = now()
+                  WHERE reporting_manager_id = ${i.employeeId} AND status = 'active'
+                  RETURNING id, coalesce(display_name, given_name || ' ' || family_name) AS name`),
+              ];
+            }
+          }
+          const changed =
+            closedAt !== null || devices.length > 0 || wasActive || i.entra.outcome === 'removed';
+          const unassigned = reports
+            .map((r) => ({ id: r.id, name: r.name }))
+            .sort((a, b) => a.name.localeCompare(b.name));
+          if (changed) {
+            // ONE row for the whole action (ADR-0052 §3).
+            await tx`
+              INSERT INTO audit_log (actor_type, actor_user_id, entity_type, entity_id, action,
+                                     previous_value, new_value, reason, correlation_id, occurred_at)
+              VALUES ('user', ${i.actorUserId},
+                      ${i.employeeId ? 'employee' : 'app_role_assignment'},
+                      ${i.employeeId ?? i.oid}, 'employee_deactivated',
+                      ${tx.json({
+                        status: wasActive ? 'active' : null,
+                        roles: [...i.entra.roles],
+                      })},
+                      ${tx.json({
+                        status: i.employeeId ? 'inactive' : null,
+                        oid: i.oid,
+                        entra: i.entra.outcome,
+                        entra_code: i.entra.code ?? null,
+                        session_id: closedAt && i.session ? i.session.id : null,
+                        closed_at: closedAt ? closedAt.toISOString() : null,
+                        devices_signed_out: devices.map((d) => d.id),
+                        reports_unassigned: unassigned.map((r) => r.id),
+                      })},
+                      ${i.reason}, ${i.correlationId}, ${i.at})`;
+          }
+          return { changed, closedAt, devices: devices.length, unassigned };
+        }),
       auditRoleChange: async (e) => {
         await this.sql`
           INSERT INTO audit_log (actor_type, actor_user_id, entity_type, entity_id, action,

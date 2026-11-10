@@ -64,7 +64,7 @@ export interface SetManagersInput {
   at: Date;
 }
 
-export type BulkKind = 'manager' | 'roles' | 'welcome' | 'shift' | 'office';
+export type BulkKind = 'manager' | 'roles' | 'welcome' | 'shift' | 'office' | 'deactivate';
 
 /** A bulk request's answer, kept by its idempotency key (ADR-0038 §5). */
 export interface BulkRecord {
@@ -416,6 +416,45 @@ export interface RecordStatusInput {
   at: Date;
 }
 
+/**
+ * Deactivate a person in one step (ADR-0052). Entra is done first (it
+ * can't join a database transaction); its answer is recorded here.
+ */
+export interface DeactivateInput {
+  /** Their employee record, or null for someone with roles only. */
+  employeeId: string | null;
+  /** Their Entra id, or null for a record without one. */
+  oid: string | null;
+  /** The open session to close at `closedAt`, or null. */
+  session: { id: string; closedAt: Date } | null;
+  entra: DeactivateEntra;
+  actorUserId: string;
+  reason: string;
+  correlationId: string;
+  at: Date;
+}
+
+/** What Entra said when their CloudPunch roles were removed (ADR-0052 §2). */
+export interface DeactivateEntra {
+  /** removed: roles taken off; none: had none; gone: no such account; failed: still there. */
+  outcome: 'removed' | 'none' | 'gone' | 'failed';
+  /** The roles they had (removed, or still there when failed). */
+  roles: readonly string[];
+  /** Why it failed, e.g. `directory_error`. */
+  code?: string;
+}
+
+export interface DeactivateResult {
+  /** False when nothing was left to do (already inactive, no session, no roles). */
+  changed: boolean;
+  /** When their open session closed, or null. */
+  closedAt: Date | null;
+  /** Machines asked to sign out. */
+  devices: number;
+  /** People who reported to them, now with no manager. */
+  unassigned: { id: string; name: string }[];
+}
+
 /** A change to someone's CloudPunch roles, for audit_log. */
 export interface RoleChangeAudit {
   actorUserId: string;
@@ -451,6 +490,14 @@ export interface PeopleRepo {
   setRecordActive(
     input: RecordStatusInput,
   ): Promise<{ changed: boolean; unassigned: { id: string; name: string }[] }>;
+  /**
+   * ADR-0052: in one transaction, close their open session (reconstructed,
+   * `remote_takeover`), ask each of their machines to sign out, turn the
+   * record off, clear the manager of everyone who reported to them, and
+   * write ONE audit_log row (`employee_deactivated`). Time history is
+   * untouched. Repeating it is harmless.
+   */
+  deactivate(input: DeactivateInput): Promise<DeactivateResult>;
   /** Write the audit_log row (action `roles_set`). */
   auditRoleChange(entry: RoleChangeAudit): Promise<void>;
   /** Write the audit_log row (action `welcome_sent`). */

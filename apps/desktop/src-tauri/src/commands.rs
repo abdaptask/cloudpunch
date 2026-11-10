@@ -1643,6 +1643,43 @@ pub async fn admin_bulk_roles(
     answer(fetched)
 }
 
+/// Deactivate one person (ADR-0052). Audited server-side.
+#[tauri::command]
+pub async fn admin_people_deactivate(
+    auth: State<'_, Arc<Auth>>,
+    oid: Option<String>,
+    employee_id: Option<String>,
+    reason: String,
+) -> Result<serde_json::Value, String> {
+    let (_, fetched) = fetch_as_user(&auth, move |http, base, token| {
+        admin::people_deactivate(
+            http,
+            base,
+            token,
+            oid.as_deref(),
+            employee_id.as_deref(),
+            &reason,
+        )
+    })
+    .await?;
+    answer(fetched)
+}
+
+/// Deactivate selected (ADR-0052 §5): per person.
+#[tauri::command]
+pub async fn admin_bulk_deactivate(
+    auth: State<'_, Arc<Auth>>,
+    key: String,
+    people: Vec<serde_json::Value>,
+    reason: String,
+) -> Result<serde_json::Value, String> {
+    let (_, fetched) = fetch_as_user(&auth, move |http, base, token| {
+        admin::bulk_deactivate(http, base, token, &key, &people, &reason)
+    })
+    .await?;
+    answer(fetched)
+}
+
 /// Bulk (ADR-0038 §5): welcome emails for many, per person.
 #[tauri::command]
 pub async fn admin_bulk_welcome(
