@@ -60,19 +60,21 @@ function hm(ms: number): string {
   return h > 0 ? `${h}h ${String(min % 60).padStart(2, '0')}m` : `${min % 60}m`;
 }
 
-/** "Tue 25 Nov" for `YYYY-MM-DD`. */
+const WEEKDAY = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const MONTH = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/** "Tue 25 Nov" for `YYYY-MM-DD`; spelled out here, so every platform says the same. */
 export function dayText(date: string): string {
   const [y, m, d] = date.split('-').map(Number);
-  return new Date(Date.UTC(y ?? 1970, (m ?? 1) - 1, d ?? 1)).toLocaleDateString('en-GB', {
-    timeZone: 'UTC',
-    weekday: 'short',
-    day: 'numeric',
-    month: 'short',
-  });
+  const at = new Date(Date.UTC(y ?? 1970, (m ?? 1) - 1, d ?? 1));
+  return `${WEEKDAY[at.getUTCDay()]} ${at.getUTCDate()} ${MONTH[at.getUTCMonth()]}`;
 }
 
-const whenText = (iso: string): string =>
-  new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+/** "11 Nov", on this computer's calendar. */
+const whenText = (iso: string): string => {
+  const at = new Date(iso);
+  return `${at.getDate()} ${MONTH[at.getMonth()]}`;
+};
 
 /** One line: "On time 6 of 9 · 61h of 72h · idle 8% · 2 long breaks · 1 missed". */
 export function summaryLine(s: NoteSummary): string {
