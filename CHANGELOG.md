@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Desktop 0.1.51
+
+- Version bump: Tell manager in the console and the manager's notes in Team
+  (ADR-0055).
+
 ### Tell manager (ADR-0055)
 
 - **Tell manager**: HR and Administrators can send a person's manager a
