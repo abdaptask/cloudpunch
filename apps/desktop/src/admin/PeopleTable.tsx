@@ -47,6 +47,7 @@ import {
   HistoryIcon,
   KeyIcon,
   MailIcon,
+  MessageIcon,
   RefreshIcon,
   ResetIcon,
   SearchIcon,
@@ -655,6 +656,16 @@ export function PeopleTable({
                                 onClick={() => select(r.key, 'welcome')}
                               >
                                 <MailIcon />
+                              </Action>
+                            )}
+                            {r.active && r.employeeId !== null && r.managerId !== null && (
+                              <Action
+                                label={`Tell manager about ${r.name}`}
+                                title="Tell their manager (a note with their last 14 days)"
+                                color={t.accent}
+                                onClick={() => select(r.key, 'tellManager')}
+                              >
+                                <MessageIcon />
                               </Action>
                             )}
                             {canDeactivate(r, canAssignAll) && (

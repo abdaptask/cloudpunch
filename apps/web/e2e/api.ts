@@ -339,6 +339,18 @@ function answer(path: string, capabilities: readonly string[]): unknown {
   }
   if (p.startsWith('/v1/admin/employees/') && p.endsWith('/history')) return { entries: [] };
   if (p.startsWith('/v1/admin/employees/') && p.endsWith('/days')) return { name: '', days: [] };
+  // Tell manager (ADR-0055): nothing sent yet.
+  if (p === '/v1/team/manager-notes') return { notes: [] };
+  if (p.startsWith('/v1/admin/people/') && p.endsWith('/manager-notes')) {
+    return {
+      name: '',
+      manager: null,
+      blocked: 'no_manager',
+      summary: null,
+      follow_up_days: 14,
+      notes: [],
+    };
+  }
   if (p === '/v1/admin/departments') return { departments: [] };
   if (p === '/v1/admin/policy/global') return { override: null, effective: { policy: {} } };
   if (p === '/v1/admin/devices') return { devices: [] };

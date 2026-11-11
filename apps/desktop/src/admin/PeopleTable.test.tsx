@@ -32,6 +32,8 @@ const mocks = vi.hoisted(() => ({
   adminReactivate: vi.fn(),
   adminPersonDays: vi.fn(),
   adminPersonDay: vi.fn(),
+  adminManagerNotes: vi.fn(),
+  adminSendManagerNote: vi.fn(),
 }));
 vi.mock('../api.js', () => ({ api: mocks }));
 
@@ -116,6 +118,14 @@ beforeEach(() => {
   });
   mocks.adminDeactivatedPeople.mockResolvedValue({ people: [] });
   mocks.adminPersonDays.mockResolvedValue({ name: '', days: [] });
+  mocks.adminManagerNotes.mockResolvedValue({
+    name: '',
+    manager: null,
+    blocked: 'no_manager',
+    summary: null,
+    follow_up_days: 14,
+    notes: [],
+  });
   mocks.adminSetManager.mockResolvedValue({ id: 'e-roshni', reporting_manager_id: 'e-priya' });
   mocks.adminActiveDevice.mockResolvedValue(null);
   mocks.adminWelcomePreview.mockResolvedValue({
@@ -183,6 +193,87 @@ describe('People table (ADR-0038 §3)', () => {
     await user.click(await screen.findByRole('button', { name: 'Deactivate Roshni Sahani' }));
     const panel = screen.getByRole('complementary', { name: 'person Roshni Sahani' });
     expect(within(panel).getByLabelText('deactivate-reason')).toBeInTheDocument();
+  });
+
+  it('Tell manager (ADR-0055): the icon opens the form with a draft; sent to the manager only', async () => {
+    mocks.adminManagerNotes.mockResolvedValue({
+      name: 'Hema R',
+      manager: { id: 'e-priya', name: 'Priya Shah' },
+      blocked: null,
+      summary: {
+        from: '2026-10-27',
+        to: '2026-11-09',
+        shift_days: 9,
+        on_time: 6,
+        late: 2,
+        missed: 1,
+        worked_days: 8,
+        worked_ms: 61 * 3_600_000,
+        scheduled_ms: 81 * 3_600_000,
+        idle_ms: 6.1 * 3_600_000,
+        breaks_over: 2,
+      },
+      follow_up_days: 14,
+      notes: [],
+    });
+    mocks.adminSendManagerNote.mockResolvedValue({
+      id: 'n1',
+      employee_id: 'e-hr',
+      name: 'Hema R',
+      manager_id: 'e-priya',
+      manager_name: 'Priya Shah',
+      sent_by: 'Abdulla Sheikh',
+      sent_at: '2026-11-10T06:00:00.000Z',
+      topics: ['timings'],
+      message: 'x',
+      summary: null,
+      seen_at: null,
+      seen_by: null,
+      follow_up_on: '2026-11-24',
+      follow_up: null,
+    });
+    const user = userEvent.setup();
+    render(<PeopleTable canAssignAll onClose={() => undefined} />);
+    // Only for someone with a manager.
+    await screen.findByRole('button', { name: 'Tell manager about Hema R' });
+    expect(screen.queryByRole('button', { name: 'Tell manager about Roshni Sahani' })).toBeNull();
+    await user.click(screen.getByRole('button', { name: 'Tell manager about Hema R' }));
+    const part = await screen.findByRole('group', { name: 'tell manager about Hema R' });
+    expect(part).toHaveTextContent(
+      "To Priya Shah only, from cloudpunch@aptask.com, with you copied. Hema doesn't see it.",
+    );
+    expect(within(part).getByLabelText('note-summary')).toHaveTextContent(
+      'Last 14 days: On time 6 of 9 shift days · 61h 00m worked of 81h 00m · idle 10% · 2 long breaks · 1 missed.',
+    );
+    const message = within(part).getByLabelText<HTMLTextAreaElement>('note-message');
+    expect(message.value).toContain('Hi Priya,');
+    expect(message.value).toContain(
+      "Please keep an eye on Hema's activity level and start and finish times. In the last two weeks Hema started on time on 6 of 9 shift days and was idle for 10% of their worked time.",
+    );
+    // A topic off: the draft follows until it's edited.
+    await user.click(within(part).getByRole('checkbox', { name: 'note-topic-activity' }));
+    expect(message.value).not.toContain('idle');
+    await user.click(within(part).getByRole('button', { name: 'Send to Priya' }));
+    expect(mocks.adminSendManagerNote).toHaveBeenCalledWith(
+      'e-hr',
+      ['timings'],
+      expect.stringContaining("Please keep an eye on Hema's start and finish times."),
+    );
+    expect(await within(part).findByRole('status')).toHaveTextContent(
+      'Sent to Priya Shah. CloudPunch follows up on Tue 24 Nov.',
+    );
+    expect(within(part).getByRole('list', { name: 'notes about Hema R' })).toHaveTextContent(
+      'Abdulla Sheikh to Priya Shah · Start and finish times',
+    );
+  });
+
+  it('Tell manager: someone with no manager is told to set one first', async () => {
+    const user = userEvent.setup();
+    render(<PeopleTable canAssignAll onClose={() => undefined} />);
+    await user.click(await screen.findByRole('button', { name: 'Roshni Sahani' }));
+    const part = await screen.findByRole('group', { name: 'tell manager about Roshni Sahani' });
+    expect(part).toHaveTextContent('Set a manager first');
+    expect(within(part).queryByRole('button')).toBeNull();
   });
 
   it('search, role filter and sorting', async () => {

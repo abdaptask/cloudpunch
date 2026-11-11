@@ -288,6 +288,10 @@ Access is on a strict need-to-know basis:
 - **Your reporting manager, HR and CloudPunch administrators** can
   see **findings about you** (see "Patterns, nudges and My week"),
   the nudges sent, and anything you add. You see the same.
+- **HR or a CloudPunch administrator** may ask your reporting manager
+  to look at your attendance (for example your start times or idle
+  time), with a summary of your last 14 days. These notes go to your
+  manager only; you can ask HR what was sent.
 - **Your reporting manager and CloudPunch administrators** can see
   **where you connect from** (approximate city and internet provider,
   last 30 days). See "Where you connect from" above.

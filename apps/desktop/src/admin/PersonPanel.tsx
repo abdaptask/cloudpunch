@@ -12,6 +12,7 @@ import { OfficeDaysPart } from './OfficeDaysPart.js';
 import { ShiftChooser } from './ShiftChooser.js';
 import { DeactivatePart, canDeactivate, type Deactivated } from './DeactivateParts.js';
 import { TimeHistory } from './DeactivatedPeople.js';
+import { TellManagerPart } from './TellManager.js';
 
 import { useFocusPart, type PanelFocus } from './panelFocus.js';
 
@@ -304,6 +305,16 @@ export function PersonPanel({
         >
           {status.text}
         </p>
+      )}
+
+      {employeeId !== null && row.active && (
+        <Part title="Tell manager" t={t}>
+          <TellManagerPart
+            employeeId={employeeId}
+            name={row.name}
+            startOpen={focus === 'tellManager'}
+          />
+        </Part>
       )}
 
       {employeeId !== null && (

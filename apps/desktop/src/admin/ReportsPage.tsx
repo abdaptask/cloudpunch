@@ -664,7 +664,7 @@ export function Reports({
         ))}
       </div>
       {tab === 'insights' ? (
-        <InsightsInbox key={shown.n} initial={shown.filter} />
+        <InsightsInbox key={shown.n} initial={shown.filter} canTellManager />
       ) : tab === 'day' ? (
         <ReportsPage
           canOpenDays={canOpenDays}

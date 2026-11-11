@@ -1677,6 +1677,57 @@ pub async fn admin_deactivated_people(
     answer(fetched)
 }
 
+/// Tell manager (ADR-0055): the person's manager, 14 days and past notes.
+#[tauri::command]
+pub async fn admin_manager_notes(
+    auth: State<'_, Arc<Auth>>,
+    employee_id: String,
+) -> Result<serde_json::Value, String> {
+    let (_, fetched) = fetch_as_user(&auth, move |http, base, token| {
+        admin::manager_notes(http, base, token, &employee_id)
+    })
+    .await?;
+    answer(fetched)
+}
+
+/// Tell manager (ADR-0055): send the note. Audited server-side.
+#[tauri::command]
+pub async fn admin_send_manager_note(
+    auth: State<'_, Arc<Auth>>,
+    employee_id: String,
+    topics: Vec<String>,
+    message: String,
+) -> Result<serde_json::Value, String> {
+    let (_, fetched) = fetch_as_user(&auth, move |http, base, token| {
+        admin::send_manager_note(http, base, token, &employee_id, &topics, &message)
+    })
+    .await?;
+    answer(fetched)
+}
+
+/// Notes addressed to me as a manager (ADR-0055 §3).
+#[tauri::command]
+pub async fn team_manager_notes(auth: State<'_, Arc<Auth>>) -> Result<serde_json::Value, String> {
+    let (_, fetched) = fetch_as_user(&auth, move |http, base, token| {
+        admin::team_manager_notes(http, base, token)
+    })
+    .await?;
+    answer(fetched)
+}
+
+/// "Seen, I'll follow up" (ADR-0055 §3). Audited server-side.
+#[tauri::command]
+pub async fn team_manager_note_seen(
+    auth: State<'_, Arc<Auth>>,
+    id: String,
+) -> Result<serde_json::Value, String> {
+    let (_, fetched) = fetch_as_user(&auth, move |http, base, token| {
+        admin::team_manager_note_seen(http, base, token, &id)
+    })
+    .await?;
+    answer(fetched)
+}
+
 /// Reactivate (ADR-0053 §2). Audited server-side.
 #[tauri::command]
 pub async fn admin_reactivate(

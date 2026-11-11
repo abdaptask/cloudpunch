@@ -1089,6 +1089,63 @@ pub fn reactivate(
     )
 }
 
+/// Tell manager (ADR-0055): their manager, 14 days and past notes.
+pub fn manager_notes(
+    http: &Client,
+    base: &str,
+    token: &str,
+    employee_id: &str,
+) -> Result<Value, DayError> {
+    if !is_uuid(employee_id) {
+        return Err(DayError::Refused("invalid_argument".into()));
+    }
+    let path = format!("/v1/admin/people/{employee_id}/manager-notes");
+    send(http, base, token, reqwest::Method::GET, &path, None)
+}
+
+/// Tell manager (ADR-0055): the note, to their manager only.
+pub fn send_manager_note(
+    http: &Client,
+    base: &str,
+    token: &str,
+    employee_id: &str,
+    topics: &[String],
+    message: &str,
+) -> Result<Value, DayError> {
+    if !is_uuid(employee_id) {
+        return Err(DayError::Refused("invalid_argument".into()));
+    }
+    let body = serde_json::json!({ "topics": topics, "message": message.trim() });
+    let path = format!("/v1/admin/people/{employee_id}/manager-notes");
+    send(http, base, token, reqwest::Method::POST, &path, Some(&body))
+}
+
+/// Notes addressed to me as a manager (ADR-0055 §3).
+pub fn team_manager_notes(http: &Client, base: &str, token: &str) -> Result<Value, DayError> {
+    send(
+        http,
+        base,
+        token,
+        reqwest::Method::GET,
+        "/v1/team/manager-notes",
+        None,
+    )
+}
+
+/// "Seen, I'll follow up" (ADR-0055 §3).
+pub fn team_manager_note_seen(
+    http: &Client,
+    base: &str,
+    token: &str,
+    id: &str,
+) -> Result<Value, DayError> {
+    if !is_uuid(id) {
+        return Err(DayError::Refused("invalid_argument".into()));
+    }
+    let path = format!("/v1/team/manager-notes/{id}/seen");
+    send(http, base, token, reqwest::Method::POST, &path, None)
+}
+
 /// Anyone's day totals over `[from, to]`, a year back (ADR-0053 §4).
 pub fn person_days(
     http: &Client,
@@ -1255,6 +1312,23 @@ mod tests {
             &http, base, "t", "x/../y", "approve", None
         )));
         assert!(bad(decide_correction(&http, base, "t", id, "delete", None)));
+    }
+
+    #[test]
+    fn manager_note_calls_refuse_bad_ids_before_sending() {
+        let http = client();
+        let bad = |r: Result<Value, DayError>| matches!(r, Err(DayError::Refused(c)) if c == "invalid_argument");
+        let base = "http://127.0.0.1:9";
+        assert!(bad(manager_notes(&http, base, "t", "x/../y")));
+        assert!(bad(send_manager_note(
+            &http,
+            base,
+            "t",
+            "x/../y",
+            &["timings".to_string()],
+            "Please keep an eye on him."
+        )));
+        assert!(bad(team_manager_note_seen(&http, base, "t", "../seen")));
     }
 
     #[test]

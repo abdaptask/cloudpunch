@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Tell manager (ADR-0055)
+
+- **Tell manager**: HR and Administrators can send a person's manager a
+  note about them ("keep an eye on Zuhaib's start times and idle time"),
+  from the person panel in Settings → People (also a new speech-bubble
+  icon in the table), from a person in Team, and from any finding in
+  Insights. Pick the topics (activity level, start and finish times,
+  breaks, missed days); a draft is written from their last 14 days.
+- The manager gets an email from cloudpunch@aptask.com (the sender copied)
+  with the message, the 14-day numbers and one line per day. In Team a
+  banner waits for **Seen, I'll follow up**. The person never sees the note.
+- After 14 days CloudPunch compares the two fortnights on the chosen
+  topics and emails the sender **Improved**, **No change** or **Worse**,
+  the manager copied, once (invariant 4).
+- Every note, "seen" and follow-up is in the person's change history.
+  Migration 0024 adds `manager_note`. Privacy notice: one line on these
+  notes.
+
 ### Uptime check twice a day
 
 - The outside uptime check (ADR-0035) runs at 9:00 AM and 9:00 PM India

@@ -27,6 +27,8 @@ import type {
   Insight,
   InsightEvent,
   InsightRepo,
+  ManagerNote,
+  ManagerNoteRepo,
   RetentionRepo,
   UploadRefusalRow,
   NewShiftAssignment,
@@ -94,11 +96,13 @@ export class PostgresDb implements DbRepositories {
   readonly history: AuditRepo;
   readonly refusals: UploadRefusalRepo;
   readonly insights: InsightRepo;
+  readonly managerNotes: ManagerNoteRepo;
   readonly retention: RetentionRepo;
 
   constructor(private readonly sql: postgres.Sql) {
     this.history = this.buildAuditRepo();
     this.insights = this.buildInsightRepo();
+    this.managerNotes = this.buildManagerNoteRepo();
     this.retention = {
       purge: async (kind, days, dryRun) => {
         const [row] = await this.sql<{ n: string }[]>`
@@ -1004,6 +1008,117 @@ export class PostgresDb implements DbRepositories {
   // -------------------------------------------------------------------
   // actionable insights (ADR-0047)
   // -------------------------------------------------------------------
+
+  private buildManagerNoteRepo(): ManagerNoteRepo {
+    const cols = this
+      .sql`n.id, n.employee_id, n.manager_id, n.sent_by, s.display_name AS sent_by_name,
+      n.topics, n.message, n.summary, n.sent_at, n.seen_at, v.display_name AS seen_by_name,
+      to_char(n.follow_up_on, 'YYYY-MM-DD') AS follow_up_on, n.follow_up, n.followed_up_at`;
+    const from = this.sql`manager_note n
+      LEFT JOIN app_user s ON s.id = n.sent_by
+      LEFT JOIN app_user v ON v.id = n.seen_by`;
+    const audit = async (
+      q: postgres.Sql | postgres.TransactionSql,
+      a: {
+        actorUserId: string | null;
+        employeeId: string;
+        action: string;
+        after: Record<string, unknown>;
+        reason: string | null;
+        at: Date;
+        correlationId: string;
+      },
+    ) => {
+      await q`
+        INSERT INTO audit_log (actor_type, actor_user_id, entity_type, entity_id, action,
+                               previous_value, new_value, reason, correlation_id, occurred_at)
+        VALUES (${a.actorUserId ? 'user' : 'system'}, ${a.actorUserId}, 'employee', ${a.employeeId},
+                ${a.action}, NULL, ${q.json(a.after as postgres.JSONValue)}, ${a.reason},
+                ${a.correlationId}, ${a.at})`;
+    };
+    const one = async (q: postgres.Sql | postgres.TransactionSql, id: string) => {
+      const [row] = await q<ManagerNote[]>`SELECT ${cols} FROM ${from} WHERE n.id = ${id}`;
+      return row ?? null;
+    };
+    return {
+      create: (n) =>
+        this.sql.begin(async (tx) => {
+          const [row] = await tx<{ id: string }[]>`
+            INSERT INTO manager_note (employee_id, manager_id, sent_by, topics, message, summary,
+                                      sent_at, follow_up_on)
+            VALUES (${n.employeeId}, ${n.managerId}, ${n.sentBy}, ${[...n.topics]}, ${n.message},
+                    ${tx.json(n.summary as postgres.JSONValue)}, ${n.sentAt}, ${n.followUpOn}::date)
+            RETURNING id`;
+          if (!row) throw new Error('manager_note insert returned no row');
+          await audit(tx, {
+            actorUserId: n.sentBy,
+            employeeId: n.employeeId,
+            action: 'manager_note_sent',
+            after: { note_id: row.id, manager_employee_id: n.managerId, topics: [...n.topics] },
+            reason: n.message,
+            at: n.sentAt,
+            correlationId: n.correlationId,
+          });
+          const saved = await one(tx, row.id);
+          if (!saved) throw new Error('manager_note vanished');
+          return saved;
+        }),
+      find: (id) => one(this.sql, id),
+      forEmployee: (employeeId, limit) =>
+        this.sql<ManagerNote[]>`
+          SELECT ${cols} FROM ${from} WHERE n.employee_id = ${employeeId}
+          ORDER BY n.sent_at DESC LIMIT ${limit}`,
+      forManager: (managerId, since) =>
+        this.sql<ManagerNote[]>`
+          SELECT ${cols} FROM ${from}
+          WHERE n.manager_id = ${managerId} AND (n.seen_at IS NULL OR n.sent_at >= ${since})
+          ORDER BY n.sent_at DESC`,
+      markSeen: (id, userId, at, correlationId) =>
+        this.sql.begin(async (tx) => {
+          const [row] = await tx<{ employeeId: string }[]>`
+            UPDATE manager_note SET seen_at = ${at}, seen_by = ${userId}
+            WHERE id = ${id} AND seen_at IS NULL
+            RETURNING employee_id`;
+          if (!row) return false;
+          await audit(tx, {
+            actorUserId: userId,
+            employeeId: row.employeeId,
+            action: 'manager_note_seen',
+            after: { note_id: id },
+            reason: null,
+            at,
+            correlationId,
+          });
+          return true;
+        }),
+      due: (date) =>
+        this.sql<ManagerNote[]>`
+          SELECT ${cols} FROM ${from}
+          WHERE n.followed_up_at IS NULL AND n.follow_up_on <= ${date}::date
+          ORDER BY n.follow_up_on, n.sent_at`,
+      followUp: (id, result, at, send) =>
+        this.sql.begin(async (tx) => {
+          const [row] = await tx<{ employeeId: string }[]>`
+            UPDATE manager_note SET follow_up = ${tx.json(result as postgres.JSONValue)},
+                                    followed_up_at = ${at}
+            WHERE id = ${id} AND followed_up_at IS NULL
+            RETURNING employee_id`;
+          if (!row) return false;
+          const verdict = (result as { verdict?: unknown } | null)?.verdict;
+          await audit(tx, {
+            actorUserId: null,
+            employeeId: row.employeeId,
+            action: 'manager_note_followed_up',
+            after: { note_id: id, verdict: typeof verdict === 'string' ? verdict : null },
+            reason: null,
+            at,
+            correlationId: randomUUID(),
+          });
+          await send();
+          return true;
+        }),
+    };
+  }
 
   private buildInsightRepo(): InsightRepo {
     const cols = this.sql`id, employee_id, kind, severity, status, evidence,

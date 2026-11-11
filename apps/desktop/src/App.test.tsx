@@ -51,6 +51,8 @@ const mocks = vi.hoisted(() => ({
   adminWelcomePreview: vi.fn(),
   adminWelcomeSend: vi.fn(),
   teamNow: vi.fn(),
+  teamManagerNotes: vi.fn(() => Promise.resolve({ notes: [] })),
+  teamManagerNoteSeen: vi.fn(),
   teamDay: vi.fn(),
   teamDays: vi.fn(),
   teamExceptions: vi.fn(),

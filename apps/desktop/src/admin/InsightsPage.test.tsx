@@ -21,6 +21,10 @@ const mocks = vi.hoisted(() => ({
   insightNudge: vi.fn(),
   insightDismiss: vi.fn(),
   teamNow: vi.fn(),
+  teamManagerNotes: vi.fn(() => Promise.resolve({ notes: [] })),
+  teamManagerNoteSeen: vi.fn(),
+  adminManagerNotes: vi.fn(),
+  adminSendManagerNote: vi.fn(),
   teamExceptions: vi.fn(),
 }));
 vi.mock('../api.js', () => ({ api: mocks }));

@@ -782,6 +782,7 @@ export function App(): JSX.Element {
             <TeamScreen
               canSeeConnections={canSeeConnections}
               canCorrect={canCorrectTeam}
+              canTellManager={capabilities.includes('hr.employee.write')}
               onClose={() => setTeamOpen(false)}
             />
           )}
