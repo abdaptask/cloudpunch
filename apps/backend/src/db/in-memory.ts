@@ -32,6 +32,8 @@ import type {
   Insight,
   InsightEvent,
   InsightRepo,
+  ManagerNote,
+  ManagerNoteRepo,
   RetentionKind,
   RetentionRepo,
   UploadRefusalRow,
@@ -106,6 +108,9 @@ export class InMemoryDb implements DbRepositories {
   readonly history: AuditRepo;
   readonly refusals: UploadRefusalRepo;
   readonly insights: InsightRepo;
+  readonly managerNotes: ManagerNoteRepo;
+  /** manager_note (ADR-0055). */
+  readonly managerNoteRows: ManagerNote[] = [];
   /** insight / insight_event (ADR-0047). */
   readonly insightRows: Insight[] = [];
   readonly insightEvents: InsightEvent[] = [];
@@ -365,6 +370,105 @@ export class InMemoryDb implements DbRepositories {
         this.insightEvents.filter((x) => x.insightId === id).map((x) => ({ ...x })),
       historyOf: async (ids) =>
         this.insightEvents.filter((x) => ids.includes(x.insightId)).map((x) => ({ ...x })),
+    };
+    const noteAudit = (
+      actorUserId: string | null,
+      employeeId: string,
+      action: string,
+      after: Record<string, unknown>,
+      reason: string | null,
+      at: Date,
+    ): void => {
+      this.auditRows.push({
+        at,
+        actorName: actorUserId ? (this.userById.get(actorUserId)?.displayName ?? null) : null,
+        action,
+        entityType: 'employee',
+        entityId: employeeId,
+        before: null,
+        after,
+        reason,
+      });
+    };
+    const copyNote = (n: ManagerNote): ManagerNote => ({ ...n, topics: [...n.topics] });
+    this.managerNotes = {
+      create: async (n) => {
+        const row: ManagerNote = {
+          id: randomUUID(),
+          employeeId: n.employeeId,
+          managerId: n.managerId,
+          sentBy: n.sentBy,
+          sentByName: this.userById.get(n.sentBy)?.displayName ?? null,
+          topics: [...n.topics],
+          message: n.message,
+          summary: n.summary,
+          sentAt: n.sentAt,
+          seenAt: null,
+          seenByName: null,
+          followUpOn: n.followUpOn,
+          followUp: null,
+          followedUpAt: null,
+        };
+        this.managerNoteRows.push(row);
+        noteAudit(
+          n.sentBy,
+          n.employeeId,
+          'manager_note_sent',
+          { note_id: row.id, manager_employee_id: n.managerId, topics: [...n.topics] },
+          n.message,
+          n.sentAt,
+        );
+        return copyNote(row);
+      },
+      find: async (id) => {
+        const r = this.managerNoteRows.find((x) => x.id === id);
+        return r ? copyNote(r) : null;
+      },
+      forEmployee: async (employeeId, limit) =>
+        this.managerNoteRows
+          .filter((x) => x.employeeId === employeeId)
+          .sort((a, b) => b.sentAt.getTime() - a.sentAt.getTime())
+          .slice(0, limit)
+          .map(copyNote),
+      forManager: async (managerId, since) =>
+        this.managerNoteRows
+          .filter(
+            (x) =>
+              x.managerId === managerId &&
+              (x.seenAt === null || x.sentAt.getTime() >= since.getTime()),
+          )
+          .sort((a, b) => b.sentAt.getTime() - a.sentAt.getTime())
+          .map(copyNote),
+      markSeen: async (id, userId, at) => {
+        const r = this.managerNoteRows.find((x) => x.id === id);
+        if (!r || r.seenAt) return false;
+        r.seenAt = at;
+        r.seenByName = this.userById.get(userId)?.displayName ?? null;
+        noteAudit(userId, r.employeeId, 'manager_note_seen', { note_id: id }, null, at);
+        return true;
+      },
+      due: async (date) =>
+        this.managerNoteRows
+          .filter((x) => x.followedUpAt === null && x.followUpOn <= date)
+          .sort((a, b) => a.followUpOn.localeCompare(b.followUpOn))
+          .map(copyNote),
+      followUp: async (id, result, at, send) => {
+        const r = this.managerNoteRows.find((x) => x.id === id);
+        if (!r || r.followedUpAt) return false;
+        await send();
+        r.followUp = result;
+        r.followedUpAt = at;
+        const verdict = (result as { verdict?: unknown } | null)?.verdict;
+        noteAudit(
+          null,
+          r.employeeId,
+          'manager_note_followed_up',
+          { note_id: id, verdict: typeof verdict === 'string' ? verdict : null },
+          null,
+          at,
+        );
+        return true;
+      },
     };
     this.refusals = {
       note: async (r) => {

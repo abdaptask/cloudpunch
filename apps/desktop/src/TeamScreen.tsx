@@ -16,6 +16,7 @@ import {
   workedText,
 } from './admin/dayReportModel.js';
 import { InsightsInbox } from './admin/InsightsPage.js';
+import { NoteForManager, TellManagerPart, useManagerNotes } from './admin/TellManager.js';
 import { PersonConnections } from './ConnectionsView.js';
 import { CorrectionForm, DayCorrections } from './Corrections.js';
 import { placeOf } from './connectionsModel.js';
@@ -57,9 +58,12 @@ export function TeamScreen({
   onClose,
   canSeeConnections = false,
   canCorrect = false,
+  canTellManager = false,
 }: {
   /** "Done" back to the dashboard; the web has nothing to go back to (ADR-0033). */
   onClose?: () => void;
+  /** HR and Administrators: "Tell manager" on a person (ADR-0055). The server checks again. */
+  canTellManager?: boolean;
   /** Managers and Administrators (ADR-0029 §5); not HR. The server checks again. */
   canSeeConnections?: boolean;
   /** Offer "Correct this day" (ADR-0030; only a direct manager succeeds). */
@@ -82,6 +86,9 @@ export function TeamScreen({
     subtitle: string | null;
     starts?: string | null;
   } | null>(null);
+  // Notes HR or an Administrator sent me about my people (ADR-0055 §3).
+  const notes = useManagerNotes(true);
+  const waiting = notes.notes.filter((n) => n.seen_at === null);
   return (
     <section aria-label="team" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -95,15 +102,39 @@ export function TeamScreen({
         )}
       </div>
       {person ? (
-        <Person
-          id={person.id}
-          subtitle={person.subtitle}
-          starts={person.starts ?? null}
-          canSeeConnections={canSeeConnections}
-          canCorrect={canCorrect}
-        />
+        <>
+          {notes.notes
+            .filter((n) => n.employee_id === person.id)
+            .map((n) => (
+              <NoteForManager key={n.id} note={n} onSeen={() => notes.markSeen(n.id)} />
+            ))}
+          <Person
+            id={person.id}
+            name={person.name}
+            subtitle={person.subtitle}
+            starts={person.starts ?? null}
+            canSeeConnections={canSeeConnections}
+            canCorrect={canCorrect}
+            canTellManager={canTellManager}
+          />
+        </>
       ) : (
         <>
+          {waiting.length > 0 && (
+            <section
+              aria-label="notes for you"
+              style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
+            >
+              {waiting.map((n) => (
+                <NoteForManager
+                  key={n.id}
+                  note={n}
+                  onOpen={() => setPerson({ id: n.employee_id, name: n.name, subtitle: null })}
+                  onSeen={() => notes.markSeen(n.id)}
+                />
+              ))}
+            </section>
+          )}
           <div role="tablist" aria-label="team-tabs" style={{ display: 'flex', gap: 6 }}>
             {(
               [
@@ -286,22 +317,27 @@ function TeamToday({
  */
 function Person({
   id,
+  name,
   subtitle,
   starts,
   canSeeConnections,
   canCorrect,
+  canTellManager,
 }: {
   id: string;
+  name: string;
   subtitle: string | null;
   /** Missed starts lately (ADR-0037 §4), or null. */
   starts: string | null;
   canSeeConnections: boolean;
   canCorrect: boolean;
+  canTellManager: boolean;
 }): JSX.Element {
   const t = useTheme();
   const today = localDateOf(Date.now());
   const [open, setOpen] = useState<string | null>(null);
   const [connections, setConnections] = useState(false);
+  const [telling, setTelling] = useState(false);
   const toggle = (date: string): void => setOpen((o) => (o === date ? null : date));
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -323,6 +359,17 @@ function Person({
         canCorrect={canCorrect}
       />
       <Earlier id={id} today={today} open={open} onToggle={toggle} canCorrect={canCorrect} />
+      {canTellManager && (
+        <div style={{ borderTop: `1px solid ${t.border}`, paddingTop: 10 }}>
+          {telling ? (
+            <TellManagerPart employeeId={id} name={name} startOpen />
+          ) : (
+            <button type="button" onClick={() => setTelling(true)} style={link(t)}>
+              Tell their manager ›
+            </button>
+          )}
+        </div>
+      )}
       {canSeeConnections && (
         <div style={{ borderTop: `1px solid ${t.border}`, paddingTop: 10 }}>
           <button

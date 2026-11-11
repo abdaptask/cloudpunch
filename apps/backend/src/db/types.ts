@@ -1106,6 +1106,63 @@ export interface BulkRequestRepo {
   save(record: BulkRecord): Promise<boolean>;
 }
 
+/** "Tell manager" (ADR-0055): what a note is about. */
+export type ManagerNoteTopic = 'activity' | 'timings' | 'breaks' | 'missed';
+
+/** A note to a manager about one of their people (ADR-0055). */
+export interface ManagerNote {
+  id: string;
+  employeeId: string;
+  managerId: string;
+  /** app_user id, and their name. */
+  sentBy: string;
+  sentByName: string | null;
+  topics: ManagerNoteTopic[];
+  message: string;
+  /** The 14 days before it went, as sent. */
+  summary: unknown;
+  sentAt: Date;
+  seenAt: Date | null;
+  seenByName: string | null;
+  /** `YYYY-MM-DD`. */
+  followUpOn: string;
+  /** The verdict and its numbers, once followed up. */
+  followUp: unknown;
+  followedUpAt: Date | null;
+}
+
+export interface NewManagerNote {
+  employeeId: string;
+  managerId: string;
+  sentBy: string;
+  topics: readonly ManagerNoteTopic[];
+  message: string;
+  summary: unknown;
+  sentAt: Date;
+  followUpOn: string;
+  correlationId: string;
+}
+
+export interface ManagerNoteRepo {
+  /** Store it with its audit row (`manager_note_sent`), together. */
+  create(n: NewManagerNote): Promise<ManagerNote>;
+  find(id: string): Promise<ManagerNote | null>;
+  /** About this person, newest first. */
+  forEmployee(employeeId: string, limit: number): Promise<ManagerNote[]>;
+  /** Addressed to this manager: not seen yet, or sent since `since`; newest first. */
+  forManager(managerId: string, since: Date): Promise<ManagerNote[]>;
+  /** Mark it seen, with its audit row; false when it already was. */
+  markSeen(id: string, userId: string, at: Date, correlationId: string): Promise<boolean>;
+  /** Not followed up yet, follow-up date on or before `date`. */
+  due(date: string): Promise<ManagerNote[]>;
+  /**
+   * Claim the follow-up, store the verdict, write the audit row and run
+   * `send`, in one transaction: false (and no send) when it was already
+   * done; a failed send rolls it all back (invariant 4).
+   */
+  followUp(id: string, result: unknown, at: Date, send: () => Promise<void>): Promise<boolean>;
+}
+
 export interface DbRepositories {
   people: PeopleRepo;
   employees: EmployeeRepo;
@@ -1130,4 +1187,5 @@ export interface DbRepositories {
   refusals: UploadRefusalRepo;
   retention: RetentionRepo;
   insights: InsightRepo;
+  managerNotes: ManagerNoteRepo;
 }

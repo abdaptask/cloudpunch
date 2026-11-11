@@ -52,7 +52,7 @@ beforeEach(async () => {
   // dependencies: event → session → device/employee → user.
   // time_event and audit_log are append-only (row triggers reject
   // DELETE); TRUNCATE is DDL and resets them between tests.
-  await sql`TRUNCATE audit_log, policy_override, time_event, time_session, device, employee_override, time_correction_decision, time_correction, shift_assignment, not_working_day, holiday, shift_alert, role_seen, weekly_report_sent, admin_bulk_request, shift_template_version, shift_template, office_pattern, office_day, location_alert, report_sent, upload_refusal, insight_event, insight RESTART IDENTITY CASCADE`;
+  await sql`TRUNCATE audit_log, policy_override, time_event, time_session, device, employee_override, time_correction_decision, time_correction, shift_assignment, not_working_day, holiday, shift_alert, role_seen, weekly_report_sent, admin_bulk_request, shift_template_version, shift_template, office_pattern, office_day, location_alert, report_sent, upload_refusal, insight_event, insight, manager_note RESTART IDENTITY CASCADE`;
   await sql`DELETE FROM admin_review_case`;
   await sql`UPDATE app_user SET employee_id = NULL`;
   await sql`DELETE FROM employee`;
@@ -1600,6 +1600,79 @@ describe('PostgresDb — holidays', () => {
 // ---------------------------------------------------------------------
 // shift-start emails and remembered roles (ADR-0037)
 // ---------------------------------------------------------------------
+
+describe('PostgresDb — Tell manager (ADR-0055)', () => {
+  it('stores a note with its audit row, marks it seen once, and follows up once', async () => {
+    const mgr = await seedEmployee();
+    const person = await seedEmployee();
+    const { userId: hr } = await seedUser();
+    const { userId: mgrUser } = await seedUser({ employeeId: mgr });
+    const sentAt = new Date('2026-10-15T05:00:00Z');
+    const note = await db.managerNotes.create({
+      employeeId: person,
+      managerId: mgr,
+      sentBy: hr,
+      topics: ['activity', 'timings'],
+      message: 'Please keep an eye on his start times.',
+      summary: { from: '2026-10-01', to: '2026-10-14', shift_days: 0 },
+      sentAt,
+      followUpOn: '2026-10-29',
+      correlationId: randomUUID(),
+    });
+    expect(note).toMatchObject({
+      employeeId: person,
+      managerId: mgr,
+      sentByName: 'Alice Test',
+      topics: ['activity', 'timings'],
+      followUpOn: '2026-10-29',
+      seenAt: null,
+      followUp: null,
+    });
+    expect((await db.managerNotes.forEmployee(person, 10)).map((n) => n.id)).toEqual([note.id]);
+    const recent = new Date('2026-10-01T00:00:00Z');
+    expect((await db.managerNotes.forManager(mgr, recent)).map((n) => n.id)).toEqual([note.id]);
+    expect(await db.managerNotes.forManager(person, recent)).toEqual([]);
+
+    expect(await db.managerNotes.markSeen(note.id, mgrUser, new Date(), randomUUID())).toBe(true);
+    expect(await db.managerNotes.markSeen(note.id, mgrUser, new Date(), randomUUID())).toBe(false);
+    // Seen, and older than the window: off the manager's list.
+    expect(await db.managerNotes.forManager(mgr, new Date('2026-11-01T00:00:00Z'))).toEqual([]);
+
+    expect(await db.managerNotes.due('2026-10-28')).toEqual([]);
+    // A failed send undoes the claim.
+    await expect(
+      db.managerNotes.followUp(note.id, { verdict: 'improved' }, new Date(), () =>
+        Promise.reject(new Error('smtp down')),
+      ),
+    ).rejects.toThrow('smtp down');
+    expect((await db.managerNotes.due('2026-10-29')).map((n) => n.id)).toEqual([note.id]);
+    let sends = 0;
+    const send = async () => {
+      sends++;
+    };
+    expect(await db.managerNotes.followUp(note.id, { verdict: 'improved' }, new Date(), send)).toBe(
+      true,
+    );
+    expect(await db.managerNotes.followUp(note.id, { verdict: 'worse' }, new Date(), send)).toBe(
+      false,
+    );
+    expect(sends).toBe(1);
+    expect((await db.managerNotes.find(note.id))?.followUp).toEqual({ verdict: 'improved' });
+    expect(await db.managerNotes.due('2026-10-30')).toEqual([]);
+
+    const rows = await sql<{ action: string; entityId: string }[]>`
+      SELECT action, entity_id::text AS entity_id FROM audit_log
+      WHERE action LIKE 'manager_note_%' ORDER BY occurred_at, action`;
+    expect(rows.map((r) => r.action).sort()).toEqual([
+      'manager_note_followed_up',
+      'manager_note_seen',
+      'manager_note_sent',
+    ]);
+    expect(new Set(rows.map((r) => r.entityId))).toEqual(new Set([person]));
+    const history = await db.history.personHistory(person, null, 10);
+    expect(history.map((h) => h.action)).toContain('manager_note_sent');
+  });
+});
 
 describe('PostgresDb — shift alerts and roles', () => {
   it('claims each alert once, rolls back a failed send, and counts missed starts', async () => {

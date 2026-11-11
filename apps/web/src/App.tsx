@@ -523,7 +523,12 @@ function Dashboard({
                 setQueueOpen(true);
               }}
             />
-            {connected && <TeamScreen canSeeConnections={canSeeConnections(me)} />}
+            {connected && (
+              <TeamScreen
+                canSeeConnections={canSeeConnections(me)}
+                canTellManager={me.capabilities.includes('hr.employee.write')}
+              />
+            )}
           </div>
         )}
       </main>

@@ -52,6 +52,64 @@ export interface BulkOutcome {
   unassigned_reports?: { id: string; name: string }[];
 }
 
+/** Tell manager (ADR-0055): what a note is about. */
+export type NoteTopic = 'activity' | 'timings' | 'breaks' | 'missed';
+
+/** A person's 14 days in numbers (ADR-0055 §3). */
+export interface NoteSummary {
+  from: string;
+  to: string;
+  shift_days: number;
+  on_time: number;
+  late: number;
+  missed: number;
+  worked_days: number;
+  worked_ms: number;
+  scheduled_ms: number;
+  idle_ms: number;
+  breaks_over: number;
+}
+
+/** The follow-up (ADR-0055 §5). */
+export interface NoteFollowUp {
+  verdict: 'improved' | 'no_change' | 'worse';
+  topics: {
+    topic: NoteTopic;
+    before: number | null;
+    after: number | null;
+    change: 'better' | 'worse' | 'same' | 'unknown';
+  }[];
+}
+
+/** A note to a manager about one of their people (ADR-0055). */
+export interface ManagerNoteView {
+  id: string;
+  employee_id: string;
+  name: string;
+  manager_id: string;
+  manager_name: string;
+  sent_by: string | null;
+  sent_at: string;
+  topics: NoteTopic[];
+  message: string;
+  summary: NoteSummary | null;
+  seen_at: string | null;
+  seen_by: string | null;
+  follow_up_on: string;
+  follow_up: NoteFollowUp | null;
+}
+
+/** Tell manager, for one person (ADR-0055 §7). */
+export interface PersonNotes {
+  name: string;
+  manager: { id: string; name: string } | null;
+  /** Why a note can't go, or null. */
+  blocked: null | 'inactive' | 'no_manager' | 'self' | 'own_manager';
+  summary: NoteSummary | null;
+  follow_up_days: number;
+  notes: ManagerNoteView[];
+}
+
 /** A deactivated person (ADR-0053): who, when, by whom and why. */
 export interface DeactivatedPerson {
   employee_id: string;
@@ -910,6 +968,20 @@ export const api = {
     reason: string,
   ): Promise<{ employee_id: string; oid: string; roles: string[]; changed: boolean }> =>
     invoke('admin_reactivate', { employeeId, roles, reason }),
+  /** Tell manager (ADR-0055): the person's manager, their 14 days and past notes. */
+  adminManagerNotes: (employeeId: string): Promise<PersonNotes> =>
+    invoke('admin_manager_notes', { employeeId }),
+  /** Tell manager (ADR-0055): to the manager only, the sender copied. */
+  adminSendManagerNote: (
+    employeeId: string,
+    topics: NoteTopic[],
+    message: string,
+  ): Promise<ManagerNoteView> => invoke('admin_send_manager_note', { employeeId, topics, message }),
+  /** Notes addressed to me as a manager (ADR-0055 §3). */
+  teamManagerNotes: (): Promise<{ notes: ManagerNoteView[] }> => invoke('team_manager_notes'),
+  /** "Seen, I'll follow up" (ADR-0055 §3). */
+  teamManagerNoteSeen: (id: string): Promise<{ seen_at: string; changed: boolean }> =>
+    invoke('team_manager_note_seen', { id }),
   /** Anyone's day totals, a year back (ADR-0053 §4; HR and Administrators). */
   adminPersonDays: (
     employeeId: string,

@@ -37,6 +37,8 @@ import { reportRoutes } from './reports/routes.js';
 import { historyRoutes } from './history/routes.js';
 import { InsightsJob } from './insights/job.js';
 import { insightRoutes } from './insights/routes.js';
+import { ManagerNotesJob } from './managerNotes/job.js';
+import { managerNoteRoutes } from './managerNotes/routes.js';
 import { RetentionJob } from './retention/job.js';
 import { retentionRoutes } from './retention/routes.js';
 import { sendShiftMail, type ShiftMail } from './alerts/mail.js';
@@ -229,6 +231,22 @@ export async function buildApp(opts: BuildAppOptions) {
       send: alertSend,
       siteUrl: opts.env.PUBLIC_SITE_URL,
     });
+    // Tell manager (ADR-0055): notes to a manager, followed up after 14 days.
+    await app.register(managerNoteRoutes, {
+      db: opts.db,
+      send: alertSend,
+      siteUrl: opts.env.PUBLIC_SITE_URL,
+    });
+    if (alertSend) {
+      const notesJob = new ManagerNotesJob({
+        db: opts.db,
+        log: app.log,
+        send: alertSend,
+        siteUrl: opts.env.PUBLIC_SITE_URL,
+      });
+      app.addHook('onReady', async () => notesJob.start());
+      app.addHook('onClose', async () => notesJob.stop());
+    }
     const insightsJob = new InsightsJob({ db: opts.db, log: app.log });
     app.addHook('onReady', async () => insightsJob.start());
     app.addHook('onClose', async () => insightsJob.stop());

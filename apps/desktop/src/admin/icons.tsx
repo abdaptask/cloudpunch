@@ -94,6 +94,14 @@ export const UserCheckIcon = (): JSX.Element => (
   </Icon>
 );
 
+/** Tell manager (ADR-0055): a speech bubble. */
+export const MessageIcon = (): JSX.Element => (
+  <Icon>
+    <path d="M21 12a8 8 0 0 1-11.6 7.1L3 21l1.9-6.4A8 8 0 1 1 21 12z" />
+    <path d="M8.5 12h.01M12 12h.01M15.5 12h.01" />
+  </Icon>
+);
+
 /** Something needs doing (no manager, no shift…). */
 export const AlertIcon = (): JSX.Element => (
   <Icon size={14}>

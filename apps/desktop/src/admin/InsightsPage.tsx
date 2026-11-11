@@ -3,6 +3,7 @@ import { api, type InsightEventView, type InsightItem, type StripDay } from '../
 import { localDateOf } from '../dayHistory.js';
 import { Button } from '../ui/Button.js';
 import { useTheme, type Theme } from '../ui/theme.js';
+import { TellManagerPart } from './TellManager.js';
 import {
   actionWord,
   ago,
@@ -123,8 +124,11 @@ export function StripLegend({ t }: { t: Theme }): JSX.Element {
 export function InsightsInbox({
   compact = false,
   initial,
+  canTellManager = false,
 }: {
   compact?: boolean;
+  /** HR and Administrators: "Tell manager" on each finding (ADR-0055). */
+  canTellManager?: boolean;
   /** Start filtered (from Trends); read once, so remount (a `key`) to change it. */
   initial?: Partial<InsightFilter>;
 }): JSX.Element {
@@ -283,7 +287,14 @@ export function InsightsInbox({
               </h3>
               <ul aria-label={`findings ${severity}`} style={list}>
                 {group.map((i) => (
-                  <InsightCard key={i.id} item={i} now={now} t={t} onChange={replace} />
+                  <InsightCard
+                    key={i.id}
+                    item={i}
+                    now={now}
+                    t={t}
+                    onChange={replace}
+                    canTellManager={canTellManager}
+                  />
                 ))}
               </ul>
             </section>
@@ -292,7 +303,7 @@ export function InsightsInbox({
   );
 }
 
-type Panel = null | 'nudge' | 'dismiss' | 'history';
+type Panel = null | 'nudge' | 'dismiss' | 'history' | 'tell';
 
 /** One finding: who, what, the strip, the last step, and its actions. */
 export function InsightCard({
@@ -301,12 +312,14 @@ export function InsightCard({
   t,
   readOnly = false,
   onChange,
+  canTellManager = false,
 }: {
   item: InsightItem;
   now: number;
   t: Theme;
   readOnly?: boolean;
   onChange: (next: InsightItem) => void;
+  canTellManager?: boolean;
 }): JSX.Element {
   const [panel, setPanel] = useState<Panel>(null);
   const [message, setMessage] = useState(item.draft);
@@ -421,6 +434,16 @@ export function InsightCard({
           <Button variant="chip" onClick={() => toggle('history')}>
             History
           </Button>
+          {canTellManager && item.manager_name && (
+            <Button variant="chip" onClick={() => toggle('tell')}>
+              Tell manager
+            </Button>
+          )}
+        </div>
+      )}
+      {panel === 'tell' && (
+        <div style={panelBox(t)}>
+          <TellManagerPart employeeId={item.employee_id} name={item.name} startOpen />
         </div>
       )}
       {readOnly && (

@@ -6,6 +6,8 @@ import { TeamScreen } from './TeamScreen.js';
 
 const mocks = vi.hoisted(() => ({
   teamNow: vi.fn(),
+  teamManagerNotes: vi.fn(() => Promise.resolve({ notes: [] })),
+  teamManagerNoteSeen: vi.fn(),
   reportDay: vi.fn(),
   teamDay: vi.fn(),
   teamDays: vi.fn(),

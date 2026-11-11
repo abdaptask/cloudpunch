@@ -68,6 +68,10 @@ export type WebApi = Pick<
   | 'adminDeactivatedPeople'
   | 'adminReactivate'
   | 'adminPersonDays'
+  | 'adminManagerNotes'
+  | 'adminSendManagerNote'
+  | 'teamManagerNotes'
+  | 'teamManagerNoteSeen'
   | 'adminPersonDay'
   | 'adminShiftTemplates'
   | 'adminCreateShiftTemplate'
@@ -443,6 +447,23 @@ export const api: WebApi = {
       roles,
       reason: reason.trim(),
     });
+  },
+  // Tell manager (ADR-0055).
+  adminManagerNotes: async (employeeId) => {
+    check(UUID.test(employeeId));
+    return get(`/v1/admin/people/${employeeId}/manager-notes`);
+  },
+  adminSendManagerNote: async (employeeId, topics, message) => {
+    check(UUID.test(employeeId));
+    return send('POST', `/v1/admin/people/${employeeId}/manager-notes`, {
+      topics,
+      message: message.trim(),
+    });
+  },
+  teamManagerNotes: () => get('/v1/team/manager-notes'),
+  teamManagerNoteSeen: async (id) => {
+    check(UUID.test(id));
+    return send('POST', `/v1/team/manager-notes/${id}/seen`);
   },
   adminPersonDays: async (employeeId, from, to) => {
     check(UUID.test(employeeId) && DATE.test(from) && DATE.test(to));

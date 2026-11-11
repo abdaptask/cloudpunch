@@ -25,11 +25,27 @@ export function weekdays(v: unknown): string {
   return days.map((d) => DAYS[d - 1]).join(', ');
 }
 
+const NOTE_TOPIC: Record<string, string> = {
+  activity: 'activity level',
+  timings: 'start and finish times',
+  breaks: 'breaks',
+  missed: 'missed days',
+};
+const VERDICT: Record<string, string> = {
+  improved: 'improved',
+  no_change: 'no change',
+  worse: 'worse',
+};
+
 /** Names for the employee ids a row mentions (managers). */
 export type Names = ReadonlyMap<string, string>;
 
 /** The employee ids a row refers to, so the caller can look up names. */
 export function mentioned(e: AuditEntry): string[] {
+  if (e.action === 'manager_note_sent') {
+    const id = str(obj(e.after)['manager_employee_id']);
+    return id ? [id] : [];
+  }
   if (e.action !== 'reporting_manager_set') return [];
   return [
     str(obj(e.before)['manager_employee_id']),
@@ -80,6 +96,18 @@ export function describePerson(e: AuditEntry, names: Names): string {
     }
     case 'employee_reactivated':
       return `Reactivated with ${roles(e.after)}`;
+    case 'manager_note_sent': {
+      const topics = Array.isArray(after['topics'])
+        ? after['topics'].filter((x) => typeof x === 'string')
+        : [];
+      return `Note to their manager ${who(after['manager_employee_id'])}${topics.length > 0 ? ` about ${topics.map((x) => NOTE_TOPIC[x] ?? x).join(', ')}` : ''}`;
+    }
+    case 'manager_note_seen':
+      return 'Their manager saw the note';
+    case 'manager_note_followed_up': {
+      const v = str(after['verdict']);
+      return `Note followed up: ${v ? (VERDICT[v] ?? v) : 'done'}`;
+    }
     case 'welcome_sent':
       return 'Welcome email sent';
     case 'device_signed_out':
