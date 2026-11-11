@@ -59,9 +59,13 @@ jobs:
   # The web app in a real browser (item 9, 2026-10-14): Playwright,
   # Chromium only, at desktop width and on a phone, against a mocked API.
   web-e2e:
-    # Pinned (2026-11-11): ubuntu-latest moved to 26.04, where Playwright's
-    # install-deps can't fetch Chrome's packages. Move up once it can.
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
+    # Microsoft's Playwright image already has Chromium and its system
+    # libraries, so nothing comes from Ubuntu's package servers, which the
+    # runners couldn't reach on 2026-11-11. Its tag must match
+    # @playwright/test in apps/web/package.json (checked below).
+    container:
+      image: mcr.microsoft.com/playwright:v1.48.2-noble
     timeout-minutes: 15
     steps:
       - name: Checkout
@@ -82,24 +86,10 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Playwright version
-        id: pw
-        run: echo "version=$(pnpm -F @cloudpunch/web exec playwright --version | awk '{print $2}')" >> "$GITHUB_OUTPUT"
-
-      - name: Cache the browser
-        id: pw-cache
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-chromium-${{ runner.os }}-${{ steps.pw.outputs.version }}
-
-      - name: Install Chromium
-        if: steps.pw-cache.outputs.cache-hit != 'true'
-        run: pnpm -F @cloudpunch/web exec playwright install --with-deps chromium
-
-      - name: Chromium's system libraries
-        if: steps.pw-cache.outputs.cache-hit == 'true'
-        run: pnpm -F @cloudpunch/web exec playwright install-deps chromium
+      - name: Image matches the Playwright in the lockfile
+        run: |
+          v=$(pnpm -F @cloudpunch/web exec playwright --version | awk '{print $2}')
+          test "$v" = "1.48.2" || { echo "::error::@playwright/test is $v; update the web-e2e container tag"; exit 1; }
 
       - name: Browser tests
         run: pnpm -F @cloudpunch/web test:e2e

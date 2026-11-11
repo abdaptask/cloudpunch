@@ -9,8 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### CI
 
-- Browser tests (web-e2e) run on Ubuntu 24.04: `ubuntu-latest` moved to
-  26.04, where installing Chrome's packages fails.
+- Browser tests (web-e2e) run inside Microsoft's Playwright image, which
+  already has Chromium and its libraries: GitHub's runners couldn't reach
+  Ubuntu's package servers, so the job failed before any test ran.
 
 ### Desktop 0.1.51
 
