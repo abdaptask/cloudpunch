@@ -308,7 +308,7 @@ with an old key still need that old key.
 - **"Problem: api / database / disk space"**, and **"Fixed: …"** once
   it's fine again. These are checked on the server every 5 minutes.
 - **GitHub's "Run failed: uptime"**: the site didn't answer from
-  outside 3 times in 3 minutes, checked every 15 minutes. This is the
+  outside 3 times in 3 minutes, checked at 9 AM and 9 PM India time. This is the
   one that notices the whole server, or the tunnel, being down. Check
   `systemctl status cloudflared cloudpunch-api` on the server.
 
@@ -356,7 +356,7 @@ channel"**. Off until ticked.
   the server's check, every minute, after two failures in a row. "site"
   means the API is fine but the internet side isn't (the tunnel).
 - **"Problem: cloudpunch.aptask.com is down"**: GitHub, from outside,
-  every 15 minutes while it's down.
+  at 9 AM and 9 PM India time while it's down.
 - **"Uploads are being refused"** (50+ events in 15 minutes), **"The API
   is answering with errors"** (20+ in 15 minutes), **"… keeps failing"**
   (a background job, 3 times in a row, then "… works again"): the API

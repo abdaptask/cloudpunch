@@ -7,7 +7,9 @@ name: uptime
 
 on:
   schedule:
-    - cron: '*/15 * * * *'
+    # 9:00 AM and 9:00 PM India time (03:30 and 15:30 UTC). GitHub may
+    # delay or skip a scheduled run; that is accepted (owner, 2026-11-11).
+    - cron: '30 3,15 * * *'
   workflow_dispatch:
 
 permissions: {}
@@ -40,5 +42,5 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           [ -n "$WEBHOOK" ] || { echo "no TEAMS_ALERT_WEBHOOK_URL secret"; exit 0; }
-          jq -n --arg run "$RUN_URL" '{type:"message",attachments:[{contentType:"application/vnd.microsoft.card.adaptive",contentUrl:null,content:{"$schema":"http://adaptivecards.io/schemas/adaptive-card.json",type:"AdaptiveCard",version:"1.4",body:[{type:"TextBlock",text:"Problem: cloudpunch.aptask.com is down",weight:"Bolder",size:"Medium",color:"Attention",wrap:true},{type:"TextBlock",text:"It did not answer from outside ApTask 3 times in 3 minutes: the server, its network or the Cloudflare Tunnel. Checked every 15 minutes; this repeats while it is down.",wrap:true}],actions:[{type:"Action.OpenUrl",title:"See the check",url:$run}]}}]}' |
+          jq -n --arg run "$RUN_URL" '{type:"message",attachments:[{contentType:"application/vnd.microsoft.card.adaptive",contentUrl:null,content:{"$schema":"http://adaptivecards.io/schemas/adaptive-card.json",type:"AdaptiveCard",version:"1.4",body:[{type:"TextBlock",text:"Problem: cloudpunch.aptask.com is down",weight:"Bolder",size:"Medium",color:"Attention",wrap:true},{type:"TextBlock",text:"It did not answer from outside ApTask 3 times in 3 minutes: the server, its network or the Cloudflare Tunnel. Checked twice a day (9 AM and 9 PM India time).",wrap:true}],actions:[{type:"Action.OpenUrl",title:"See the check",url:$run}]}}]}' |
             curl -fsS --max-time 15 -H 'content-type: application/json' --data @- "$WEBHOOK" >/dev/null

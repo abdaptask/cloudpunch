@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Uptime check twice a day
+
+- The outside uptime check (ADR-0035) runs at 9:00 AM and 9:00 PM India
+  time instead of every 15 minutes, which GitHub was only honouring 3–5
+  times a day anyway (owner decision, 2026-11-11).
+
 ### Desktop 0.1.50
 
 - Version bump: the console's redesigned People table (ADR-0054).
