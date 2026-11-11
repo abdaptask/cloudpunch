@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### CI
+
+- Browser tests (web-e2e) run on Ubuntu 24.04: `ubuntu-latest` moved to
+  26.04, where installing Chrome's packages fails.
+
 ### Desktop 0.1.51
 
 - Version bump: Tell manager in the console and the manager's notes in Team

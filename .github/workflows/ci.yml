@@ -59,7 +59,9 @@ jobs:
   # The web app in a real browser (item 9, 2026-10-14): Playwright,
   # Chromium only, at desktop width and on a phone, against a mocked API.
   web-e2e:
-    runs-on: ubuntu-latest
+    # Pinned (2026-11-11): ubuntu-latest moved to 26.04, where Playwright's
+    # install-deps can't fetch Chrome's packages. Move up once it can.
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - name: Checkout
